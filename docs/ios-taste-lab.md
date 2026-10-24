@@ -6,7 +6,7 @@ Two comparisons accept A, B, Both, or Neither, with Undo. The session records th
 
 The interpretation is deterministic and tentative, not a hidden psychological model. Choices are in view state, not saved to a user profile or library. Recommendation results use the existing brief cache and read-only relay. A new sheet starts a new session.
 
-Validation: signed Xcode build; physical iPhone installation and launch. Swift tests cover all 16 response combinations, undo, ambiguous answers, new-session isolation, product-family extraction and unsuitable title rejection. Live relay calls returned lamp listings for the lighting brief and chair listings for the furniture brief. Physical A/B interaction remains a user acceptance check.
+Validation: signed Xcode build; physical iPhone installation. Launch was blocked while the device required its passcode. Swift tests cover all 16 response combinations, undo, ambiguous answers, new-session isolation, product-family extraction and unsuitable title rejection. Live relay calls returned lamp listings for the lighting brief and chair listings for the furniture brief. Physical A/B interaction remains a user acceptance check.
 
 ## Dia extension demo
 
