@@ -47,9 +47,7 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your chosen server to sync your saved content.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Record your voice to add an editable note to a saved find.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Turn your voice into an editable note about why you are saving this find.</string>
+	<string>Record a short note and send it to OpenAI for editable transcription.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

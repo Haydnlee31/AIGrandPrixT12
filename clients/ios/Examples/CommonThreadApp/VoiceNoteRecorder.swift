@@ -1,115 +1,162 @@
 import Foundation
 import Observation
 import AVFoundation
-import Speech
 
-/// Optional on-device dictation. A note can always be typed without granting access.
-@Observable @MainActor final class VoiceNoteRecorder {
+/// A short recording becomes editable text through the private OpenAI relay.
+/// Temporary audio is removed at stop; retry audio lives only in memory.
+@Observable @MainActor final class VoiceNoteRecorder: NSObject, AVAudioRecorderDelegate {
     var transcript = ""
     var isRecording = false
+    var isTranscribing = false
+    var elapsed: TimeInterval = 0
     var errorMessage: String?
+    var canRetry = false
 
-    private let engine = AVAudioEngine()
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-    private var recognitionTask: SFSpeechRecognitionTask?
-    private var hasInputTap = false
-    private var sessionID = UUID()
+    @ObservationIgnored private var recorder: AVAudioRecorder?
+    @ObservationIgnored private var recordingURL: URL?
+    @ObservationIgnored private var audio: Data?
+    @ObservationIgnored private var callback: (@MainActor (String) -> Void)?
+    @ObservationIgnored private var sessionID = UUID()
+    @ObservationIgnored private var meterTask: Task<Void, Never>?
+    @ObservationIgnored private var transcriptionTask: Task<Void, Never>?
+    @ObservationIgnored private var peakPower: Float = -160
+    @ObservationIgnored private var interruptionObserver: NSObjectProtocol?
+
+    override init() {
+        super.init()
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  AVAudioSession.InterruptionType(rawValue: rawType) == .began else { return }
+            Task { @MainActor [weak self] in
+                guard let self, self.isRecording else { return }
+                self.cancel()
+                self.errorMessage = "Recording was interrupted. Your note is unchanged. Tap the microphone to try again."
+            }
+        }
+    }
+
+    deinit {
+        if let interruptionObserver { NotificationCenter.default.removeObserver(interruptionObserver) }
+    }
 
     enum RecordingError: LocalizedError {
-        case microphoneDenied, speechDenied, unavailable
+        case microphoneDenied, unavailable, noSpeech
         var errorDescription: String? {
             switch self {
-            case .microphoneDenied: return "Microphone access is off. You can allow it in Settings, or type your note below."
-            case .speechDenied: return "Speech recognition access is off. You can allow it in Settings, or type your note below."
-            case .unavailable: return "On-device voice notes aren’t available on this device right now. You can still type your note."
+            case .microphoneDenied: "Microphone access is off. Allow it in iPhone Settings, or type your note."
+            case .unavailable: "Couldn’t start the microphone. You can try again or type your note."
+            case .noSpeech: "No clear speech was recorded. Tap the microphone and try again."
             }
         }
     }
 
     func start(onTranscript: @escaping @MainActor (String) -> Void = { _ in }) async throws {
-        guard !isRecording else { return }
-        errorMessage = nil
-        let microphoneAllowed = await withCheckedContinuation { continuation in
-            AVAudioApplication.requestRecordPermission { allowed in
-                continuation.resume(returning: allowed)
-            }
+        guard !isRecording, !isTranscribing else { return }
+        cancel()
+        guard CaptureIntelligence.isConfigured else { throw OpenAIDictation.Failure.configuration }
+        let runID = UUID(); sessionID = runID
+        let allowed = await withCheckedContinuation { continuation in
+            AVAudioApplication.requestRecordPermission { continuation.resume(returning: $0) }
         }
         try Task.checkCancellation()
-        guard microphoneAllowed else { throw RecordingError.microphoneDenied }
-        let speechStatus = await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { status in
-                continuation.resume(returning: status)
-            }
-        }
-        try Task.checkCancellation()
-        guard speechStatus == .authorized else { throw RecordingError.speechDenied }
-        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")),
-              recognizer.isAvailable, recognizer.supportsOnDeviceRecognition else {
-            throw RecordingError.unavailable
-        }
-
-        let runID = UUID()
-        sessionID = runID
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        transcript = ""
+        guard sessionID == runID else { throw CancellationError() }
+        guard allowed else { throw RecordingError.microphoneDenied }
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.record, mode: .measurement, options: .duckOthers)
-        try session.setActive(true, options: .notifyOthersOnDeactivation)
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("mynah-dictation-\(runID.uuidString).m4a")
+        do {
+            try session.setCategory(.record, mode: .measurement)
+            try session.setActive(true)
+            let capture = try AVAudioRecorder(url: file, settings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 44_100,
+                AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 64_000,
+                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+            ])
+            capture.delegate = self; capture.isMeteringEnabled = true
+            guard capture.prepareToRecord(), capture.record(forDuration: 60) else { throw RecordingError.unavailable }
+            recorder = capture; recordingURL = file; callback = onTranscript
+            transcript = ""; elapsed = 0; peakPower = -160; errorMessage = nil; isRecording = true
+            meterTask = Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+                    guard let self, self.sessionID == runID, self.isRecording, let capture = self.recorder else { return }
+                    capture.updateMeters(); self.peakPower = max(self.peakPower, capture.peakPower(forChannel: 0))
+                    self.elapsed = capture.currentTime
+                }
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: file)
             try? session.setActive(false, options: .notifyOthersOnDeactivation)
             throw RecordingError.unavailable
         }
-        let speechRequest = SFSpeechAudioBufferRecognitionRequest()
-        speechRequest.shouldReportPartialResults = true
-        speechRequest.requiresOnDeviceRecognition = true
-        request = speechRequest
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-            speechRequest.append(buffer)
-        }
-        hasInputTap = true
-        engine.prepare()
+    }
+
+    /// Explicit stop submits this recording once. Dismissal uses cancel instead.
+    func stop() {
+        guard isRecording, let capture = recorder, let file = recordingURL else { return }
+        capture.updateMeters(); peakPower = max(peakPower, capture.peakPower(forChannel: 0))
+        elapsed = max(elapsed, capture.currentTime)
+        isRecording = false; meterTask?.cancel(); meterTask = nil
+        capture.delegate = nil; capture.stop(); recorder = nil; recordingURL = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        defer { try? FileManager.default.removeItem(at: file) }
+        guard elapsed >= 0.35, peakPower > -55 else { errorMessage = RecordingError.noSpeech.localizedDescription; return }
         do {
-            try engine.start()
-        } catch {
-            stop()
-            throw RecordingError.unavailable
-        }
-        isRecording = true
-        recognitionTask = recognizer.recognitionTask(with: speechRequest) { [weak self] result, error in
-            let text = result?.bestTranscription.formattedString
-            let isFinal = result?.isFinal ?? false
-            let errorText = error?.localizedDescription
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                guard self.sessionID == runID, self.isRecording else { return }
-                if let text {
-                    self.transcript = text
-                    onTranscript(text)
-                }
-                if let errorText, self.isRecording {
-                    self.errorMessage = "Voice note stopped: \(errorText). You can edit the words below."
-                }
-                if isFinal || errorText != nil { self.stop() }
+            let bytes = try Data(contentsOf: file)
+            guard bytes.count <= OpenAIDictation.maximumBytes else { throw OpenAIDictation.Failure.tooLarge }
+            audio = bytes; beginTranscription()
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    func retry() { guard canRetry, !isRecording, !isTranscribing else { return }; beginTranscription() }
+
+    func cancel() {
+        sessionID = UUID()
+        meterTask?.cancel(); meterTask = nil
+        transcriptionTask?.cancel(); transcriptionTask = nil
+        recorder?.delegate = nil; recorder?.stop(); recorder = nil
+        if let recordingURL { try? FileManager.default.removeItem(at: recordingURL) }
+        recordingURL = nil; audio = nil; callback = nil
+        let hadAudioSession = isRecording
+        isRecording = false; isTranscribing = false; canRetry = false; errorMessage = nil
+        if hadAudioSession { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+    }
+
+    private func beginTranscription() {
+        guard let audio, !isTranscribing else { return }
+        let runID = sessionID
+        isTranscribing = true; canRetry = false; errorMessage = nil
+        transcriptionTask = Task { @MainActor [weak self] in
+            do {
+                let text = try await OpenAIDictation.transcribe(audio)
+                try Task.checkCancellation()
+                guard let self, self.sessionID == runID else { return }
+                self.transcript = text; self.audio = nil; self.isTranscribing = false
+                self.callback?(text); self.callback = nil; self.transcriptionTask = nil
+            } catch {
+                guard let self, self.sessionID == runID, !Task.isCancelled else { return }
+                self.isTranscribing = false; self.transcriptionTask = nil
+                self.canRetry = (error as? OpenAIDictation.Failure) != .noSpeech
+                if !self.canRetry { self.audio = nil }
+                self.errorMessage = error.localizedDescription
             }
         }
     }
 
-    func stop() {
-        // Freeze the last delivered words before audio teardown can enqueue another callback.
-        sessionID = UUID()
-        isRecording = false
-        engine.stop()
-        if hasInputTap {
-            engine.inputNode.removeTap(onBus: 0)
-            hasInputTap = false
+    nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
+        let url = recorder.url
+        Task { @MainActor [weak self] in
+            guard let self, self.recordingURL == url, self.isRecording else { return }
+            if flag { self.stop() }
+            else { self.cancel(); self.errorMessage = RecordingError.unavailable.localizedDescription }
         }
-        request?.endAudio()
-        request = nil
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+    nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
+        let url = recorder.url
+        Task { @MainActor [weak self] in
+            guard let self, self.recordingURL == url else { return }
+            self.cancel(); self.errorMessage = RecordingError.unavailable.localizedDescription
+        }
     }
 }

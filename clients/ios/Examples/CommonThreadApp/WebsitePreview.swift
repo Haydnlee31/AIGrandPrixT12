@@ -10,6 +10,7 @@ struct WebsitePreview: View {
     let url: URL
     var presentation: Presentation = .card
     var onImageReady: ((Bool) -> Void)? = nil
+    var reservedBottomSpace: CGFloat = 0
     @State private var image: UIImage?
     @State private var record: WebsitePreviewRecord?
     @State private var loadedURL: String?
@@ -18,9 +19,11 @@ struct WebsitePreview: View {
     var body: some View {
         Group {
             if loadedURL == url.absoluteString, let image {
-                Color.clear.frame(height: presentation == .hero ? 280 : presentation == .thumbnail ? 76 : 180)
+                Color(.secondarySystemBackground).frame(height: presentation == .hero ? 280 + reservedBottomSpace : presentation == .thumbnail ? 76 : 180)
                     .overlay {
-                        if presentation == .hero { Image(uiImage: image).resizable().scaledToFit() }
+                        if presentation == .hero {
+                            Image(uiImage: image).resizable().scaledToFit().padding(.bottom, reservedBottomSpace)
+                        }
                         else { Image(uiImage: image).resizable().scaledToFill() }
                     }
                     .clipped().accessibilityLabel(record?.title ?? "Website preview")

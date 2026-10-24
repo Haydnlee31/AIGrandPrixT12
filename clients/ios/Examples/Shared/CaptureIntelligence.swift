@@ -3,6 +3,7 @@ import Security
 import UIKit
 import LinkPresentation
 import UniformTypeIdentifiers
+import CryptoKit
 
 /// The phone holds only a scoped relay credential. The OpenAI key stays on the server.
 enum CaptureIntelligence {
@@ -83,21 +84,38 @@ enum CaptureIntelligence {
             completionHandler(nil)
         }
     }
-    @MainActor static func analyze(url: String?, title: String, text: String, note: String, imageData: Data?) async throws -> CaptureIntelligenceResult {
+    private struct CachedAnalysis { let result: CaptureIntelligenceResult; let savedAt: Date }
+    private struct PageContext { let title: String?; let image: Data?; let savedAt: Date }
+    @MainActor private static var analysisCache: [String: CachedAnalysis] = [:]
+    @MainActor private static var pageCache: [URL: PageContext] = [:]
+
+    @MainActor static func analyze(url: String?, title: String, text: String, note: String, imageData: Data?, preferCapturedContent: Bool = false) async throws -> CaptureIntelligenceResult {
+        try Task.checkCancellation()
+        guard let configuration = try configuration() else { throw Failure.configuration }
+        // Exact source identity lets repeated view updates reuse a completed request.
+        // In-flight work remains caller-owned, so source changes cancel it normally.
+        let identity: [String: Any] = ["url": url ?? "", "title": title, "text": text, "note": note,
+            "image": imageData.map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() } ?? "",
+            "prefer_captured": preferCapturedContent]
+        let source = try JSONSerialization.data(withJSONObject: identity, options: [.sortedKeys])
+        let namespace = Data((configuration.baseURL.absoluteString + "|" + configuration.accessToken).utf8)
+        let cacheKey = SHA256.hash(data: namespace + source).map { String(format: "%02x", $0) }.joined()
+        if let cached = analysisCache[cacheKey], Date().timeIntervalSince(cached.savedAt) < 120 { return cached.result }
         var contextTitle = title
         var contextImage = imageData
+        var contextImageIsPrepared = false
         var contextText = text
         // Enrich the model input, independently of the user's editable display title.
         // Never substitute the site's icon for product imagery. Failed/slow metadata
         // stays optional and cannot block local saving or keep this request hanging.
-        if let raw = url, let page = publicURL(raw), imageData == nil {
-            let provider = LPMetadataProvider(); provider.timeout = 6
+        // A supplied photo or useful captured product caption can go straight to
+        // the model. Generic social titles and bare links still need page metadata.
+        if let raw = url, let page = publicURL(raw), imageData == nil,
+           !(preferCapturedContent && hasCapturedContext(title: title, text: text, page: page)) {
             do {
-                let metadata = try await withTaskCancellationHandler {
-                    try await provider.startFetchingMetadata(for: page)
-                } onCancel: { provider.cancel() }
+                let metadata = try await pageContext(for: page, fast: preferCapturedContent)
                 try Task.checkCancellation()
-                if let fetched = metadata.title?.trimmingCharacters(in: .whitespacesAndNewlines), !fetched.isEmpty {
+                if let fetched = metadata.title, !fetched.isEmpty {
                     if title.isEmpty || title == page.host || ["A new find", "A photo worth saving"].contains(title) {
                         contextTitle = String(fetched.prefix(300))
                     }
@@ -105,31 +123,76 @@ enum CaptureIntelligence {
                     // suppress a more informative title supplied by the source page.
                     contextText = "Source page title: " + String(fetched.prefix(600)) + (text.isEmpty ? "" : "\n" + text)
                 }
-                if let provider = metadata.imageProvider, let bytes = await readMetadataImage(provider) {
-                    contextImage = bytes
-                }
+                contextImage = metadata.image
+                contextImageIsPrepared = contextImage != nil
                 try Task.checkCancellation()
             } catch is CancellationError { throw CancellationError() } catch { /* URL-only uncertainty is handled by the model. */ }
         }
         try Task.checkCancellation()
         var payload: [String: Any] = ["title": String(contextTitle.prefix(300)), "text": String(contextText.prefix(12_000)), "note": String(note.prefix(2_000))]
         if let url, !url.isEmpty { payload["url"] = url }
-        if let data = contextImage, let image = UIImage(data: data) {
-            let scale = min(1, 1024 / max(image.size.width, image.size.height))
-            let size = CGSize(width: max(1, image.size.width * scale), height: max(1, image.size.height * scale))
-            let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
-            let thumbnail = UIGraphicsImageRenderer(size: size, format: format).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
-            if let bytes = thumbnail.jpegData(compressionQuality: 0.65), bytes.count <= 1_500_000 {
-                payload["image_data_url"] = "data:image/jpeg;base64," + bytes.base64EncodedString()
-            }
+        if let data = contextImage, let bytes = contextImageIsPrepared ? data : preparedImage(data) {
+            payload["image_data_url"] = "data:image/jpeg;base64," + bytes.base64EncodedString()
         }
         let data = try await post(path: "v1/capture-preview", body: JSONSerialization.data(withJSONObject: payload))
         do {
             let value = try JSONDecoder().decode(CaptureIntelligenceResult.self, from: data)
             guard value.schemaVersion == 2, value.prompts.count <= 3, value.prompts.allSatisfy({ !$0.text.isEmpty && $0.text.count <= 180 }),
                   Set(value.prompts.map(\.id)).count == value.prompts.count else { throw Failure.unreadable }
+            try Task.checkCancellation()
+            // Empty or uncertain responses stay retryable after the source improves.
+            if value.productName != nil, !value.prompts.isEmpty {
+                analysisCache[cacheKey] = CachedAnalysis(result: value, savedAt: Date())
+                if analysisCache.count > 12, let oldest = analysisCache.min(by: { $0.value.savedAt < $1.value.savedAt })?.key { analysisCache[oldest] = nil }
+            }
             return value
-        } catch { throw Failure.unreadable }
+        } catch is CancellationError { throw CancellationError() } catch { throw Failure.unreadable }
+    }
+
+    private static func hasCapturedContext(title: String, text: String, page: URL) -> Bool {
+        func usefulWords(_ raw: String) -> [Substring] {
+            let value = raw.replacingOccurrences(of: "https?://\\S+", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let generic = ["a new find", "a photo worth saving", "untitled find", "check this out", "shared link", "shared photo"]
+            let wrappers = ["post from ", "post by ", "video from ", "shared by ", "log in", "sign in"]
+            guard !generic.contains(value), !wrappers.contains(where: value.hasPrefix),
+                  value != page.host, !value.contains("instagram"), !value.contains("tiktok"),
+                  !value.contains("facebook"), !value.contains("pinterest") else { return [] }
+            let filler: Set<String> = ["the", "and", "for", "from", "with", "this", "that", "out", "check", "share", "shared", "link", "photo", "video", "post", "safari", "www", "com"]
+            return value.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).filter { $0.count > 2 && !filler.contains(String($0)) }
+        }
+        return usefulWords(title).count >= 2 || usefulWords(text).count >= 3
+    }
+
+    @MainActor private static func pageContext(for page: URL, fast: Bool) async throws -> PageContext {
+        if let cached = pageCache[page], Date().timeIntervalSince(cached.savedAt) < 300 { return cached }
+        let provider = LPMetadataProvider(); provider.timeout = fast ? 4 : 6
+        let metadata = try await withTaskCancellationHandler {
+            try await provider.startFetchingMetadata(for: page)
+        } onCancel: { provider.cancel() }
+        try Task.checkCancellation()
+        var image: Data?
+        if let provider = metadata.imageProvider,
+           let bytes = await readMetadataImage(provider, timeout: fast ? .milliseconds(1500) : .seconds(3)) {
+            image = preparedImage(bytes)
+        }
+        try Task.checkCancellation()
+        let context = PageContext(title: metadata.title?.trimmingCharacters(in: .whitespacesAndNewlines), image: image, savedAt: Date())
+        if image != nil || hasCapturedContext(title: context.title ?? "", text: "", page: page) {
+            pageCache[page] = context
+            if pageCache.count > 6, let oldest = pageCache.min(by: { $0.value.savedAt < $1.value.savedAt })?.key { pageCache[oldest] = nil }
+        }
+        return context
+    }
+
+    @MainActor private static func preparedImage(_ data: Data) -> Data? {
+        guard let image = UIImage(data: data), image.size.width > 0, image.size.height > 0 else { return nil }
+        let scale = min(1, 1024 / max(image.size.width, image.size.height))
+        let size = CGSize(width: max(1, image.size.width * scale), height: max(1, image.size.height * scale))
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+        let thumbnail = UIGraphicsImageRenderer(size: size, format: format).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+        guard let bytes = thumbnail.jpegData(compressionQuality: 0.65), bytes.count <= 1_500_000 else { return nil }
+        return bytes
     }
 
     static func refineIntent(_ context: IntentRefinementContext) async throws -> IntentRefinementResult {
@@ -178,7 +241,7 @@ enum CaptureIntelligence {
             continuation?.resume(returning: data)
         }
     }
-    private static func readMetadataImage(_ provider: NSItemProvider) async -> Data? {
+    private static func readMetadataImage(_ provider: NSItemProvider, timeout: Duration) async -> Data? {
         guard let type = provider.registeredTypeIdentifiers.first(where: { UTType($0)?.conforms(to: .image) == true }) else { return nil }
         let read = MetadataImageRead()
         return await withTaskCancellationHandler {
@@ -189,7 +252,7 @@ enum CaptureIntelligence {
                 }
                 read.register(progress)
                 Task {
-                    try? await Task.sleep(for: .seconds(3))
+                    try? await Task.sleep(for: timeout)
                     read.finish(nil)
                 }
             }

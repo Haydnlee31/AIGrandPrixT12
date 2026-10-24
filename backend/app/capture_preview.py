@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 
 from .media import validate_image_data_url
 from .local_recommendations import register_recommendations
+from .dictation import MAX_DICTATION_BODY_BYTES, register_dictation
 
 ENDPOINT = "https://api.openai.com/v1/responses"
 MAX_IMAGE_BYTES = 1_572_864
@@ -292,13 +293,15 @@ class RequestBoundary:
         self.app, self.token = app, token
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or scope["path"] not in {"/v1/capture-preview", "/v1/recommendations", "/v1/refine-intent"}:
+        if scope["type"] != "http" or scope["path"] not in {"/v1/capture-preview", "/v1/recommendations", "/v1/refine-intent", "/v1/dictation"}:
             return await self.app(scope, receive, send)
         headers = dict(scope.get("headers", []))
         authorization = headers.get(b"authorization", b"")
         expected = ("Bearer " + self.token).encode()
         if not self.token or not hmac.compare_digest(authorization, expected):
             return await error_response(PreviewError(401, "unauthorized", "A valid preview access token is required."))(scope, receive, send)
+        is_dictation = scope["path"] == "/v1/dictation"
+        body_limit = MAX_DICTATION_BODY_BYTES if is_dictation else MAX_BODY_BYTES
         chunks, count = [], 0
         while True:
             message = await receive()
@@ -306,8 +309,9 @@ class RequestBoundary:
                 return
             chunk = message.get("body", b"")
             count += len(chunk)
-            if count > MAX_BODY_BYTES:
-                return await error_response(PreviewError(413, "request_too_large", "Resize the image or shorten the captured text."))(scope, receive, send)
+            if count > body_limit:
+                message = "Use an audio recording of at most 4 MiB." if is_dictation else "Resize the image or shorten the captured text."
+                return await error_response(PreviewError(413, "request_too_large", message))(scope, receive, send)
             chunks.append(chunk)
             if not message.get("more_body", False):
                 break
@@ -547,10 +551,14 @@ def create_app(*, api_key: str | None = None, token: str | None = None, model: s
     @app.exception_handler(RequestValidationError)
     async def input_error(_request: Request, _error: RequestValidationError):
         # Never serialize validation.input, which can contain photos or private notes.
+        if _request.url.path == "/v1/dictation":
+            return error_response(PreviewError(422, "invalid_audio", "Use an AAC M4A recording of at most 4 MiB and 60 seconds."))
         return error_response(PreviewError(422, "invalid_capture", "Check the link, text lengths and image format (JPEG, PNG or WebP, at most 1.5 MiB)."))
 
     @app.exception_handler(Exception)
     async def unexpected_error(_request: Request, _error: Exception):
+        if _request.url.path == "/v1/dictation":
+            return error_response(PreviewError(500, "dictation_failed", "Voice transcription is unavailable. You can type your note instead.", True))
         return error_response(PreviewError(500, "preview_failed", "Suggestions could not be loaded. You can still save your find.", True))
 
     @app.get("/health")
@@ -568,6 +576,8 @@ def create_app(*, api_key: str | None = None, token: str | None = None, model: s
         return JSONResponse(result.model_dump(), headers={"Cache-Control": "no-store"})
 
     register_recommendations(app, factory=recommendation_factory)
+    register_dictation(app, api_key=key, transport=transport, clock=clock,
+        rate_limit=min(rate_limit, 8), timeout=min(timeout, 30))
     return app
 
 

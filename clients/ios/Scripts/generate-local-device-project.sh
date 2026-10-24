@@ -7,7 +7,7 @@ ios_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 team_id=${1:?Usage: generate-local-device-project.sh DEVELOPMENT_TEAM [output-directory]}
 output_dir=${2:-/tmp/mynah-local-device}
 generator_binary="${TMPDIR:-/tmp}/mymah-xcodegen-2.46.0/xcodegen/bin/xcodegen"
-if [ ! -x "$generator_binary" ]; then
+if [ ! -x "$generator_binary" ] || [ ! -f "${TMPDIR:-/tmp}/mymah-xcodegen-2.46.0/xcodegen/share/xcodegen/SettingPresets/base.yml" ]; then
     sh "$ios_root/Scripts/generate-project.sh"
 fi
 mkdir -p "$output_dir"
@@ -29,8 +29,7 @@ project = {
             'info': {'path': 'App-Info.plist', 'properties': {**shared_info,
                 'CFBundleDisplayName': 'Mynah Finds', 'UILaunchScreen': {},
                 'CFBundleURLTypes': [{'CFBundleURLName': 'com.aigrandprix.mymahfinds.navigation', 'CFBundleTypeRole': 'Editor', 'CFBundleURLSchemes': ['mynah']}],
-                'NSMicrophoneUsageDescription': 'Record your voice to add an editable note to a saved find.',
-                'NSSpeechRecognitionUsageDescription': 'Turn your voice into an editable note about why you are saving this find.',
+                'NSMicrophoneUsageDescription': 'Record a short note and send it to OpenAI for editable transcription.',
                 'NSCameraUsageDescription': 'Take a photo to save something that caught your eye.',
                 'UIApplicationSceneManifest': {'UIApplicationSupportsMultipleScenes': False}}},
             'entitlements': {'path': 'App.entitlements', 'properties': shared_entitlements},

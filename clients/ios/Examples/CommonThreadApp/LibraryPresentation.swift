@@ -102,6 +102,7 @@ struct SavedContentView: View {
     @State private var showingEditor = false
     @State private var showingAttachments = false
     @State private var websiteHasImage = false
+    @State private var questionFocusToken: UUID?
     @State private var refinement: IntentRefinementContext?
     #if DEBUG
     @State private var didShowDebugRefinement = false
@@ -110,6 +111,8 @@ struct SavedContentView: View {
     private var displayed: SavedItem { latestItem ?? item }
     let onDelete: (String, MutationKey) async throws -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .subheadline) private var questionSpace: CGFloat = 92
     @State private var confirmsDelete = false
     @State private var deleting = false
     @State private var deleteKey: MutationKey?
@@ -118,25 +121,30 @@ struct SavedContentView: View {
     @State private var updating = false
     private var style: SourceStyle { SourceStyle(item.source) }
     private var originalURL: URL? {
-        guard item.client != "sample" else { return nil }
-        guard let url = URL(string: item.originalUrl), ["https", "http"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else { return nil }
+        guard displayed.client != "sample" else { return nil }
+        guard let url = URL(string: displayed.originalUrl), ["https", "http"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else { return nil }
         return url
     }
+    private var hasImageQuestion: Bool {
+        localOnly && (displayed.hasImage || websiteHasImage) && !(metadata.analysis?.prompts.isEmpty ?? true)
+    }
+    private var reservedQuestionSpace: CGFloat { hasImageQuestion && !dynamicTypeSize.isAccessibilitySize ? questionSpace : 0 }
     var body: some View {
-        ScrollView {
+        ScrollViewReader { scroll in
+          ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 VStack(alignment: .leading, spacing: 18) {
                     if displayed.hasImage || originalURL != nil {
                         hero
                             .overlay(alignment: .bottom) {
-                                if localOnly, (displayed.hasImage || websiteHasImage), let analysis = metadata.analysis, !analysis.prompts.isEmpty {
-                                    FindIntentOverlay(prompts: analysis.prompts, selected: metadata.selectedIntents,
-                                                      busy: updating || deleting) { value in
-                                        Task { await toggleIntent(value) }
-                                    }.padding(13)
+                                if hasImageQuestion, !dynamicTypeSize.isAccessibilitySize {
+                                    imageQuestion(scroll: scroll).padding(12)
                                 }
                             }
                             .clipShape(RoundedRectangle(cornerRadius: 28))
+                        if hasImageQuestion, dynamicTypeSize.isAccessibilitySize {
+                            imageQuestion(scroll: scroll)
+                        }
                     }
                     Text(displayed.title).font(.title.bold()).fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 7) {
@@ -153,6 +161,10 @@ struct SavedContentView: View {
                             .accessibilityIdentifier("openOriginal")
                     }
                 }
+                SavedIntelligenceSection(item: displayed, connection: connection,
+                    questionFocusToken: questionFocusToken, onChanged: intelligenceChanged)
+                    // Stable identity keeps active editors alive while metadata refreshes.
+                    .id(displayed.id)
                 if !displayed.note.isEmpty { contentSection("Your note", text: displayed.note, symbol: "quote.bubble.fill") }
                 if !displayed.selectedText.isEmpty {
                     DisclosureGroup("Saved text") {
@@ -160,10 +172,6 @@ struct SavedContentView: View {
                             .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 10)
                     }.font(.subheadline.weight(.semibold)).tint(.secondary)
                 }
-                SavedIntelligenceSection(item: displayed, connection: connection, onChanged: intelligenceChanged)
-                    // Keep editor/refinement sheets alive when a saved choice refreshes metadata.
-                    // The child reloads current values through its revision-keyed task.
-                    .id(displayed.id)
                 if let errorMessage {
                     Text(errorMessage).font(.subheadline).foregroundStyle(.red).accessibilityIdentifier("savedFindError")
                     if deletionFailed {
@@ -175,6 +183,16 @@ struct SavedContentView: View {
                 if deleting { ProgressView("Removing from your library") }
                 if updating { ProgressView("Updating your find") }
             }.padding(24)
+          }
+          #if DEBUG
+          .task {
+              if ProcessInfo.processInfo.arguments.contains("-showInsights") {
+                  await reloadLocal()
+                  await Task.yield()
+                  scroll.scrollTo(displayed.id, anchor: .top)
+              }
+          }
+          #endif
         }
         .background(NativeTheme.bg).navigationTitle("Your find").navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -222,8 +240,25 @@ struct SavedContentView: View {
         .onChange(of: stillSaved) { _, present in if !present { dismiss() } }
     }
     @ViewBuilder private var hero: some View {
-        if displayed.hasImage { FindImage(item: displayed, connection: connection) }
-        else if let originalURL { WebsitePreview(url: originalURL, presentation: .hero, onImageReady: { websiteHasImage = $0 }) }
+        if displayed.hasImage {
+            FindImage(item: displayed, connection: connection)
+                .frame(height: 280)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, reservedQuestionSpace)
+                .background(Color(.secondarySystemBackground))
+        } else if let originalURL {
+            WebsitePreview(url: originalURL, presentation: .hero,
+                onImageReady: { websiteHasImage = $0 }, reservedBottomSpace: reservedQuestionSpace)
+        }
+    }
+    @ViewBuilder private func imageQuestion(scroll: ScrollViewProxy) -> some View {
+        if let analysis = metadata.analysis {
+            FindIntentOverlay(prompts: analysis.prompts, selected: metadata.selectedIntents,
+                busy: updating || deleting) {
+                questionFocusToken = UUID()
+                withAnimation(.easeInOut(duration: 0.25)) { scroll.scrollTo(displayed.id, anchor: .top) }
+            }
+        }
     }
     private func reloadLocal() async {
         guard localOnly else { return }
@@ -236,25 +271,6 @@ struct SavedContentView: View {
     private func intelligenceChanged() {
         onChanged()
         Task { await reloadLocal() }
-    }
-    private func toggleIntent(_ value: String) async {
-        guard !updating, !deleting else { return }
-        updating = true; errorMessage = nil; deletionFailed = false
-        defer { updating = false }
-        var values = metadata.selectedIntents
-        let adding = !values.contains(value)
-        if !adding { values.removeAll { $0 == value } } else { values.append(value) }
-        guard values.count <= 8 else {
-            errorMessage = "You can choose up to 8 details. Remove one to add another."
-            return
-        }
-        do {
-            try await LocalLibrary.shared.setIntents(item.id, values)
-            await reloadLocal(); FindsHaptics.selection(); onChanged()
-            if adding, let analysis = metadata.analysis {
-                refinement = IntentRefinementContext(analysis: analysis, selectedIntent: value, existingIntents: metadata.selectedIntents)
-            }
-        } catch { errorMessage = error.localizedDescription }
     }
     private func appendRefinement(_ value: String) async -> Bool {
         do {

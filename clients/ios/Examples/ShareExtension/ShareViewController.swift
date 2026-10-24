@@ -6,12 +6,9 @@ import ImageIO
 final class ShareViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
-        let host = UIHostingController(rootView: ShareCaptureView(items: extensionContext?.inputItems as? [NSExtensionItem] ?? [], openApp: { [weak self] url, completion in
-            guard let context = self?.extensionContext else { completion(false); return }
-            context.open(url) { opened in DispatchQueue.main.async { completion(opened) } }
-        }) { [weak self] in
+        let host = UIHostingController(rootView: ShareCaptureView(items: extensionContext?.inputItems as? [NSExtensionItem] ?? []) { [weak self] in
             self?.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
-        })
+        }.preferredColorScheme(SharedAppearance.colorScheme))
         addChild(host)
         view.addSubview(host.view)
         host.view.translatesAutoresizingMaskIntoConstraints = false
@@ -25,7 +22,6 @@ final class ShareViewController: UIViewController {
 
 struct ShareCaptureView: View {
     let items: [NSExtensionItem]
-    let openApp: (URL, @escaping (Bool) -> Void) -> Void
     let close: () -> Void
     @State private var draft = LocalShareDraft(title: "", url: nil, text: "", note: "", attachments: [])
     @State private var loading = true
@@ -38,15 +34,14 @@ struct ShareCaptureView: View {
     @State private var sourceTitle = ""
     @State private var selectedIntents: [String] = []
     @State private var refinement: IntentRefinementContext?
-    @State private var openingApp = false
-    @State private var openRequestID: UUID?
-    @State private var showingOpenHelp = false
+    @State private var completed = false
     @State private var intelligence: CaptureIntelligenceResult?
     @State private var intelligenceSourceContext = ""
     @State private var intelligenceLoading = false
     @State private var intelligenceFailed = false
     @State private var intelligenceRequestID = UUID()
     @State private var intelligenceRetryID = UUID()
+    @State private var hasRequestedIntelligence = false
     @FocusState private var noteFocused: Bool
 
     private var hasContent: Bool {
@@ -69,8 +64,8 @@ struct ShareCaptureView: View {
                         VStack(spacing: 16) {
                             Image(systemName: "checkmark.circle.fill").font(.system(size: 64)).foregroundStyle(.green)
                             Text("Saved!").font(.system(.largeTitle, weight: .bold))
-                            Text("Your find and everything that caught your eye are saved on this iPhone.")
-                                .font(.body).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                            Text("Returning to where you left off…")
+                                .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
                             if !draft.title.isEmpty {
                                 Text(draft.title).font(.headline).lineLimit(3).multilineTextAlignment(.center)
                                     .padding(16).frame(maxWidth: .infinity)
@@ -111,7 +106,7 @@ struct ShareCaptureView: View {
                             predictivePrompts
                             HStack(alignment: .top, spacing: 8) {
                                 Image(systemName: "mic").foregroundStyle(.secondary)
-                                Text("Tap the note, then the keyboard’s microphone to dictate when available. You can also add a voice note in Mynah Finds.")
+                                Text("Type a note or use your keyboard’s microphone.")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                         }.padding(18).background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
@@ -132,12 +127,12 @@ struct ShareCaptureView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Mynah Finds").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button(saved ? "Done" : "Cancel", action: close).disabled(saving) } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button(saved ? "Done" : "Cancel", action: completeShare).disabled(saving) } }
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 12) {
-                    Button { if saved { close() } else { Task { await save() } } } label: {
+                    Button { if saved { completeShare() } else { Task { await save() } } } label: {
                         HStack(spacing: 8) {
-                            if saving { ProgressView().tint(.black) }
+                            if saving { ProgressView().tint(.primary) }
                             else if saved { Image(systemName: "checkmark") }
                             Text(saved ? "Done" : saving ? "Saving…" : "Save find")
                                 .font(.system(.headline, weight: .bold))
@@ -148,12 +143,6 @@ struct ShareCaptureView: View {
                     }
                     .disabled(!saved && !canSave)
                     .accessibilityIdentifier(saved ? "shareDone" : "shareSave")
-                    if saved {
-                        Button { openSavedFind() } label: {
-                            Label(openingApp ? "Opening…" : "Open Mynah", systemImage: "arrow.up.forward.app")
-                                .font(.subheadline.weight(.semibold)).frame(minHeight: 36)
-                        }.disabled(openingApp).accessibilityIdentifier("shareOpenApp")
-                    }
                 }
                 .padding(.horizontal, 24).padding(.vertical, 12).background(.bar)
             }
@@ -164,28 +153,28 @@ struct ShareCaptureView: View {
                     return true
                 }
             }
-            .alert("Your find is saved", isPresented: $showingOpenHelp) {
-                Button("Done", action: close)
-                Button("Stay here", role: .cancel) {}
-            } message: {
-                Text("iOS can’t open Mynah from this share sheet. Tap Done, then switch to Mynah Finds. Your new find will be in Library.")
-            }
             .task { await loadItems() }
             .task(id: intelligenceContext) { await loadIntelligence() }
+            .task(id: saved) {
+                guard saved else { return }
+                do { try await Task.sleep(for: .milliseconds(850)); completeShare() }
+                catch is CancellationError {} catch {}
+            }
         }.tint(.primary)
     }
 
     @ViewBuilder private var predictivePrompts: some View {
         if CaptureIntelligence.isConfigured {
             VStack(alignment: .leading, spacing: 12) {
-                if intelligenceLoading {
-                    ProgressView("Finding what makes this interesting…").font(.subheadline)
-                        .accessibilityIdentifier("shareIntelligenceLoading")
+                if loading || intelligenceLoading || (hasContent && !intelligenceFailed && intelligenceSourceContext != intelligenceContext) {
+                    suggestionPlaceholder
                 } else if let intelligence, intelligenceSourceContext == intelligenceContext {
-                    ForEach(Array(intelligence.prompts.filter { !selectedIntents.contains($0.text) }.prefix(3).enumerated()), id: \.element.id) { index, prompt in
-                        intentionButton(prompt.text, index: index)
-                            .accessibilityIdentifier("sharePredictivePrompt_\(prompt.id)")
-                    }
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(Array(intelligence.prompts.filter { !selectedIntents.contains($0.text) }.prefix(3).enumerated()), id: \.element.id) { index, prompt in
+                            intentionButton(prompt.text, index: index)
+                                .accessibilityIdentifier("sharePredictivePrompt_\(prompt.id)")
+                        }
+                    }.frame(minHeight: selectedIntents.isEmpty && !intelligence.prompts.isEmpty ? 276 : nil, alignment: .top)
                     if intelligence.prompts.isEmpty {
                         Text("Tell us what you like in your own words.")
                             .font(.subheadline).foregroundStyle(.secondary)
@@ -204,6 +193,30 @@ struct ShareCaptureView: View {
         }
     }
 
+    private var suggestionPlaceholder: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(0..<3) { index in
+                HStack(spacing: 13) {
+                    RoundedRectangle(cornerRadius: 14).fill(Color(.tertiarySystemFill)).frame(width: 44, height: 44)
+                        .overlay { if index == 0 { ProgressView().controlSize(.small) } }
+                    VStack(alignment: .leading, spacing: 9) {
+                        if index == 0 {
+                            Text(loading ? "Reading your shared content…" : "Finding details you might like…")
+                                .font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            Capsule().fill(Color(.tertiarySystemFill)).frame(height: 8)
+                            Capsule().fill(Color(.tertiarySystemFill)).frame(width: index == 1 ? 100 : 135, height: 8)
+                        }
+                    }
+                    Image(systemName: "plus.circle").foregroundStyle(Color(.tertiaryLabel))
+                }.padding(14).frame(minHeight: 84)
+                    .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+            }.accessibilityHidden(true)
+        }.accessibilityElement(children: .ignore)
+            .accessibilityLabel(loading ? "Reading your shared content" : "Finding details you might like. You can save while suggestions load.")
+            .accessibilityIdentifier("shareIntelligenceLoading")
+    }
+
     private func intentionButton(_ text: String, index: Int) -> some View {
         let selected = selectedIntents.contains(text)
         let color: Color = [.blue, .purple, .orange][index % 3]
@@ -212,11 +225,11 @@ struct ShareCaptureView: View {
             HStack(spacing: 13) {
                 Image(systemName: symbol).font(.title3.weight(.semibold)).foregroundStyle(color)
                     .frame(width: 44, height: 44).background(color.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
-                Text(text).font(.body.weight(.semibold)).multilineTextAlignment(.leading)
+                Text(text).font(.body.weight(.semibold)).foregroundStyle(.primary).multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: selected ? "checkmark.circle.fill" : "plus.circle")
                     .font(.title3.weight(.semibold)).foregroundStyle(selected ? color : .secondary)
-            }.padding(14).background(color.opacity(selected ? 0.11 : 0.035), in: RoundedRectangle(cornerRadius: 20))
+            }.padding(14).frame(minHeight: 84).background(color.opacity(selected ? 0.11 : 0.07), in: RoundedRectangle(cornerRadius: 20))
                 .overlay { RoundedRectangle(cornerRadius: 20).strokeBorder(color.opacity(selected ? 0.7 : 0.13), lineWidth: 1) }
         }.buttonStyle(.plain).disabled(saving)
             .accessibilityAddTraits(selected ? .isSelected : [])
@@ -235,20 +248,10 @@ struct ShareCaptureView: View {
         noteFocused = false
         refinement = IntentRefinementContext(analysis: intelligence, selectedIntent: text, existingIntents: selectedIntents)
     }
-    private func openSavedFind() {
-        guard saved, !openingApp else { return }
-        let requestID = UUID()
-        openRequestID = requestID; openingApp = true
-        openApp(MynahDeepLink.libraryURL(savedFindID: draft.id)) { opened in
-            guard openRequestID == requestID else { return }
-            openRequestID = nil; openingApp = false
-            if opened { close() } else { showingOpenHelp = true }
-        }
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(3))
-            guard openRequestID == requestID else { return }
-            openRequestID = nil; openingApp = false; showingOpenHelp = true
-        }
+    private func completeShare() {
+        guard !completed else { return }
+        completed = true
+        close()
     }
 
     private var attachmentPreviews: some View {
@@ -310,25 +313,30 @@ struct ShareCaptureView: View {
             if intelligenceRequestID == requestID { intelligenceLoading = false }
         }
         do {
-            try await Task.sleep(for: .milliseconds(250))
+            // The first imported source starts immediately. Only subsequent edits
+            // debounce, so typing cannot launch a request for every keystroke.
+            let needsDebounce = hasRequestedIntelligence
+            hasRequestedIntelligence = true
+            if needsDebounce { try await Task.sleep(for: .milliseconds(250)) }
             try Task.checkCancellation()
             let snapshot = draft
             let image = snapshot.attachments.first { UTType($0.typeIdentifier)?.conforms(to: .image) == true }?.data
             let result = try await CaptureIntelligence.analyze(
-                url: snapshot.url, title: titleWasEdited ? snapshot.title : sourceTitle, text: snapshot.text, note: snapshot.note, imageData: image
+                url: snapshot.url, title: titleWasEdited ? snapshot.title : sourceTitle, text: snapshot.text, note: snapshot.note,
+                imageData: image, preferCapturedContent: true
             )
             guard !Task.isCancelled, intelligenceRequestID == requestID,
-                  intelligenceContext == context, !saved, !saving else { return }
+                  intelligenceContext == context, !saved else { return }
             intelligence = result
             intelligenceSourceContext = context
-            if !titleWasEdited, let name = result.productName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            if !saving, !titleWasEdited, let name = result.productName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
                 draft.title = String(name.prefix(300))
             }
         } catch is CancellationError {
             // A changed product cancels old suggestions, without affecting local saving.
         } catch {
             guard !Task.isCancelled, intelligenceRequestID == requestID,
-                  intelligenceContext == context, !saved, !saving else { return }
+                  intelligenceContext == context, !saved else { return }
             intelligenceFailed = true
         }
     }

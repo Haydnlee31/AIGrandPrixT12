@@ -63,6 +63,7 @@ struct IntelligenceCard<Content: View>: View {
 struct SavedIntelligenceSection: View {
     let item: SavedItem
     let connection: SharedEnvironment?
+    var questionFocusToken: UUID? = nil
     var onChanged: () -> Void = {}
     @State private var refreshed: SavedItem?
     @State private var capabilities: Capabilities?
@@ -74,57 +75,53 @@ struct SavedIntelligenceSection: View {
     @State private var pendingResponse: (request: AnnotationRequest, key: MutationKey)?
     @State private var analyzeKey: MutationKey?
     @State private var operation: Task<Void, Never>?
+    @State private var showingSuggestions = false
     private var current: SavedItem { refreshed ?? item }
     private var isLocal: Bool { connection == nil || item.client == "sample" || item.id.hasPrefix("local-") }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             if isLocal {
-                LocalIntelligencePreview(item: item, onChanged: onChanged)
+                LocalIntelligencePreview(item: item, questionFocusToken: questionFocusToken, onChanged: onChanged)
             } else {
-                analysisCard
-                if capabilities?.features["annotations"] == true, !current.suggestions.isEmpty {
-                    IntelligenceCard(title: "What caught your eye?", symbol: "sparkles") {
-                        Text("Add a little context, in your own words.")
-                            .font(.subheadline).foregroundStyle(.secondary)
-                        ForEach(current.suggestions) { suggestion in
-                            HStack(alignment: .top, spacing: 8) {
-                                Button {
-                                    respond(.init(action: .select, suggestionId: suggestion.id))
-                                } label: {
-                                    HStack(alignment: .top, spacing: 10) {
-                                        Image(systemName: "plus.circle")
-                                        Text(suggestion.text).multilineTextAlignment(.leading)
-                                        Spacer(minLength: 0)
-                                    }.font(.subheadline.weight(.medium)).padding(14)
-                                        .background(NativeTheme.bg, in: RoundedRectangle(cornerRadius: 17))
-                                }.buttonStyle(.plain).disabled(busy)
-                                Menu {
-                                    Button("Edit suggestion", systemImage: "pencil") {
-                                        editText = suggestion.text; editor = suggestion
+                IntelligenceCard(title: "New Insights", symbol: "sparkles") {
+                    analysisCard
+                    if capabilities?.features["annotations"] == true, !current.suggestions.isEmpty {
+                        DisclosureGroup("Personalize this find", isExpanded: $showingSuggestions) {
+                            VStack(alignment: .leading, spacing: 9) {
+                                ForEach(Array(current.suggestions.enumerated()), id: \.element.id) { index, suggestion in
+                                    HStack(alignment: .center, spacing: 4) {
+                                        Button { respond(.init(action: .select, suggestionId: suggestion.id)) } label: {
+                                            FindIntentRow(text: suggestion.text, index: index, compact: true)
+                                        }.buttonStyle(.plain).disabled(busy)
+                                        Menu {
+                                            Button("Edit suggestion", systemImage: "pencil") {
+                                                editText = suggestion.text; editor = suggestion
+                                            }
+                                            Button("Not relevant", systemImage: "xmark") {
+                                                respond(.init(action: .reject, suggestionId: suggestion.id))
+                                            }
+                                        } label: { Image(systemName: "ellipsis").frame(width: 34, height: 44) }
+                                            .disabled(busy).accessibilityLabel("Options for \(suggestion.text)")
                                     }
-                                    Button("Not relevant", systemImage: "xmark") {
-                                        respond(.init(action: .reject, suggestionId: suggestion.id))
-                                    }
-                                } label: {
-                                    Image(systemName: "ellipsis").frame(width: 44, height: 44)
-                                }.disabled(busy).accessibilityLabel("Options for \(suggestion.text)")
-                            }
+                                }
+                                Button("Skip for now") { respond(.init(action: .skip)) }.font(.subheadline).disabled(busy)
+                            }.padding(.top, 12)
+                        }.font(.subheadline.weight(.semibold)).tint(.purple)
+                    }
+                    if let acknowledgment { Label(acknowledgment, systemImage: "checkmark.circle.fill").font(.subheadline).foregroundStyle(.green) }
+                    if let errorMessage {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(errorMessage).font(.subheadline).foregroundStyle(.secondary)
+                            if pendingResponse != nil { Button("Retry annotation") { retryResponse() }.disabled(busy) }
                         }
-                        Button("Skip for now") { respond(.init(action: .skip)) }.font(.subheadline).disabled(busy)
-                        Text("These choices save your intent. They don’t schedule reminders, monitor prices or make purchases.")
-                            .font(.caption).foregroundStyle(.secondary)
                     }
+                    if busy { ProgressView("Updating your find").font(.subheadline) }
                 }
-                if let acknowledgment { Label(acknowledgment, systemImage: "checkmark.circle.fill").font(.subheadline).foregroundStyle(.green) }
-                if let errorMessage {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(errorMessage).font(.subheadline).foregroundStyle(.secondary)
-                        if pendingResponse != nil { Button("Retry annotation") { retryResponse() }.disabled(busy) }
-                    }
-                }
-                if busy { ProgressView("Updating your find").font(.subheadline) }
             }
+        }
+        .onChange(of: questionFocusToken) { _, token in
+            if token != nil { withAnimation(.easeInOut(duration: 0.2)) { showingSuggestions = true } }
         }
         .task(id: "\(connectionIdentity(connection))|\(item.id)|\(item.revision)") {
             refreshed = nil; capabilities = nil; errorMessage = nil
@@ -163,33 +160,22 @@ struct SavedIntelligenceSection: View {
     }
 
     private var analysisCard: some View {
-        IntelligenceCard(title: "Based on your find", symbol: "sparkle.magnifyingglass") {
+        VStack(alignment: .leading, spacing: 14) {
             if let analysis = current.analysis {
-                Text(analysis.summary).font(.title3.weight(.semibold))
-                    .fixedSize(horizontal: false, vertical: true)
-                ForEach(Array(customerObservations.prefix(3).enumerated()), id: \.offset) { index, observation in
-                    FindInsightRow(text: observation, index: index)
-                }
-                if !analysis.uncertainties.isEmpty {
-                    DisclosureGroup("A few things to check") {
-                        ForEach(analysis.uncertainties, id: \.self) {
-                            Text($0).font(.subheadline).foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
-                        }
-                    }.font(.subheadline.weight(.semibold))
-                }
+                NewInsightHighlights(summary: analysis.summary, evidence: customerObservations, uncertainties: analysis.uncertainties)
             }
             switch current.analysisStatus {
             case .pending:
-                Label("Your find is saved. Taking a closer look…", systemImage: "sparkles").font(.subheadline).foregroundStyle(.secondary)
+                Label("Taking a closer look…", systemImage: "sparkles").font(.subheadline).foregroundStyle(.secondary)
             case .failed:
-                Label("Your find is saved. We couldn’t finish looking at it yet.", systemImage: "arrow.clockwise").font(.subheadline).foregroundStyle(.secondary)
+                Label("We couldn’t finish looking at this find yet.", systemImage: "arrow.clockwise").font(.subheadline).foregroundStyle(.secondary)
             case .unavailable:
-                Text("Your original and note are here. Add a little context to make this find yours.").font(.subheadline).foregroundStyle(.secondary)
+                Text("Your original and note are saved.").font(.subheadline).foregroundStyle(.secondary)
             case .ready: EmptyView()
             }
             if capabilities?.features["product_analysis"] == true {
-                Button(current.analysis == nil ? "Take a closer look" : "Refresh ideas", systemImage: "arrow.clockwise") { analyze() }.disabled(busy)
+                Button(current.analysis == nil ? "Take a closer look" : "Refresh insights", systemImage: "arrow.clockwise") { analyze() }
+                    .font(.subheadline).disabled(busy)
             }
         }
     }

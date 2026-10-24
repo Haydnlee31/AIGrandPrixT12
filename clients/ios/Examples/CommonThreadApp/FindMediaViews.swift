@@ -127,44 +127,46 @@ struct EditFindSheet: View {
                 Section("Your find") { TextField("Title", text: $title) }
                 Section {
                     TextField("Why did it catch your eye?", text: $note, axis: .vertical).lineLimit(4...10)
-                        .disabled(recorder.isRecording || startingVoice)
+                        .disabled(recorder.isRecording || startingVoice || recorder.isTranscribing)
                     Button {
-                        if recorder.isRecording || startingVoice { stopVoice() }
+                        if startingVoice { cancelVoice() }
+                        else if recorder.isRecording { recorder.stop() }
                         else {
-                            let prefix = note; startingVoice = true
+                            startingVoice = true; errorMessage = nil
                             voiceTask = Task { @MainActor in
                                 defer { startingVoice = false }
-                                do { try await recorder.start { words in note = prefix.isEmpty ? words : prefix + " " + words } }
+                                do { try await recorder.start { words in
+                                    note = [note.trimmingCharacters(in: .whitespacesAndNewlines), words].filter { !$0.isEmpty }.joined(separator: " ")
+                                } }
                                 catch is CancellationError {} catch { errorMessage = error.localizedDescription }
                             }
                         }
                     } label: {
-                        Label(recorder.isRecording ? "Stop recording" : startingVoice ? "Starting…" : "Add a voice note",
+                        Label(recorder.isRecording ? "Stop & transcribe" : startingVoice ? "Starting…" : "Add a voice note",
                               systemImage: recorder.isRecording ? "stop.circle.fill" : "mic.fill")
-                    }.accessibilityIdentifier("editVoiceNote")
-                } header: { Text("The feeling behind it") } footer: {
-                    Text("Your voice becomes editable text using on-device recognition. Audio is not uploaded or retained.")
-                }
+                    }.disabled(recorder.isTranscribing).accessibilityIdentifier("editVoiceNote")
+                    VoiceDictationStatus(recorder: recorder)
+                } header: { Text("The feeling behind it") }
                 Section("Saved text") { TextField("Add a little more context", text: $text, axis: .vertical).lineLimit(3...10) }
-                if let message = errorMessage ?? recorder.errorMessage { Section { Text(message).foregroundStyle(.red) } }
+                if let message = errorMessage { Section { Text(message).foregroundStyle(.red) } }
             }
             .navigationTitle("Edit find").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(saving) }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        stopVoice(); saving = true
+                        saving = true
                         Task {
                             do {
                                 try await LocalLibrary.shared.update(item.id, title: title, note: note, text: text)
                                 FindsHaptics.success(); onSaved(); dismiss()
                             } catch { errorMessage = error.localizedDescription; saving = false }
                         }
-                    }.bold().disabled(saving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || title.count > 300 || note.count > 2000 || text.count > 12000)
+                    }.bold().disabled(saving || startingVoice || recorder.isRecording || recorder.isTranscribing || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || title.count > 300 || note.count > 2000 || text.count > 12000)
                 }
             }
-        }.onDisappear { stopVoice() }.interactiveDismissDisabled(saving)
-            .onChange(of: scenePhase) { _, phase in if phase != .active { stopVoice() } }
+        }.onDisappear { cancelVoice() }.interactiveDismissDisabled(saving)
+            .onChange(of: scenePhase) { _, phase in if phase == .background { cancelVoice() } }
     }
-    private func stopVoice() { voiceTask?.cancel(); voiceTask = nil; startingVoice = false; recorder.stop() }
+    private func cancelVoice() { voiceTask?.cancel(); voiceTask = nil; startingVoice = false; recorder.cancel() }
 }

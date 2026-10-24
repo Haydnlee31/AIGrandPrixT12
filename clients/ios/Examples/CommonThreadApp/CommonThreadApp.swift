@@ -13,6 +13,8 @@ struct CommonThreadApp: App {
         WindowGroup {
             FindsAppRoot()
                 .preferredColorScheme((AppAppearance(rawValue: appearance) ?? .system).colorScheme)
+                .task { SharedAppearance.set(appearance) }
+                .onChange(of: appearance) { _, value in SharedAppearance.set(value) }
         }
     }
 }
@@ -128,6 +130,7 @@ struct MymahFindsView: View {
             let arguments = ProcessInfo.processInfo.arguments
             if arguments.contains("-showExplore") || arguments.contains("-showYourFinds") { selectedTab = .explore }
             if arguments.contains("-showSavedPhoto") || arguments.contains("-showRefinement") { linkedFind = items.first { $0.hasImage && $0.client != "sample" } }
+            if arguments.contains("-showSavedLink") { linkedFind = items.first { !$0.originalUrl.isEmpty && $0.client != "sample" } }
             if arguments.contains("-showProfile") { selectedTab = .profile }
             if arguments.contains("-showCapture") || arguments.contains("-demoWatchDraft") { showingCapture = true }
             #endif

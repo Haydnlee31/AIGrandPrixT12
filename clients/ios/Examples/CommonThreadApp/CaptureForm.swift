@@ -84,7 +84,8 @@ struct CaptureForm: View {
             && (effectiveConnection == nil || (cloudCompatible && connectedNote.count <= maxNote))
     }
     private var frozen: Bool { pending != nil || saving || receipt != nil }
-    private var canSave: Bool { !saving && canRetry && receipt == nil && (pending != nil || valid) }
+    private var voiceBusy: Bool { startingVoice || recorder.isRecording || recorder.isTranscribing }
+    private var canSave: Bool { !saving && !voiceBusy && canRetry && receipt == nil && (pending != nil || valid) }
     private var currentAnalysisInput: AnalysisInput {
         AnalysisInput(url: cleanedLink, title: titleWasEdited ? title.trimmingCharacters(in: .whitespacesAndNewlines) : "",
                       text: savedText.trimmingCharacters(in: .whitespacesAndNewlines), attachmentIDs: attachments.map(\.id))
@@ -138,8 +139,8 @@ struct CaptureForm: View {
                 return true
             }
         }
-        .onDisappear { stopVoice() }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { stopVoice() } }
+        .onDisappear { cancelVoice() }
+        .onChange(of: scenePhase) { _, phase in if phase == .background { cancelVoice() } }
         .onChange(of: photoSelection) { _, selection in
             Task { await loadPhotos(selection) }
         }
@@ -171,19 +172,19 @@ struct CaptureForm: View {
                 }
                 Picker("Save format", selection: $format) {
                     ForEach(CaptureFormat.allCases) { Label($0.rawValue, systemImage: $0.symbol).tag($0) }
-                }.pickerStyle(.segmented).disabled(frozen).accessibilityIdentifier("captureFormat")
+                }.pickerStyle(.segmented).disabled(frozen || voiceBusy).accessibilityIdentifier("captureFormat")
 
                 if format == .photos || format == .files {
                     HStack(spacing: 12) {
                         PhotosPicker(selection: $photoSelection, maxSelectionCount: max(1, 10 - attachments.count), matching: .images) {
                             Label("Photos", systemImage: "photo.on.rectangle")
-                        }.buttonStyle(.bordered).disabled(frozen || loadingMedia)
+                        }.buttonStyle(.bordered).disabled(frozen || loadingMedia || voiceBusy)
                         if UIImagePickerController.isSourceTypeAvailable(.camera) {
                             Button { showingCamera = true } label: { Label("Camera", systemImage: "camera") }
-                                .buttonStyle(.bordered).disabled(frozen)
+                                .buttonStyle(.bordered).disabled(frozen || voiceBusy)
                         }
                         Button { showingFiles = true } label: { Label("Files", systemImage: "folder") }
-                            .buttonStyle(.bordered).disabled(frozen)
+                            .buttonStyle(.bordered).disabled(frozen || voiceBusy)
                     }
                     Text("Photos are optimized for your library. You can also keep PDFs, text files, short videos, and audio files on this iPhone.")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -221,26 +222,27 @@ struct CaptureForm: View {
                                 .font(.body.bold()).foregroundStyle(recorder.isRecording ? .red : .blue)
                                 .frame(width: 44, height: 44)
                                 .background(.blue.opacity(0.09), in: Circle())
-                        }.buttonStyle(.plain).disabled(frozen)
+                        }.buttonStyle(.plain).disabled(frozen || recorder.isTranscribing)
                             .accessibilityLabel(recorder.isRecording || startingVoice ? "Stop voice note" : "Record a voice note")
                             .accessibilityIdentifier("captureMicrophone")
                     }
                     TextField("The shape, the feeling, something you need…", text: $note, axis: .vertical)
                         .lineLimit(2...6).focused($focused, equals: .note)
-                        .disabled(frozen || recorder.isRecording || startingVoice)
+                        .disabled(frozen || voiceBusy)
                         .accessibilityIdentifier("captureNote")
                     HStack {
-                        Text(recorder.isRecording ? "Listening… tap stop to edit." : startingVoice ? "Starting microphone…" : "Optional. Type it or say it.")
+                        Text(startingVoice ? "Starting microphone…" : recorder.isRecording ? "Tap stop when you’re done." : "Optional. Type it or say it.")
                         Spacer()
                         if note.count > maxNote - 200 { Text("\(note.count)/\(maxNote)").foregroundStyle(note.count > maxNote ? .red : .secondary) }
                     }.font(.caption).foregroundStyle(.secondary)
+                    VoiceDictationStatus(recorder: recorder)
                     if pending == nil { predictiveNotes.id("capturePredictiveNotes") }
                     if effectiveConnection != nil && connectedNote.count > maxNote {
                         Text("Shorten your note or remove a selection before saving to your shared library.")
                             .font(.caption).foregroundStyle(.red)
                     }
                 }.padding(20).background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 24))
-                if let text = message ?? recorder.errorMessage {
+                if let text = message {
                     Label(text, systemImage: "info.circle").font(.subheadline).foregroundStyle(.secondary)
                         .accessibilityIdentifier("captureStatus")
                 }
@@ -257,7 +259,7 @@ struct CaptureForm: View {
                 if saving { ProgressView("Saving your find…").frame(maxWidth: .infinity) }
                 Button {
                     FindsHaptics.selection()
-                    focused = nil; stopVoice(); Task { await save() }
+                    focused = nil; Task { await save() }
                 } label: {
                     Text(pending == nil ? "Save find" : canRetry ? "Retry save" : "Reconnect or edit to continue")
                         .font(.headline.bold())
@@ -337,7 +339,7 @@ struct CaptureForm: View {
                     .font(.title3.weight(.semibold)).foregroundStyle(selected ? color : .secondary)
             }.padding(14).background(color.opacity(selected ? 0.11 : 0.035), in: RoundedRectangle(cornerRadius: 20))
                 .overlay { RoundedRectangle(cornerRadius: 20).strokeBorder(color.opacity(selected ? 0.7 : 0.13), lineWidth: 1) }
-        }.buttonStyle(.plain).disabled(frozen || recorder.isRecording || startingVoice)
+        }.buttonStyle(.plain).disabled(frozen || voiceBusy)
             .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -351,7 +353,8 @@ struct CaptureForm: View {
     }
     private func openRefinement(_ text: String) {
         guard let analysis = currentAnalysis, analysis.productName != nil, CaptureIntelligence.isConfigured else { return }
-        focused = nil; stopVoice()
+        guard !voiceBusy else { return }
+        focused = nil
         refinement = IntentRefinementContext(analysis: analysis, selectedIntent: text, existingIntents: selectedIntents)
     }
 
@@ -404,20 +407,23 @@ struct CaptureForm: View {
     }
 
     private func toggleVoice() {
-        if recorder.isRecording || startingVoice { stopVoice(); return }
+        if startingVoice { cancelVoice(); return }
+        if recorder.isRecording { recorder.stop(); return }
+        guard !recorder.isTranscribing else { return }
         focused = nil; startingVoice = true
-        let prefix = note.trimmingCharacters(in: .whitespacesAndNewlines)
         voiceTask = Task { @MainActor in
             defer { startingVoice = false }
             do {
-                try await recorder.start { words in note = prefix.isEmpty ? words : prefix + " " + words }
+                try await recorder.start { words in
+                    note = [note.trimmingCharacters(in: .whitespacesAndNewlines), words].filter { !$0.isEmpty }.joined(separator: " ")
+                }
             } catch is CancellationError {} catch { recorder.errorMessage = error.localizedDescription }
         }
     }
-    private func stopVoice() { voiceTask?.cancel(); voiceTask = nil; startingVoice = false; recorder.stop() }
+    private func cancelVoice() { voiceTask?.cancel(); voiceTask = nil; startingVoice = false; recorder.cancel() }
 
     @MainActor private func save() async {
-        guard !saving else { return }
+        guard !saving, !voiceBusy else { return }
         let analysisToSave = currentAnalysis
         saving = true; message = nil
         defer { saving = false }

@@ -8,9 +8,11 @@ generator_cache="${TMPDIR:-/tmp}/mymah-xcodegen-${generator_version}"
 generator_binary="$generator_cache/xcodegen/bin/xcodegen"
 
 # Download the pinned official release locally; no Homebrew/global install needed.
-if [ ! -x "$generator_binary" ]; then
+if [ ! -x "$generator_binary" ] || [ ! -f "$generator_cache/xcodegen/share/xcodegen/SettingPresets/base.yml" ]; then
     mkdir -p "$generator_cache"
-    curl -fsSL "https://github.com/yonaskolb/XcodeGen/releases/download/${generator_version}/xcodegen.zip" -o "$generator_cache/xcodegen.zip"
+    if [ ! -f "$generator_cache/xcodegen.zip" ]; then
+        curl -fsSL "https://github.com/yonaskolb/XcodeGen/releases/download/${generator_version}/xcodegen.zip" -o "$generator_cache/xcodegen.zip"
+    fi
     actual_sha=$(shasum -a 256 "$generator_cache/xcodegen.zip" | cut -d ' ' -f 1)
     if [ "$actual_sha" != "$generator_sha" ]; then
         echo "XcodeGen download checksum did not match the pinned release." >&2
