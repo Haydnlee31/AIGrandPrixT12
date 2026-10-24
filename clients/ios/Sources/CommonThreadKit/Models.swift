@@ -239,6 +239,7 @@ public struct CatalogSource: RawRepresentable, Codable, Sendable, Hashable {
         var container = encoder.singleValueContainer(); try container.encode(rawValue)
     }
     public static let impact = Self(rawValue: "impact"), cj = Self(rawValue: "cj")
+    public static let rakuten = Self(rawValue: "rakuten")
     public static let abo = Self(rawValue: "abo"), wands = Self(rawValue: "wands")
     public static let openBeautyFacts = Self(rawValue: "open_beauty_facts")
     public static let openProductsFacts = Self(rawValue: "open_products_facts")
@@ -279,7 +280,7 @@ public struct CatalogRecord: Codable, Sendable, Identifiable {
     public var id: String { "\(sourceId.rawValue):\(sourceRecordId)" }
     public let sourceId: CatalogSource
     public let sourceRecordId: String
-    /// merchant_feed, open_dataset, or synthetic. Historical/sample facts are not live offers.
+    /// merchant_feed, merchant_api, open_dataset, or synthetic. Historical/sample facts are not live offers.
     public let dataKind: String
     public let title: String
     public let description: String?
@@ -365,7 +366,7 @@ public struct ExplorePage: Codable, Sendable {
 public struct CatalogSourceStatus: Codable, Sendable, Identifiable {
     public var id: CatalogSource { sourceId }
     public let sourceId: CatalogSource
-    /// Configuration means imported source data is available; it does not imply a live merchant.
+    /// Local sources have imported data; live sources have server credentials. Neither verifies merchant access or stock.
     public let configured: Bool
     public let enabledFeeds: Int
     public let freshRecords: Int?

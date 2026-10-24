@@ -294,7 +294,7 @@ class RequestBoundary:
         self.app, self.token = app, token
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or scope["path"] not in {"/v1/capture-preview", "/v1/recommendations", "/v1/refine-intent", "/v1/dictation", "/v1/radar"}:
+        if scope["type"] != "http" or scope["path"] not in {"/v1/capture-preview", "/v1/recommendations", "/v1/refine-intent", "/v1/dictation", "/v1/radar", "/v1/catalog/status"}:
             return await self.app(scope, receive, send)
         headers = dict(scope.get("headers", []))
         authorization = headers.get(b"authorization", b"")

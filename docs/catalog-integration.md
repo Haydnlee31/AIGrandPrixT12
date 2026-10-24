@@ -1,5 +1,11 @@
 # Mymah Finds local catalog integration
 
+For the current native iOS relay, its separate recommendation database, the
+authenticated catalog-readiness check, Open Facts refresh tooling and optional
+Rakuten merchant search, see [free catalog providers](catalog-free-providers.md).
+The inventory below describes the existing licensed snapshots; a refresh does
+not imply additional records or current merchant offers.
+
 The current build uses licensed local datasets and a separate generated catalog. It needs **no developer account, API key or approval wait**. The eBay integration has been removed. Approved impact/CJ imports remain optional for later merchant access.
 
 ## Source inventory

@@ -139,6 +139,17 @@ class RecommendationResult(Contract):
     generated_at: float
 
 
+class CatalogReadinessSource(Contract):
+    source_id: str
+    record_count: int = Field(ge=0)
+
+
+class CatalogReadiness(Contract):
+    status: Literal["ready", "catalog_unavailable"]
+    catalog_count: int = Field(ge=0)
+    sources: list[CatalogReadinessSource]
+
+
 def _https_url(value):
     if not isinstance(value, str) or not value.startswith("https://"):
         return None
@@ -521,6 +532,43 @@ class LocalRecommendationService:
                 self.opened_identity = identity
             return self.factory
 
+    def catalog_status(self):
+        """Expose public catalog readiness without reading private saved finds.
+
+        Counts come from the atomic import audit, not a scan of every product.
+        An indexed existence check verifies that each reported snapshot still
+        has product rows and that the product table can actually be queried.
+        """
+        unavailable = CatalogReadiness(status="catalog_unavailable", catalog_count=0, sources=[])
+        try:
+            factory = self._factory()
+            if factory is None:
+                return unavailable
+            with factory() as db:
+                has_products = select(CatalogProduct.id).where(
+                    CatalogProduct.feed_id == CatalogFeed.id,
+                    CatalogProduct.import_id == CatalogFeed.last_import_id,
+                ).exists()
+                rows = db.execute(select(CatalogFeed.source_id, CatalogImport.row_count).join(
+                    CatalogImport,
+                    (CatalogImport.id == CatalogFeed.last_import_id) & (CatalogImport.feed_id == CatalogFeed.id),
+                ).where(CatalogFeed.source_id.in_(ELIGIBLE_SOURCES), CatalogFeed.enabled.is_(True),
+                        has_products)).all()
+            counts = {}
+            for source_id, count in rows:
+                if type(count) is not int or count < 0:
+                    return unavailable
+                if count:
+                    counts[source_id] = counts.get(source_id, 0) + count
+            sources = [CatalogReadinessSource(source_id=source, record_count=count)
+                       for source, count in sorted(counts.items())]
+            return CatalogReadiness(status="ready" if sources else "catalog_unavailable",
+                                    catalog_count=sum(counts.values()), sources=sources)
+        except (SQLAlchemyError, sqlite3.Error, OSError):
+            # A fresh clone, interrupted setup or unreadable catalog remains an
+            # explicit operational state; never serialize its local path/error.
+            return unavailable
+
     @staticmethod
     def _response(body, status=200, *, cache="miss"):
         return Response(body, status_code=status, media_type="application/json",
@@ -628,3 +676,7 @@ def register_recommendations(app: FastAPI, factory=None):
     @app.post("/v1/recommendations", response_model=RecommendationResult)
     def recommendations(request: RecommendationRequest):
         return service.recommendations(request)
+
+    @app.get("/v1/catalog/status", response_model=CatalogReadiness)
+    def catalog_status():
+        return JSONResponse(service.catalog_status().model_dump(), headers={"Cache-Control": "no-store"})
