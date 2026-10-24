@@ -32,6 +32,7 @@ from . import responses as schema
 from .catalog import schemas as catalog_schema
 from .catalog import service as catalog_service
 from .catalog.registry import DATASET_SOURCES
+from .catalog.rakuten import RakutenClient
 from . import library as library_service
 from .explore import ExplorePage, explore as explore_products
 
@@ -46,9 +47,10 @@ def row_dict(row):
     return {column.name: getattr(row, column.name) for column in row.__table__.columns if column.name not in {"user_id", "image_data_url"}}
 
 
-def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=None, allowed_origins=None, annotation_provider=None):
+def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=None, allowed_origins=None, annotation_provider=None, rakuten_client=None):
     engine, factory = make_database(database_url)
     provider = annotation_provider if annotation_provider is not None else get_annotation_provider()
+    rakuten = rakuten_client if rakuten_client is not None else RakutenClient.from_env()
     tokens = tokens if tokens is not None else json.loads(os.getenv("API_TOKENS", '{"demo-alex":"alex","demo-sam":"sam"}'))
     demo_mode = demo_mode if demo_mode is not None else os.getenv("DEMO_MODE", "true").lower() == "true"
     embedded_worker = embedded_worker if embedded_worker is not None else os.getenv("EMBEDDED_WORKER", "true").lower() == "true"
@@ -73,13 +75,15 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
             worker.join(timeout=45)
         elif hasattr(provider, "close"):
             provider.close()
+        rakuten.close()
         engine.dispose()
 
     app = FastAPI(title="Mymah Finds API", version="0.4.0", lifespan=lifespan,
         description="Shared Chrome and iOS backend. Server-configured predictive annotations; integer minor-unit prices; Unix seconds UTC. Mutation requests require Idempotency-Key. Suggestions record intent only; actions require separate confirmation and implementation.",
-        responses={status: {"model": schema.ErrorEnvelope} for status in [400, 401, 404, 409, 410, 422, 500, 503]})
+        responses={status: {"model": schema.ErrorEnvelope} for status in [400, 401, 404, 409, 410, 422, 429, 500, 503]})
     app.state.factory = factory
     app.state.annotation_provider = provider
+    app.state.rakuten_client = rakuten
     app.add_middleware(BodyLimitMiddleware, max_bytes=6 * 1024 * 1024)
     origins = allowed_origins if allowed_origins is not None else json.loads(os.getenv("CORS_ORIGINS", "[]"))
     def exact_origin(origin):
@@ -125,6 +129,10 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
 
     @app.exception_handler(catalog_service.CatalogError)
     async def catalog_error(request, error):
+        if error.code.startswith("rakuten_"):
+            retryable = error.code in {"rakuten_rate_limited", "rakuten_unavailable"}
+            status = 429 if error.code == "rakuten_rate_limited" else 503
+            return error_response(request, status, error.code, error.message, retryable=retryable)
         status = 503 if error.code in {"catalog_not_configured", "explore_context_changed"} else 404 if error.code == "catalog_record_not_found" else 422
         return error_response(request, status, error.code, error.message, retryable=error.code == "explore_context_changed")
 
@@ -262,23 +270,35 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
 
     @app.get("/v1/commerce/sources", response_model=catalog_schema.CatalogSources, tags=["Catalog integration"])
     def commerce_sources(user_id=Depends(user), db=Depends(database)):
-        return catalog_service.source_status(db)
+        result = catalog_service.source_status(db)
+        result["items"].append(rakuten.status())
+        return result
 
     @app.get("/v1/commerce/search", response_model=catalog_schema.CatalogSearchPage, tags=["Catalog integration"])
     def commerce_search(source: catalog_schema.SourceID, q: str = Query(min_length=1, max_length=100),
                         limit: int = Query(default=20, ge=1, le=50), offset: int = Query(default=0, ge=0, lt=1000000),
                         delivery_country: str | None = Query(default=None, pattern=r"^[A-Z]{2}$"), user_id=Depends(user)):
-        """Explicit source selection; licensed dataset content or fresh approved feed facts."""
+        """Explicit source selection; local datasets, approved feeds, or configured live APIs.
+
+        Rakuten uses 1–30 items per page and offsets divisible by the limit,
+        within its first 100 pages. Its Japan-market results are not included
+        in local Explore or dataset exports.
+        """
         if not q.strip() or any(ord(c) < 32 for c in q):
             raise APIError(422, "invalid_search", "Enter a search query without control characters")
+        if source == "rakuten":
+            return rakuten.search(q, limit=limit, offset=offset, delivery_country=delivery_country)
         if delivery_country is not None:
             raise APIError(422, "delivery_unknown", "Catalog data does not establish delivery eligibility; confirm with the merchant")
         with factory() as db:
             return catalog_service.search_feed(db, source, q, limit, offset)
 
     @app.get("/v1/commerce/items/{source}/{record_id}", response_model=catalog_schema.CatalogRecord, tags=["Catalog integration"])
-    def commerce_item(source: catalog_schema.SourceID, record_id: str, user_id=Depends(user), db=Depends(database)):
-        return catalog_service.get_record(db, source, record_id)
+    def commerce_item(source: catalog_schema.SourceID, record_id: str, user_id=Depends(user)):
+        if source == "rakuten":
+            return rakuten.get_item(record_id)
+        with factory() as db:
+            return catalog_service.get_record(db, source, record_id)
 
     @app.get("/v1/commerce/datasets/{source}/export", tags=["Catalog integration"], response_class=StreamingResponse,
              responses={200: {"description": "Source-isolated JSON Lines with license attribution", "content": {"application/x-ndjson": {"schema": {"type": "string"}}}}})

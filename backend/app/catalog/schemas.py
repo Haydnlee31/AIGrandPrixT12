@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 SourceID = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
-DataKind = Literal["merchant_feed", "open_dataset", "synthetic"]
+DataKind = Literal["merchant_feed", "merchant_api", "open_dataset", "synthetic"]
 
 
 def public_url(value: str) -> str:
@@ -105,7 +105,7 @@ class CatalogSearchPage(CatalogModel):
     expires_at: float | None
     environment: Literal["production", "local"]
     marketplace: str | None = None
-    retrieval: Literal["approved_feed", "local_dataset"]
+    retrieval: Literal["approved_feed", "live_api", "local_dataset"]
 
 
 class CatalogSourceStatus(CatalogModel):
@@ -121,10 +121,10 @@ class CatalogSourceStatus(CatalogModel):
     attribution: str | None = None
     environment: Literal["production", "local"]
     marketplace: str | None = None
-    retrieval: Literal["approved_feed", "local_dataset"]
+    retrieval: Literal["approved_feed", "live_api", "local_dataset"]
     allowed_uses: list[Literal["direct_display", "deterministic_search"]]
     ai_use: Literal["disabled"] = "disabled"
-    persistence: Literal["approved_snapshot", "licensed_dataset", "synthetic"]
+    persistence: Literal["approved_snapshot", "licensed_dataset", "synthetic", "none"]
 
 
 class CatalogSources(CatalogModel):
