@@ -1,3 +1,7 @@
+import { loadLogin } from "./auth.mjs";
+import { PendingCaptureStore } from "./pending.mjs";
+const pendingCaptures = new PendingCaptureStore(() => localStorage);
+import { SyncCheck } from "./sync.mjs";
 import { PagedFeed } from "./feed.mjs";
 import {
   priceText,
@@ -17,6 +21,8 @@ import {
   loadSavedLibrary,
 } from "./library.mjs";
 
+let login = null, loginUser = null, managedSession = false;
+const autoSync = new SyncCheck();
 const $ = (selector, root = document) => root.querySelector(selector);
 const escape = (value = "") =>
   String(value).replace(
@@ -91,7 +97,7 @@ const paths = {
 const icon = (name) =>
   `<svg class="inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.link}</svg>`;
 const name = () =>
-  account
+  managedSession && loginUser ? (loginUser.name || loginUser.email || 'Your space') : account
     ? account.user_id
         .replace(/[-_]/g, " ")
         .replace(/\b\w/g, (c) => c.toUpperCase())
@@ -119,7 +125,7 @@ function toast(message) {
 }
 function errorMessage(error) {
   if (error.status === 401)
-    return "Your library needs an access key. Connect from Profile to continue.";
+    return login ? "Sign in from Profile to continue syncing." : "Your library needs an access key. Connect from Profile to continue.";
   if (error.status === 410)
     return "This save was removed. Close this sheet and refresh your library before starting a new save.";
   if (error.code === "network_error" || error.code === "request_timeout")
@@ -344,7 +350,7 @@ function preference(id, label, glyph, options) {
 function profile() {
   return (
     header("Profile", "A space that’s yours.") +
-    `<div class="profile-layout"><div><section class="profile-card">${mascot(76)}<div class="profile-name"><h2>Mynah Finds</h2><p>${account ? `Shared library · ${escape(name())}` : "Your finds, kept close."}</p></div><div class="profile-stats"><div><strong>${items.length}</strong><span>Saved finds</span></div><div><strong>${items.filter((item) => item.has_image).length}</strong><span>With images</span></div></div></section><p class="profile-note">Your shared library follows you across connected devices. Finds saved only on your iPhone stay on that iPhone.</p></div><div><section class="settings-section"><h2>Make it yours</h2><div class="settings-group">${preference(
+    `<div class="profile-layout"><div><section class="profile-card">${mascot(76)}<div class="profile-name"><h2>Mynah Finds</h2><p>${account ? `Shared library · ${escape(name())}` : "Your finds, kept close."}</p></div><div class="profile-stats"><div><strong>${items.length}</strong><span>Saved finds</span></div><div><strong>${items.filter((item) => item.has_image).length}</strong><span>With images</span></div></div></section><p class="profile-note">Your library updates automatically while the app is open and catches up when you return. Use the same sign-in on each device. Finds saved only on your iPhone stay on that iPhone.</p></div><div><section class="settings-section"><h2>Make it yours</h2><div class="settings-group">${preference(
       "appearance",
       "Appearance",
       "appearance",
@@ -358,7 +364,7 @@ function profile() {
             `<option value="${v}" ${appearance === v ? "selected" : ""}>${l}</option>`,
         )
         .join(""),
-    )}${preference("profile-layout", "Library layout", "grid", ["grid", "list"].map((v) => `<option value="${v}" ${layout === v ? "selected" : ""}>${v === "grid" ? "Grid" : "List"}</option>`).join(""))}${preference("profile-sort", "Sort finds", "sort", sortOptions())}</div></section><section class="settings-section"><h2>Your library</h2><div class="settings-group">${setting("account", account ? "Switch account" : "Connect your library", account ? "Use another shared library" : "Use your library’s access key", "person")}${setting("refresh", "Refresh library", "Bring your latest saves into view", "refresh")}${setting("privacy", "Your data & privacy", "", "shield")}</div></section><section class="settings-section"><h2>A little help</h2><div class="settings-group">${setting("help", "Save from other apps", "", "link")}${setting("intro", "See the introduction again", "", "play")}</div></section>${account ? `<div class="settings-group">${setting("signout", "Sign out", "Remove access from this browser session", "logout", "danger")}</div>` : ""}</div></div>${banner()}<p class="profile-footer">Mynah Finds<span>Keep what catches your eye.</span></p>`
+    )}${preference("profile-layout", "Library layout", "grid", ["grid", "list"].map((v) => `<option value="${v}" ${layout === v ? "selected" : ""}>${v === "grid" ? "Grid" : "List"}</option>`).join(""))}${preference("profile-sort", "Sort finds", "sort", sortOptions())}</div></section><section class="settings-section"><h2>Your library</h2><div class="settings-group">${setting("account", login ? (loginUser ? "Sign-in details" : "Sign in") : (account ? "Switch account" : "Connect your library"), login ? (loginUser?.email || "One account across your devices") : (account ? "Use another shared library" : "Use your library’s access key"), "person")}${setting("refresh", "Refresh library", "Bring your latest saves into view", "refresh")}${setting("privacy", "Your data & privacy", "", "shield")}</div></section><section class="settings-section"><h2>A little help</h2><div class="settings-group">${setting("help", "Save from other apps", "", "link")}${setting("intro", "See the introduction again", "", "play")}</div></section>${account ? `<div class="settings-group">${setting("signout", "Sign out", "Sign out on this browser", "logout", "danger")}</div>` : ""}</div></div>${banner()}<p class="profile-footer">Mynah Finds<span>Keep what catches your eye.</span></p>`
   );
 }
 function applyAppearance() {
@@ -408,7 +414,7 @@ async function hydrateImages() {
           const response = await fetch(
             new URL(`/v1/saves/${encodeURIComponent(id)}/image`, api.baseURL),
             {
-              headers: { Authorization: `Bearer ${token}` },
+              headers: { Authorization: `Bearer ${typeof token === "function" ? await token() : token}` },
               cache: "no-store",
               redirect: "error",
               signal: mediaController.signal,
@@ -473,6 +479,7 @@ async function refresh({ fresh = false } = {}) {
       ]);
       if (revision !== connectionRevision) return;
       account = identity;
+      if (!captureAttempt) captureAttempt = pendingCaptures.get(identity.user_id);
       items = saves;
       capabilities = features;
       loading = false;
@@ -527,6 +534,11 @@ function resetConnection({ preserveCaptureFor = null } = {}) {
       pending = JSON.parse(store.get("mymah-finds-capture"));
     } catch {}
   }
+  if (pending?.accountId && pending.key) {
+    // Signing out must still clear private UI if browser storage is full.
+    try { pendingCaptures.put(pending); } catch {}
+  }
+  autoSync.reset();
   connectionRevision++;
   accountIntent++;
   refreshController?.abort();
@@ -555,6 +567,8 @@ function rememberCapture(payload) {
     account?.user_id,
     payload,
   ]);
+  if (captureAttempt && !captureAttempt.paused && !captureAttempt.expired && captureAttempt.fingerprint !== fingerprint)
+    throw new Error("Your earlier save is still waiting to sync. Retry it unchanged or close this sheet so it can sync automatically.");
   if (!captureAttempt || captureAttempt.fingerprint !== fingerprint)
     captureAttempt = {
       fingerprint,
@@ -563,11 +577,12 @@ function rememberCapture(payload) {
       accountId: account.user_id,
     };
   store.set("mymah-finds-capture", JSON.stringify(captureAttempt));
+  pendingCaptures.put(captureAttempt);
   return captureAttempt;
 }
 function openCapture() {
   if (!account) {
-    $("#account-dialog").showModal();
+    if (login) login.signIn(); else $("#account-dialog").showModal();
     return;
   }
   if ($("#help-dialog").open) $("#help-dialog").close();
@@ -788,6 +803,7 @@ document.addEventListener("click", async (event) => {
   if (action === "add") return openCapture();
   if (action === "new-save") {
     if (captureFlight) return;
+    pendingCaptures.remove(captureAttempt);
     captureAttempt = null;
     store.remove("mymah-finds-capture");
     $("#new-save").hidden = true;
@@ -796,7 +812,7 @@ document.addEventListener("click", async (event) => {
     $('#capture-form [type="submit"]').disabled = false;
     return;
   }
-  if (action === "account") return $("#account-dialog").showModal();
+  if (action === "account") return login ? (loginUser ? login.profile() : login.signIn()) : $("#account-dialog").showModal();
   if (action === "help") return $("#help-dialog").showModal();
   if (action === "detail" || action === "detail-refresh")
     return showDetail(button.dataset.id);
@@ -833,6 +849,7 @@ document.addEventListener("click", async (event) => {
     return;
   }
   if (action === "signout") {
+    if (managedSession) await login.signOut();
     resetConnection();
     token = "";
     store.set("mymah-finds-token", "");
@@ -933,6 +950,7 @@ document.addEventListener("submit", async (event) => {
       const saved = await client().capture(attempt.payload, {
         idempotencyKey: attempt.key,
       });
+      pendingCaptures.remove(attempt);
       if (revision !== connectionRevision) return;
       captureAttempt = null;
       store.remove("mymah-finds-capture");
@@ -994,6 +1012,11 @@ document.addEventListener("submit", async (event) => {
         store.set("mymah-finds-capture", JSON.stringify(captureAttempt));
         $("#new-save").hidden = false;
       }
+      if (captureAttempt) {
+        captureAttempt.paused = Boolean(error.status && ![401,403,408,429].includes(error.status) && error.status < 500);
+        captureAttempt.retryAt = Date.now() + 15000;
+        try { pendingCaptures.put(captureAttempt); } catch {}
+      }
     } else if (form.id === "account-form")
       $("#account-status").textContent = message;
     else if (form.id === "confirm-form")
@@ -1027,7 +1050,7 @@ document.addEventListener("keydown", (event) => {
   }
 });
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && !document.querySelector("dialog[open]")) refresh();
+  if (!document.hidden) syncAutomatically();
 });
 function syncViewport() {
   const viewport = window.visualViewport;
@@ -1054,4 +1077,57 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener(
 );
 applyAppearance();
 render();
+try {
+  login = await loadLogin(({token: nextToken, user}) => {
+    loginUser = user;
+    if (!nextToken && !managedSession) return;
+    managedSession = Boolean(nextToken);
+    resetConnection();
+    token = nextToken || "";
+    store.remove("mymah-finds-token");
+    store.remove("common-thread-token");
+    refresh();
+  });
+} catch (error) { loadError = error.message; }
 await refresh();
+if (new URLSearchParams(location.search).get('sign-in') === '1') {
+  history.replaceState(null, '', location.pathname + '#profile');
+  go('profile');
+  if (login && !login.user) login.signIn();
+}
+async function syncAutomatically() {
+  if (document.hidden || !navigator.onLine) return;
+  try { await login?.refresh(); } catch { return; }
+  if (!account && token && !refreshPromise) await refresh();
+  if (!account || refreshPromise || captureFlight || document.querySelector("dialog[open]")) return;
+  const api = client(), scope = account.user_id, syncRevision = connectionRevision;
+  try {
+    const pending = pendingCaptures.get(scope);
+    if (pending && !pending.expired && !pending.paused && !(pending.retryAt > Date.now())) {
+      const revision = connectionRevision, flight = {revision}; captureFlight = flight;
+      try {
+        await api.capture(pending.payload, {idempotencyKey:pending.key});
+        pendingCaptures.remove(pending);
+        if (revision === connectionRevision) {
+          captureAttempt = null; store.remove('mymah-finds-capture');
+          toast('Your pending find is now synced.');
+        }
+      } catch (error) {
+        pending.paused = Boolean(error.status && ![401,403,408,429].includes(error.status) && error.status < 500);
+        pending.retryAt = Date.now() + 60000;
+        pendingCaptures.put(pending);
+        throw error;
+      } finally { if (captureFlight === flight) captureFlight = null; }
+    }
+    if (syncRevision !== connectionRevision) return;
+    await autoSync.check({scope, state: () => api.request('/sync'), refresh: async () => {
+      await refresh();
+      if (loadError) throw new Error(loadError);
+    }});
+  } catch (error) {
+    if (error.status === 401) { loadError = "Please sign in again to sync your library."; render(); }
+  }
+}
+setInterval(syncAutomatically, 15000);
+window.addEventListener('focus', syncAutomatically);
+window.addEventListener('online', () => { autoSync.retryAt = 0; syncAutomatically(); });
