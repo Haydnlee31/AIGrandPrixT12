@@ -221,7 +221,7 @@ struct MymahFindsView: View {
             if arguments.contains("-showSavedLink") { linkedFind = items.first { !$0.originalUrl.isEmpty && $0.client != "sample" } }
             if arguments.contains("-showProfile") { selectedTab = .profile }
             if arguments.contains("-showRadar") { selectedTab = .radar }
-            if arguments.contains("-showCapture") || arguments.contains("-demoWatchDraft") { showingCapture = true }
+            if arguments.contains("-showCapture") || arguments.contains("-demoWatchDraft") || arguments.contains("-verifyMultimodalDraft") { showingCapture = true }
             #endif
         }
         .onOpenURL { url in

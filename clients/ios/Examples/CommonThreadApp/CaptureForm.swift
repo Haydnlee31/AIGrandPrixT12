@@ -52,6 +52,7 @@ struct CaptureForm: View {
         let title: String
         let text: String
         let attachmentIDs: [UUID]
+        let note: String
     }
     private struct AnalysisRequest: Equatable {
         let input: AnalysisInput
@@ -85,7 +86,7 @@ struct CaptureForm: View {
     private var canSave: Bool { !saving && canRetry && receipt == nil && (pending != nil || valid) }
     private var currentAnalysisInput: AnalysisInput {
         AnalysisInput(url: cleanedLink, title: titleWasEdited ? title.trimmingCharacters(in: .whitespacesAndNewlines) : "",
-                      text: savedText.trimmingCharacters(in: .whitespacesAndNewlines), attachmentIDs: attachments.map(\.id))
+                      text: savedText.trimmingCharacters(in: .whitespacesAndNewlines), attachmentIDs: attachments.map(\.id), note: note)
     }
     private var analysisRequest: AnalysisRequest {
         AnalysisRequest(input: currentAnalysisInput,
@@ -113,6 +114,16 @@ struct CaptureForm: View {
         .interactiveDismissDisabled(saving)
         .task {
             #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-verifyMultimodalDraft"), attachments.isEmpty {
+                let metadata = (try? await LocalLibrary.shared.metadata()) ?? [:]
+                let originals = metadata.values.flatMap(\.attachments).filter(\.isImage)
+                for attachment in Array(originals.sorted { $0.id.uuidString < $1.id.uuidString }.prefix(2)) {
+                    if let bytes = try? await LocalLibrary.shared.attachmentData(attachment) {
+                        try? addAttachment(CaptureMedia.image(bytes, name: attachment.filename))
+                    }
+                }
+                note = "Compare the dials and straps in these watches. Do not assume they are the same model."
+            }
             if ProcessInfo.processInfo.arguments.contains("-demoWatchDraft"), link.isEmpty, title.isEmpty, savedText.isEmpty {
                 format = .text
                 title = "Vintage-style digital watch"
@@ -262,7 +273,7 @@ struct CaptureForm: View {
                     .animation(.easeInOut(duration: 0.18), value: canSave)
                     .accessibilityIdentifier("captureSave")
                 Text(CaptureIntelligence.isConfigured
-                     ? "OpenAI analyzes this draft to suggest relevant notes. You can save without waiting."
+                     ? "OpenAI combines your photos and note. Analysis uses temporary server drafts; your library stays on this iPhone. You can save without waiting."
                      : "Your note stays with your find.")
                     .font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity)
             }.padding(24).frame(maxWidth: 600).frame(maxWidth: .infinity)
@@ -358,16 +369,25 @@ struct CaptureForm: View {
         if currentAnalysis != nil { return }
         analysis = nil; analysisInput = nil; analysisError = nil; analyzing = true
         do {
-            try await Task.sleep(for: .milliseconds(350))
+            try await Task.sleep(for: .milliseconds(700))
             try Task.checkCancellation()
             guard request == analysisRequest, requestID == analysisRequestID else { return }
             analyzing = true
-            let imageData = attachments.first { UTType($0.value.typeIdentifier)?.conforms(to: .image) == true }?.value.data
+            let images = attachments.filter { UTType($0.value.typeIdentifier)?.conforms(to: .image) == true }.map { $0.value.data }
+            let recordings = attachments.filter { UTType($0.value.typeIdentifier)?.conforms(to: .audio) == true }
+            guard recordings.count <= 1 else { throw MultimodalDraftAnalysis.Failure.unsupportedAudio }
+            let audio = try recordings.first.map { try MultimodalDraftAnalysis.Audio(data: $0.value.data, filename: $0.value.filename) }
             let result = try await CaptureIntelligence.analyze(url: request.input.url.isEmpty ? nil : request.input.url,
-                title: request.input.title, text: request.input.text, note: note, imageData: imageData)
+                title: request.input.title, text: request.input.text, note: request.input.note, imageData: images.first, additionalImages: Array(images.dropFirst()), audio: audio)
             try Task.checkCancellation()
             guard request == analysisRequest, requestID == analysisRequestID else { return }
             analysis = result; analysisInput = request.input
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-verifyMultimodalDraft") {
+                let report = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("multimodal-device-verification.json")
+                try? JSONEncoder().encode(result).write(to: report, options: .atomic)
+            }
+            #endif
             if !titleWasEdited, let name = result.productName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
                 title = String(name.prefix(maxTitle))
             }

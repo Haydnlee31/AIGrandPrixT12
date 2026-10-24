@@ -213,10 +213,12 @@ struct LocalExploreScreen: View {
             for find in missing {
                 try Task.checkCancellation(); analyzing = true
                 do {
-                    var bytes: Data?
-                    if let image = metadata[find.id]?.attachments.first(where: \.isImage) { bytes = try await LocalLibrary.shared.attachmentData(image) }
+                    var images: [Data] = []
+                    for image in metadata[find.id]?.attachments.filter(\.isImage) ?? [] {
+                        images.append(try await LocalLibrary.shared.attachmentData(image))
+                    }
                     let result = try await CaptureIntelligence.analyze(url: find.originalUrl.isEmpty ? nil : find.originalUrl,
-                        title: find.title, text: find.selectedText, note: find.note, imageData: bytes)
+                        title: find.title, text: find.selectedText, note: find.note, imageData: images.first, additionalImages: Array(images.dropFirst()))
                     try Task.checkCancellation()
                     try await LocalLibrary.shared.setAnalysis(find.id, result); changed = true
                 } catch is CancellationError { throw CancellationError() }

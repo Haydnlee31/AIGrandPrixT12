@@ -4,13 +4,19 @@ import UIKit
 import LinkPresentation
 import UniformTypeIdentifiers
 import CryptoKit
+import CommonThreadKit
 
 /// The phone holds only a scoped relay credential. The OpenAI key stays on the server.
 enum CaptureIntelligence {
     struct Configuration: Codable, Sendable {
         let baseURL: URL
         let accessToken: String
+        var multimodalURL: URL? = nil
+        var multimodalToken: String? = nil
         func validated() throws -> Self {
+            if let multimodalURL, let multimodalToken {
+                _ = try Configuration(baseURL: multimodalURL, accessToken: multimodalToken).validated()
+            } else if multimodalURL != nil || multimodalToken != nil { throw Failure.configuration }
             guard let parts = URLComponents(url: baseURL, resolvingAgainstBaseURL: false),
                   parts.scheme == "https", let host = parts.host, host.contains("."),
                   parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil,
@@ -89,16 +95,18 @@ enum CaptureIntelligence {
     @MainActor private static var analysisCache: [String: CachedAnalysis] = [:]
     @MainActor private static var pageCache: [URL: PageContext] = [:]
 
-    @MainActor static func analyze(url: String?, title: String, text: String, note: String, imageData: Data?, preferCapturedContent: Bool = false) async throws -> CaptureIntelligenceResult {
+    @MainActor static func analyze(url: String?, title: String, text: String, note: String, imageData: Data?, preferCapturedContent: Bool = false, additionalImages: [Data] = [], audio: MultimodalDraftAnalysis.Audio? = nil) async throws -> CaptureIntelligenceResult {
         try Task.checkCancellation()
         guard let configuration = try configuration() else { throw Failure.configuration }
         // Exact source identity lets repeated view updates reuse a completed request.
         // In-flight work remains caller-owned, so source changes cancel it normally.
         let identity: [String: Any] = ["url": url ?? "", "title": title, "text": text, "note": note,
             "image": imageData.map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() } ?? "",
+            "audio": audio.map { SHA256.hash(data: $0.data).map { String(format: "%02x", $0) }.joined() } ?? "",
+            "additional_images": additionalImages.map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() },
             "prefer_captured": preferCapturedContent]
         let source = try JSONSerialization.data(withJSONObject: identity, options: [.sortedKeys])
-        let namespace = Data((configuration.baseURL.absoluteString + "|" + configuration.accessToken).utf8)
+        let namespace = Data((configuration.baseURL.absoluteString + "|" + configuration.accessToken + "|" + (configuration.multimodalURL?.absoluteString ?? "") + "|" + (configuration.multimodalToken ?? "")).utf8)
         let cacheKey = SHA256.hash(data: namespace + source).map { String(format: "%02x", $0) }.joined()
         if let cached = analysisCache[cacheKey], Date().timeIntervalSince(cached.savedAt) < 120 { return cached.result }
         var contextTitle = title
@@ -134,7 +142,21 @@ enum CaptureIntelligence {
         if let data = contextImage, let bytes = contextImageIsPrepared ? data : preparedImage(data) {
             payload["image_data_url"] = "data:image/jpeg;base64," + bytes.base64EncodedString()
         }
-        let data = try await post(path: "v1/capture-preview", body: JSONSerialization.data(withJSONObject: payload))
+        let data: Data
+        if let origin = configuration.multimodalURL, let token = configuration.multimodalToken {
+            let images = [contextImage].compactMap { $0 } + additionalImages
+            guard images.count <= 4 else { throw MultimodalDraftAnalysis.Failure.tooManyImages }
+            let prepared = try images.map { image -> Data in
+                guard let value = preparedImage(image) else { throw Failure.unreadable }
+                return value
+            }
+            let value = try await MultimodalDraftAnalysis.analyze(origin: origin, token: token,
+                title: String(contextTitle.prefix(300)), text: String(contextText.prefix(12_000)),
+                note: String(note.prefix(2_000)), url: url, images: prepared, audio: audio)
+            data = try JSONEncoder().encode(value)
+        } else {
+            data = try await post(path: "v1/capture-preview", body: JSONSerialization.data(withJSONObject: payload))
+        }
         do {
             let value = try JSONDecoder().decode(CaptureIntelligenceResult.self, from: data)
             guard value.schemaVersion == 2, value.prompts.count <= 3, value.prompts.allSatisfy({ !$0.text.isEmpty && $0.text.count <= 180 }),

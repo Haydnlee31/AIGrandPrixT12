@@ -329,10 +329,13 @@ struct ShareCaptureView: View {
             guard intelligenceLifecycle.accepts(requestID, request: request, current: intelligenceRequest,
                                                  cancelled: Task.isCancelled) else { return }
             let snapshot = draft
-            let image = snapshot.attachments.first { UTType($0.typeIdentifier)?.conforms(to: .image) == true }?.data
+            let images = snapshot.attachments.filter { UTType($0.typeIdentifier)?.conforms(to: .image) == true }.map(\.data)
+            let recordings = snapshot.attachments.filter { UTType($0.typeIdentifier)?.conforms(to: .audio) == true }
+            guard recordings.count <= 1 else { throw MultimodalDraftAnalysis.Failure.unsupportedAudio }
+            let audio = try recordings.first.map { try MultimodalDraftAnalysis.Audio(data: $0.data, filename: $0.filename) }
             let result = try await CaptureIntelligence.analyze(
                 url: snapshot.url, title: titleWasEdited ? snapshot.title : sourceTitle, text: snapshot.text, note: snapshot.note,
-                imageData: image, preferCapturedContent: true
+                imageData: images.first, preferCapturedContent: true, additionalImages: Array(images.dropFirst()), audio: audio
             )
             guard intelligenceLifecycle.accepts(requestID, request: request, current: intelligenceRequest,
                                                  cancelled: Task.isCancelled) else { return }

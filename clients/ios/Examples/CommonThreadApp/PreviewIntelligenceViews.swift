@@ -132,11 +132,13 @@ struct LocalIntelligencePreview: View {
             readMetadata(metadata)
             guard metadata?.analysis?.schemaVersion != 2 else { return }
             analyzing = true
-            var image: Data?
-            if let attachment = metadata?.attachments.first(where: \.isImage) { image = try await LocalLibrary.shared.attachmentData(attachment) }
+            var images: [Data] = []
+            for attachment in metadata?.attachments.filter(\.isImage) ?? [] {
+                images.append(try await LocalLibrary.shared.attachmentData(attachment))
+            }
             try Task.checkCancellation()
             let result = try await CaptureIntelligence.analyze(url: item.originalUrl.isEmpty ? nil : item.originalUrl,
-                title: item.title, text: item.selectedText, note: item.note, imageData: image)
+                title: item.title, text: item.selectedText, note: item.note, imageData: images.first, additionalImages: Array(images.dropFirst()))
             try Task.checkCancellation()
             guard analysisRequestID == requestID else { return }
             guard try await LocalLibrary.shared.setAnalysis(result, matching: input) else { return }

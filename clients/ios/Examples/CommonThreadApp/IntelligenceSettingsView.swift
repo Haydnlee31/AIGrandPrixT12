@@ -43,7 +43,7 @@ struct IntelligenceSettingsView: View {
                 }
             }
             Section("Your content") {
-                Text("While connected, the selected photo and product context are sent through this service to OpenAI for analysis. Your library remains on this iPhone. Responses may be cached by the service for one hour; the request disables OpenAI response storage.")
+                Text("While connected, selected photos, supported audio and product context are sent to OpenAI for analysis. Your library remains on this iPhone. Multimodal drafts are deleted after completion or cancellation when reachable; interrupted cleanup can leave temporary server data. OpenAI response storage is disabled.")
                 Text("Price watches are separate: the service stores the exact product link, target and observed prices for watches you create. Stop tracking a product in Radar to remove that watch and its history.")
                 Text("A development relay works while its host and secure tunnel are running. Your team can replace the service address with a permanent deployment.")
             }.font(.footnote).foregroundStyle(.secondary)
@@ -62,7 +62,8 @@ struct IntelligenceSettingsView: View {
             let supplied = token.trimmingCharacters(in: .whitespacesAndNewlines)
             // A new origin must be explicitly paired with its token; never forward an old credential elsewhere.
             guard !supplied.isEmpty || old?.baseURL == url else { throw CaptureIntelligence.Failure.configuration }
-            try CaptureIntelligence.configure(.init(baseURL: url, accessToken: supplied.isEmpty ? old?.accessToken ?? "" : supplied))
+            try CaptureIntelligence.configure(.init(baseURL: url, accessToken: supplied.isEmpty ? old?.accessToken ?? "" : supplied,
+                multimodalURL: old?.multimodalURL, multimodalToken: old?.multimodalToken))
             token = ""; configured = true; status = "Connection saved securely."
         } catch { status = error.localizedDescription }
     }
