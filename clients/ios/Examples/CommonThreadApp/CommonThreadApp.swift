@@ -209,7 +209,7 @@ struct MymahFindsView: View {
             #if DEBUG
             // Deterministic visual acceptance on a connected physical iPhone.
             let arguments = ProcessInfo.processInfo.arguments
-            if arguments.contains("-showExplore") || arguments.contains("-showYourFinds") { selectedTab = .explore }
+            if arguments.contains("-showExplore") || arguments.contains("-showYourFinds") || arguments.contains("-showTasteLab") { selectedTab = .explore }
             if arguments.contains("-showSavedPhoto") || arguments.contains("-showRefinement") { linkedFind = items.first { $0.hasImage && $0.client != "sample" } }
             if arguments.contains("-showSavedLink") { linkedFind = items.first { !$0.originalUrl.isEmpty && $0.client != "sample" } }
             if arguments.contains("-showProfile") { selectedTab = .profile }

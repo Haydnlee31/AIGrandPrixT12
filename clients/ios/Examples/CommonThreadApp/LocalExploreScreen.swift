@@ -63,6 +63,8 @@ struct LocalExploreScreen: View {
     let libraryRevision: String
     var refreshID = UUID()
     var onlyFindID: String? = nil
+    var sessionBrief: String? = nil
+    @State private var showingTasteLab = false
     var onChanged: () -> Void = {}
     @State private var finds: [SavedItem] = []
     @State private var metadata: [String: LocalFindMetadata] = [:]
@@ -81,10 +83,28 @@ struct LocalExploreScreen: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
+                if sessionBrief == nil && onlyFindID == nil {
+                    Button { showingTasteLab = true } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "slider.horizontal.3").font(.title2).foregroundStyle(.purple)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Taste Lab").font(.headline)
+                                Text("Find what makes a reading corner feel right.").font(.subheadline).foregroundStyle(.secondary)
+                            }
+                            Spacer(); Image(systemName: "chevron.right")
+                        }.padding(18).background(.quaternary, in: RoundedRectangle(cornerRadius: 22))
+                    }.buttonStyle(.plain)
+                }
                 recommendations
             }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 24)
         }
         .scrollDismissesKeyboard(.interactively)
+        .onAppear {
+            #if DEBUG
+            if sessionBrief == nil && ProcessInfo.processInfo.arguments.contains("-showTasteLab") { showingTasteLab = true }
+            #endif
+        }
+        .sheet(isPresented: $showingTasteLab) { TasteLabScreen() }
         .task(id: taskID) { await load() }
     }
     @ViewBuilder private var recommendations: some View {
@@ -125,7 +145,7 @@ struct LocalExploreScreen: View {
         }
     }
     @ViewBuilder private var emptyState: some View {
-        if finds.isEmpty {
+        if finds.isEmpty && sessionBrief == nil {
             LibraryEmptyState(symbol: "bookmark", title: "Find your next favourite.", detail: "Save an image or link to get recommendations based on what you like.")
         } else if !CaptureIntelligence.isConfigured {
             LibraryEmptyState(symbol: "sparkles", title: "Connect AI.", detail: "Open AI & privacy in Profile.")
@@ -147,6 +167,9 @@ struct LocalExploreScreen: View {
         if let focusedFind, !finds.contains(where: { $0.id == focusedFind }) { self.focusedFind = nil }
     }
     @MainActor private func payload() throws -> Data {
+        if let sessionBrief {
+            return try JSONSerialization.data(withJSONObject: ["finds": [["id": "taste-lab-session", "title": "Your Taste Lab choices", "intents": [sessionBrief], "analysis": ["product_name": sessionBrief, "category_path": [TasteLabSession.productType(for: sessionBrief) ?? "unknown"], "summary": "User-confirmed brief from an illustrative reading-corner comparison."]]], "query": "", "limit": 24])
+        }
         let input: [[String: Any]] = try finds.filter { (onlyFindID ?? focusedFind) == nil || $0.id == (onlyFindID ?? focusedFind) }.prefix(24).map { find in
             let context = metadata[find.id] ?? LocalFindMetadata()
             // Duplicate saves keep their complete notes locally; transport respects
@@ -160,14 +183,19 @@ struct LocalExploreScreen: View {
         }
         return try JSONSerialization.data(withJSONObject: ["finds": input, "query": String(query.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100)), "limit": 24], options: [.sortedKeys])
     }
+    private func filteredPage(_ value: LocalRecommendationPage) -> LocalRecommendationPage {
+        guard let sessionBrief else { return value }
+        let items = value.items.filter { TasteLabSession.suitableTitle($0.title, for: TasteLabSession.productType(for: sessionBrief)) }
+        return LocalRecommendationPage(status: items.isEmpty ? "no_matches" : "ready", items: items, catalogCount: value.catalogCount)
+    }
     @MainActor private func requestRecommendations(force: Bool) async throws {
         let body = try payload()
         if lastPayload != body { page = nil }
         lastPayload = body
-        if let cached = try RecommendationCache.cached(body) { page = try JSONDecoder().decode(LocalRecommendationPage.self, from: cached) }
+        if let cached = try RecommendationCache.cached(body) { page = filteredPage(try JSONDecoder().decode(LocalRecommendationPage.self, from: cached)) }
         let data = try await RecommendationCache.fetch(body, force: force)
         try Task.checkCancellation()
-        page = try JSONDecoder().decode(LocalRecommendationPage.self, from: data)
+        page = filteredPage(try JSONDecoder().decode(LocalRecommendationPage.self, from: data))
     }
     @MainActor private func load() async {
         guard !Task.isCancelled else { return }
@@ -175,7 +203,7 @@ struct LocalExploreScreen: View {
         defer { if !Task.isCancelled { busy = false; analyzing = false } }
         do {
             try await readLibrary()
-            if finds.isEmpty || !CaptureIntelligence.isConfigured { page = nil; lastPayload = nil; return }
+            if (finds.isEmpty && sessionBrief == nil) || !CaptureIntelligence.isConfigured { page = nil; lastPayload = nil; return }
             try await Task.sleep(for: .milliseconds(query.isEmpty ? 60 : 230))
             let force = forceNext || (previousRefresh != nil && previousRefresh != refreshID)
             forceNext = false
@@ -183,7 +211,7 @@ struct LocalExploreScreen: View {
             // Show available recommendations before doing any additional model work.
             try await requestRecommendations(force: force)
             busy = false
-            guard query.isEmpty else { return }
+            guard query.isEmpty && sessionBrief == nil else { return }
             let missing = finds.filter { ((onlyFindID ?? focusedFind) == nil || $0.id == (onlyFindID ?? focusedFind)) && metadata[$0.id]?.analysis?.schemaVersion != 2 }.prefix(2)
             var changed = false
             for find in missing {
