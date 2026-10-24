@@ -1,10 +1,10 @@
-# Mymah Finds — iOS handoff
+# Mynah Finds — iOS handoff
 
 **Native frontend update, 25 October 2026:** the iPhone app now defaults to a persistent on-device library with four labeled sample finds, onboarding, capture with optional editable voice notes, search and saved-item details. It requires no backend/database setup. Profile can optionally connect the existing shared backend; local finds remain separate. The shared SDK, outbox, Keychain and Share Extension paths are preserved. The Share Extension still requires a connected shared account. See [build and validation](ios-build.md).
 
 The native integration lives in `clients/ios`. The SwiftUI host uses exactly three native tabs: **Library**, **Search**, and **Profile**. Library contains the person’s saved content; Search filters titles, notes, saved text and URLs already loaded into that library; Profile holds connection, session and pending-save controls. There is no Map or Community tab. The browser interface in `frontend/` is a separate client.
 
-Intelligence and catalog integration are deferred. Keep suggestions, discovery, recommendations, price watches and processing status out of the current interface. A successful capture receipt immediately means **Saved to your library**. The `CommonThreadKit` SDK and existing Keychain/App Group identifiers retain their internal names for compatibility; visible app and Share Sheet names are **Mymah Finds**.
+Intelligence and catalog integration are deferred. Keep suggestions, discovery, recommendations, price watches and processing status out of the current interface. A successful capture receipt immediately means **Saved to your library**. The `CommonThreadKit` SDK and existing Keychain/App Group identifiers retain their internal names for compatibility; visible app and Share Sheet names are **Mynah Finds**.
 
 ## What is ready
 
@@ -24,7 +24,7 @@ Intelligence and catalog integration are deferred. Keep suggestions, discovery, 
 2. In `clients/ios/project.yml`, replace `COMMON_THREAD_BUNDLE_PREFIX`, `COMMON_THREAD_APP_GROUP` and the Keychain group suffix with identifiers owned by your team. Set `DEVELOPMENT_TEAM`. Both targets must use the same registered App Group and shared Keychain access group; the extension bundle ID must be under the app’s ID.
 3. Run `sh clients/ios/Scripts/generate-project.sh` and select the **Mymah Finds** scheme. Check Signing & Capabilities for both targets. Commit the generated project, plists and entitlements with their `project.yml` source.
 4. Build and run on an iPhone simulator or device; the local library works immediately. For optional shared-backend integration, expand **Connect a shared library** in **Profile** and enter the backend origin and a team-supplied token. No token is compiled into the app. This uses the existing bearer-token backend; do not invent Apple/Google sign-in or other authentication functionality before the server supports it.
-5. Share a web link from Safari, choose **Save to Mymah Finds**, review the content and tap Save. iOS controls Share Sheet presentation; users may need to enable/reorder the extension in the sheet’s options. The installed host app contains the extension—there is no Chrome-style installation inside iOS.
+5. Share a web link from Safari, choose **Save to Mynah Finds**, review the content and tap Save. iOS controls Share Sheet presentation; users may need to enable/reorder the extension in the sheet’s options. The installed host app contains the extension—there is no Chrome-style installation inside iOS.
 
 Use a trusted HTTPS development endpoint, including for a physical iPhone. The client accepts origin-only URLs and permits HTTP only for `localhost`, `127.0.0.1` and `::1`; remote/LAN HTTP and URL path prefixes are rejected. No global App Transport Security bypass is included. `localhost` on a physical iPhone refers to that phone, not your Mac. Use a trusted HTTPS dev tunnel or HTTPS LAN endpoint, with the correct server bind/firewall and local-network permission. If your localhost simulator setup requires a transport exception, scope it to Debug and the development host; never ship a broad arbitrary-load exception.
 

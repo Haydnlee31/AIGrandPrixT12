@@ -6,7 +6,7 @@ enum SetupError: Error, LocalizedError {
     case missingConfiguration, keychain(OSStatus), accountChanged
     var errorDescription: String? {
         switch self {
-        case .missingConfiguration: return "Open Mymah Finds and connect your account in Profile first."
+        case .missingConfiguration: return "Open Mynah Finds and connect your account in Profile first."
         case .keychain(let status): return "Secure credential storage failed (\(status)). Check signing and Keychain Sharing."
         case .accountChanged: return "The signed-in account changed. Reconnect before syncing this account’s saves."
         }

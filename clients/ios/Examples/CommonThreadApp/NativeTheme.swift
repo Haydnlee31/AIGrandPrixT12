@@ -22,16 +22,14 @@ struct NativePrimaryButton: View {
 }
 
 struct FindsMark: View {
+    var size: CGFloat = 116
+
     var body: some View {
-        Image(systemName: "bookmark.fill")
-            .font(.system(size: 70, weight: .black))
-            .rotationEffect(.degrees(-10))
-            .overlay(alignment: .top) {
-                HStack(spacing: 8) {
-                    Capsule().frame(width: 7, height: 5)
-                    Capsule().frame(width: 7, height: 5)
-                }.foregroundStyle(NativeTheme.bg).padding(.top, 22).rotationEffect(.degrees(-10))
-            }
+        Image("MynahMascot")
+            .renderingMode(.original)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
             .accessibilityHidden(true)
     }
 }

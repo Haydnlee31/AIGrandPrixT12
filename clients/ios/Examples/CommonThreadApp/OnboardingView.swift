@@ -21,7 +21,7 @@ struct FindsOnboardingView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let titles = ["A home for\nevery little find.", "Save the thing.\nKeep the feeling.", "Start small.\nMake it yours."]
     private let subtitles = [
-        "The links you love, collected in one calm place. Welcome to Mymah Finds.",
+        "The links you love, collected in one calm place. Welcome to Mynah Finds.",
         "What caught your eye? Add a note, or say it out loud and edit the words before saving.",
         "Explore a few sample finds, then add your own links. Your saves stay on this iPhone. You can connect a separate shared library later."
     ]
@@ -31,7 +31,7 @@ struct FindsOnboardingView: View {
                 if step > 0 {
                     Button { move(to: step - 1) } label: { Image(systemName: "chevron.left").font(.body.bold()).frame(width: 44, height: 44) }
                         .accessibilityLabel("Previous introduction")
-                } else { Text("Mymah Finds").font(.headline.bold()) }
+                } else { Text("Mynah Finds").font(.headline.bold()) }
                 Spacer()
                 Button("Skip", action: onComplete).foregroundStyle(.secondary).frame(minWidth: 44, minHeight: 44)
                     .accessibilityIdentifier("onboardingSkip")

@@ -28,6 +28,11 @@ Asset: `Examples/CommonThreadApp/Assets.xcassets/ceramics.imageset/ceramics.png`
 
 Prompt: Use case: photorealistic-natural. Create one original portrait 2:3 editorial home detail photograph for a premium home inspiration app. A small collection of earthy sculptural ceramic vases and bowls arranged on a walnut shelf against a warm cream plaster wall. Organic minimal shapes, a few beautifully imperfect handmade surfaces, terracotta, sand, warm cream and muted brown. Soft side window light and nuanced shadows, tactile high-end editorial photography, restrained composition and subtle film grain. No people, no typography, no logos, no watermark, no UI, no screenshot, no collage.
 
-## App icon
+## Mynah Finds branding
 
-Original vector bookmark icon, rendered with `Scripts/make-app-icon.swift` into `Examples/CommonThreadApp/Assets.xcassets/AppIcon.appiconset/AppIcon.png`. No third-party logo assets are used.
+The app icon and Javan mynah mascot reuse the team's existing platform-icons-v2 artwork from the [branding branch](https://github.com/Haydnlee31/AIGrandPrixT12/tree/838cab2fb229d6cecb8d1e19ef22d71a9ee53c04/assets/branding/platform-icons-v2). No new image generation was used for this integration; the original prompts and export instructions live with that source artwork.
+
+- `Examples/CommonThreadApp/Assets.xcassets/AppIcon.appiconset/AppIcon.png` is the unchanged opaque 1024px iOS icon (`ios/AppIcon.appiconset/AppIcon-1024.png`): the mynah with its yellow price tag on blue. The existing universal iOS icon catalog supplies the app icon.
+- `Examples/CommonThreadApp/Assets.xcassets/MynahMascot.imageset/MynahMascot.png` is the unchanged transparent bird (`masters/chrome-transparent.png`). `FindsMark` uses it for onboarding, the Profile header and the empty library. Its ivory edge keeps the dark feathers visible in dark mode.
+
+The obsolete bookmark icon generator was removed so it cannot overwrite the supplied branding. Ordinary bookmark symbols still indicate saved items; they are not the mascot.
