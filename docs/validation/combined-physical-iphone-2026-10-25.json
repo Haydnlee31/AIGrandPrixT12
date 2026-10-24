@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-25",
+  "source_branch": "codex/combined-multimodal-app",
+  "source_commit": "5d81243",
+  "device": "Physical iPhone 17 Pro",
+  "build": "Debug iphoneos build and installation passed",
+  "backend": "https://mynah-finds.vercel.app",
+  "multimodal_enabled": true,
+  "device_analysis": {
+    "analyzed_at": 1792886222,
+    "images": 2,
+    "prompts": 3,
+    "distinct_watch_comparison": true
+  },
+  "preservation": {
+    "library_json_unchanged": true,
+    "saved_items": 12,
+    "original_photo_files_byte_identical": 3,
+    "shared_library_enabled": false
+  },
+  "regression": {
+    "backend_tests_passed": 127,
+    "native_smokes_passed": [
+      "local_analysis",
+      "multimodal_flow",
+      "shared_multimodal",
+      "local_library",
+      "appearance_state"
+    ]
+  },
+  "limits": [
+    "Physical microphone recording not reverified.",
+    "Share-sheet gestures not repeated in this pass.",
+    "Automated tests do not establish every external retailer listing is available."
+  ]
+}
