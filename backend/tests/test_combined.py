@@ -23,7 +23,8 @@ def combined(tmp_path):
 
 def test_one_origin_serves_both_native_and_shared_routes(combined):
     headers = {"Authorization": "Bearer alex-session"}
-    assert combined.get("/health").json() == {"status": "ok", "ready": False, "multimodal": True}
+    assert combined.get("/health").json() == {"status": "ok", "ready": False, "multimodal": True,
+        "demo_mode": True, "inference_provider": "demo-rules-v1"}
     assert combined.get("/v1/me", headers=headers).json()["user_id"] == "alex"
     assert combined.get("/v1/multimodal/capabilities", headers=headers).json()["enabled"] is True
     assert combined.get("/v1/catalog/status", headers=headers).status_code == 200
@@ -83,6 +84,19 @@ def test_startup_requires_key_and_never_leaks_malformed_value(tmp_path):
         configure(config, {})
     assert "secret-sample" not in str(error.value)
     configure(tmp_path / "missing", {"MULTIMODAL_ENABLED": "false"})
+
+
+def test_local_configuration_preserves_managed_login_and_rejects_misspelled_flags(tmp_path):
+    path = tmp_path / ".env"
+    path.write_text('NEON_AUTH_URL=https://test.example.org/db/auth\nNEON_ACCOUNT_LINKS={"verified-user":"existing-library"}\nAUTH_WEB_ORIGIN=https://app.example.org\nCAPTURE_IMAGE_BYTES=3145728\nMULTIMODAL_ENABLED=false\n')
+    env = {}
+    configure(path, env)
+    assert env["NEON_AUTH_URL"] == "https://test.example.org/db/auth"
+    assert json.loads(env["NEON_ACCOUNT_LINKS"]) == {"verified-user": "existing-library"}
+    assert env["AUTH_WEB_ORIGIN"] == "https://app.example.org"
+    assert env["CAPTURE_IMAGE_BYTES"] == "3145728"
+    with pytest.raises(ValueError, match="true or false"):
+        configure(tmp_path / "missing", {"MULTIMODAL_ENABLED": "yes"})
 
 
 def test_login_cookie_preflight_retains_credentials_while_api_does_not(combined):

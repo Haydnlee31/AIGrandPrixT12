@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-25",
+  "status": "passed",
+  "chrome_unit_tests": 70,
+  "live_http": {
+    "status": "passed",
+    "checks": [
+      "actual_capture_upload_audio_analysis",
+      "explicit_voice_review",
+      "corrected_transcript_reanalysis",
+      "shared_library_publication",
+      "contextual_preview_display_model",
+      "voice_library_search",
+      "annotation_reanalysis",
+      "explore_contract",
+      "durable_resume_without_duplicate",
+      "delete_shared_save_and_media"
+    ]
+  },
+  "live_provider_counts": {
+    "analysis_invocations": 3,
+    "transcription_invocations": 1,
+    "responses_requests": 3,
+    "transcription_requests": 1
+  },
+  "installed_browser": {
+    "status": "passed",
+    "mode": "installed_chromium_fixture",
+    "checks": [
+      "manifest_and_service_worker_loaded",
+      "profile_and_authenticated_connection",
+      "actual_microphone_capture_to_pcm_wav",
+      "multiple_image_save_and_transcript_review",
+      "transcript_correction_reanalysis",
+      "explicit_publication_and_predictive_intent",
+      "library_search_analyzed_and_voice_context",
+      "personalized_explore_and_source_citation",
+      "panel_reload_recovers_shared_local_mirror",
+      "disconnect_hides_account_scoped_saves",
+      "reconnect_and_delete_media_evidence"
+    ],
+    "uncaught_errors": 0,
+    "test_host_pregranted": true,
+    "external_managed_login": "unit-tested; no personal account used",
+    "visual_review": [
+      "Header and navigation correct at scrollTop=0",
+      "Recording and transcript controls use matching rounded44px touch targets",
+      "Repeated complete fixture journey passed after CSS polish"
+    ]
+  },
+  "validation_setup_notes": [
+    "The first live pass completed processing and search but lacked a catalog in its isolated database. The catalog was seeded and the complete journey passed on the second pass.",
+    "Total live usage across both passes: six analysis requests and two transcription requests.",
+    "Browser checks used deterministic analysis fixtures and synthetic microphone input. Loopback host access was pregranted only in the temporary test manifest.",
+    "No personal Chrome profile, media, Library records or authentication account was used."
+  ],
+  "remaining_manual_checks": [
+    "Physical microphone hardware",
+    "External managed-login session against the deployed service",
+    "Chrome optional-host permission dialog approval/rejection"
+  ]
+}

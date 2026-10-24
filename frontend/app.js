@@ -1,6 +1,6 @@
 import { loadLogin } from "./auth.mjs";
 import { PendingCaptureStore } from "./pending.mjs";
-import { saveSharedCapture } from "./multimodal.mjs";
+import { saveSharedCapture, contextualPrompts } from "./multimodal.mjs";
 const pendingCaptures = new PendingCaptureStore(() => localStorage);
 import { SyncCheck } from "./sync.mjs";
 import { PagedFeed } from "./feed.mjs";
@@ -545,6 +545,7 @@ function resetConnection({ preserveCaptureFor = null } = {}) {
   refreshController?.abort();
   refreshPromise = null;
   captureAttempt = null;
+  captureFlight?.controller?.abort();
   captureFlight = null;
   removeAttempt = null;
   removalAttempts.clear();
@@ -615,11 +616,14 @@ function detailTop(label) {
 }
 function detailMarkup(item) {
   const href = safeLink(item.original_url),
-    analysis = item.analysis;
+    analysis = item.analysis,
+    prompts = contextualPrompts(item);
+  const contextChoices = prompts.length
+    ? `<section class="detail-note"><h3>Make this find yours</h3>${prompts.map(prompt => `<p>${escape(prompt.question)}</p><button class="intent-choice" data-action="contextual-annotate" data-id="${escape(item.id)}" data-answer="${escape(prompt.text)}">${icon("plus")} ${escape(prompt.text)}</button>`).join("")}<button class="text-button" data-action="skip-intent" data-id="${escape(item.id)}">Skip for now</button><p class="field-help">Choose only what fits. Your answer adds context to this find.</p></section>` : "";
   return (
     detailTop(sourceLabel(item)) +
     media(item, true) +
-    `<h2 id="detail-title">${escape(item.title)}</h2><p class="detail-meta">Saved ${date(item.captured_at)} · ${escape(item.has_image && !href ? "Photo" : sourceHost(item))}</p>${item.note ? `<section class="detail-note"><h3>Your note</h3><p>${escape(item.note)}</p></section>` : ""}${item.selected_text ? `<section class="detail-note"><h3>Saved text</h3><p>${escape(item.selected_text)}</p></section>` : ""}<section class="detail-note"><h3>Based on your find</h3>${analysis ? `<p>${escape(analysis.summary)}</p>${analysis.uncertainties?.length ? `<details><summary>A few things to check</summary><ul>${analysis.uncertainties.map((text) => `<li>${escape(text)}</li>`).join("")}</ul></details>` : ""}` : `<p>${item.analysis_status === "pending" ? "Your find is saved. Taking a closer look…" : item.analysis_status === "failed" ? "Your find is saved. We couldn’t finish looking at it yet." : "Your original and note are here. Add a little context to make this find yours."}</p>`}${capabilities?.features?.product_analysis ? `<button class="text-button" data-action="analyze" data-id="${escape(item.id)}">${analysis ? "Refresh ideas" : "Take a closer look"}</button>` : ""}<button class="text-button" data-action="detail-refresh" data-id="${escape(item.id)}">Refresh this find</button></section>${item.suggestions?.length ? `<section class="detail-note"><h3>What caught your eye?</h3><p>Add a little context, in your own words.</p>${item.suggestions.map((suggestion) => `<button class="intent-choice" data-action="annotate" data-id="${escape(item.id)}" data-suggestion="${escape(suggestion.id)}">${icon("plus")} ${escape(suggestion.text)}</button>`).join("")}<button class="text-button" data-action="skip-intent" data-id="${escape(item.id)}">Skip for now</button><p class="field-help">These choices save your intent. They don’t schedule reminders, monitor prices or make purchases.</p></section>` : ""}<p id="detail-status" role="status"></p>${href ? `<a class="primary wide" href="${escape(href)}" target="_blank" rel="noopener noreferrer">Open original ${icon("arrow")}</a>` : ""}<button class="text-button danger wide" data-action="remove" data-id="${escape(item.id)}">${icon("trash")} Remove from Library</button>`
+    `<h2 id="detail-title">${escape(item.title)}</h2><p class="detail-meta">Saved ${date(item.captured_at)} · ${escape(item.has_image && !href ? "Photo" : sourceHost(item))}</p>${item.note ? `<section class="detail-note"><h3>Your note</h3><p>${escape(item.note)}</p></section>` : ""}${item.selected_text ? `<section class="detail-note"><h3>Saved text</h3><p>${escape(item.selected_text)}</p></section>` : ""}<section class="detail-note"><h3>Based on your find</h3>${analysis ? `<p>${escape(analysis.summary)}</p>${analysis.uncertainties?.length ? `<details><summary>A few things to check</summary><ul>${analysis.uncertainties.map((text) => `<li>${escape(text)}</li>`).join("")}</ul></details>` : ""}` : `<p>${item.analysis_status === "pending" ? "Your find is saved. Taking a closer look…" : item.analysis_status === "failed" ? "Your find is saved. We couldn’t finish looking at it yet." : "Your original and note are here. Add a little context to make this find yours."}</p>`}${capabilities?.features?.product_analysis ? `<button class="text-button" data-action="analyze" data-id="${escape(item.id)}">${analysis ? "Refresh ideas" : "Take a closer look"}</button>` : ""}<button class="text-button" data-action="detail-refresh" data-id="${escape(item.id)}">Refresh this find</button></section>${contextChoices}${!prompts.length && item.suggestions?.length ? `<section class="detail-note"><h3>What caught your eye?</h3><p>Add a little context, in your own words.</p>${item.suggestions.map((suggestion) => `<button class="intent-choice" data-action="annotate" data-id="${escape(item.id)}" data-suggestion="${escape(suggestion.id)}">${icon("plus")} ${escape(suggestion.text)}</button>`).join("")}<button class="text-button" data-action="skip-intent" data-id="${escape(item.id)}">Skip for now</button><p class="field-help">These choices save your intent. They don’t schedule reminders, monitor prices or make purchases.</p></section>` : ""}<p id="detail-status" role="status"></p>${href ? `<a class="primary wide" href="${escape(href)}" target="_blank" rel="noopener noreferrer">Open original ${icon("arrow")}</a>` : ""}<button class="text-button danger wide" data-action="remove" data-id="${escape(item.id)}">${icon("trash")} Remove from Library</button>`
   );
 }
 function showDetail(id) {
@@ -687,7 +691,9 @@ async function mutateDetail(button, action) {
       ? null
       : action === "skip-intent"
         ? { action: "skip" }
-        : { action: "select", suggestion_id: button.dataset.suggestion };
+        : action === "contextual-annotate"
+          ? { action: "edit", text: button.dataset.answer }
+          : { action: "select", suggestion_id: button.dataset.suggestion };
   const fingerprint = JSON.stringify([action, payload]);
   const prior = detailAttempts.get(id);
   if (prior && prior.fingerprint !== fingerprint) {
@@ -818,7 +824,7 @@ document.addEventListener("click", async (event) => {
   if (action === "detail" || action === "detail-refresh")
     return showDetail(button.dataset.id);
   if (action === "idea") return showIdea(Number(button.dataset.index));
-  if (["annotate", "skip-intent", "analyze"].includes(action))
+  if (["annotate", "contextual-annotate", "skip-intent", "analyze"].includes(action))
     return mutateDetail(button, action);
   if (action === "intro" || action === "privacy") return showInfo(action);
   if (action === "retry-search" || action === "more-search")
@@ -919,7 +925,7 @@ document.addEventListener("submit", async (event) => {
     deletion = removeAttempt;
   const revision = connectionRevision,
     intent = form.id === "account-form" ? ++accountIntent : null;
-  const flight = form.id === "capture-form" ? { revision } : null;
+  const flight = form.id === "capture-form" ? { revision, controller: new AbortController() } : null;
   if (flight) captureFlight = flight;
   if (submit) submit.disabled = true;
   if (form.id === "capture-form")
@@ -951,7 +957,7 @@ document.addEventListener("submit", async (event) => {
       const saved = await saveSharedCapture(client(), attempt,
         value => pendingCaptures.put(value),
         message => { if (revision === connectionRevision) $("#capture-status").textContent = message; },
-        {retryFailed:true});
+        {retryFailed:true, signal:flight.controller.signal, isCurrent:() => revision === connectionRevision});
       pendingCaptures.remove(attempt);
       if (revision !== connectionRevision) return;
       captureAttempt = null;
@@ -1106,15 +1112,17 @@ async function syncAutomatically() {
   try {
     const pending = pendingCaptures.get(scope);
     if (pending && !pending.expired && !pending.paused && !(pending.retryAt > Date.now())) {
-      const revision = connectionRevision, flight = {revision}; captureFlight = flight;
+      const revision = connectionRevision, flight = {revision, controller:new AbortController()}; captureFlight = flight;
       try {
-        await saveSharedCapture(api, pending, value => pendingCaptures.put(value));
+        await saveSharedCapture(api, pending, value => pendingCaptures.put(value), () => {},
+          {signal:flight.controller.signal, isCurrent:() => revision === connectionRevision});
         pendingCaptures.remove(pending);
         if (revision === connectionRevision) {
           captureAttempt = null; store.remove('mymah-finds-capture');
           toast('Your pending find is now synced.');
         }
       } catch (error) {
+        if (revision !== connectionRevision) throw error;
         pending.paused = Boolean(error.status && ![401,403,408,429].includes(error.status) && error.status < 500);
         pending.retryAt = Date.now() + 60000;
         pendingCaptures.put(pending);

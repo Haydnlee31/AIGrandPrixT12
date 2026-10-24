@@ -317,6 +317,8 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
     def health():
         return {"status": "ok", "demo_mode": demo_mode, "inference_provider": provider.version}
 
+    app.state.health = health
+
     @app.get("/v1/auth/config", response_model=schema.LoginConfig, tags=["System"])
     def auth_config():
         return login.public_config()

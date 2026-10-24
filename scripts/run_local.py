@@ -11,7 +11,8 @@ sys.path.insert(0, str(ROOT))
 SETTINGS = frozenset({"DATABASE_URL", "API_TOKENS", "DEMO_MODE", "EMBEDDED_WORKER", "CORS_ORIGINS",
     "ANNOTATION_PROVIDER", "ASTRA_API_KEY", "OPENAI_API_KEY", "ASTRA_MODEL", "ASTRA_SERVICE_TIER",
     "MULTIMODAL_ENABLED", "MULTIMODAL_TRANSCRIPTION_MODEL", "EXPLORE_CATALOG_SOURCE",
-    "RAKUTEN_APPLICATION_ID", "RAKUTEN_ACCESS_KEY", "RAKUTEN_AFFILIATE_ID", "MYMAH_PRICE_DIRECTORY"})
+    "RAKUTEN_APPLICATION_ID", "RAKUTEN_ACCESS_KEY", "RAKUTEN_AFFILIATE_ID", "MYMAH_PRICE_DIRECTORY",
+    "NEON_AUTH_URL", "NEON_ACCOUNT_LINKS", "AUTH_WEB_ORIGIN", "CAPTURE_IMAGE_BYTES", "CRON_SECRET"})
 
 
 def configure(path, environ=None):
@@ -45,6 +46,11 @@ def configure(path, environ=None):
     target.setdefault("MULTIMODAL_ENABLED", "true")
     target.setdefault("EMBEDDED_WORKER", "true")
     target.setdefault("ANNOTATION_PROVIDER", "auto")
+    for flag in ("MULTIMODAL_ENABLED", "EMBEDDED_WORKER"):
+        value = target[flag].strip().lower()
+        if value not in {"true", "false"}:
+            raise ValueError(f"Set {flag} to true or false.")
+        target[flag] = value
     if target["MULTIMODAL_ENABLED"].lower() == "true" and not (target.get("ASTRA_API_KEY") or target.get("OPENAI_API_KEY")):
         raise ValueError("Configure ASTRA_API_KEY or OPENAI_API_KEY on the backend before starting multimodal analysis.")
 

@@ -108,6 +108,16 @@ struct SharedMultimodalSmoke {
         try check(!deleted, "successful shared publication retains its server media")
         let persisted = try String(contentsOf: file, encoding: .utf8)
         try check(!persisted.contains("user-alice"), "queue never persists bearer credentials")
+        let cancelled = PendingSharedMultimodal(id: "cancelled-save", accountID: "alice", origin: origin, localID: "keep-local",
+            request: .init(title: "Local recovery", text: "Keep this"), attachments: [], reviewedTranscript: nil)
+        try await reopened.enqueue(cancelled)
+        do { try await reopened.discard(cancelled.id, client: client, accountID: "bob", origin: origin); throw Failure.assertion("wrong account discarded queue") }
+        catch SharedMultimodalOutbox.Failure.account {}
+        let stillPending = try await reopened.pending(accountID: "alice", origin: origin)
+        try check(stillPending.count == 1, "account mismatch never removes pending content")
+        try await reopened.discard(cancelled.id, client: client, accountID: "alice", origin: origin)
+        let afterCancel = try await reopened.pending(accountID: "alice", origin: origin)
+        try check(afterCancel.isEmpty && !deleted, "cancelling an unsent request only removes its queue entry")
         print("PASS shared multi-image + voice publication, interrupted upload replay, restart, account isolation and credential exclusion")
     }
 }

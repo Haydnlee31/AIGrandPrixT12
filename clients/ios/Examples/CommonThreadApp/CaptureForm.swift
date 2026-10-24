@@ -148,6 +148,7 @@ struct CaptureForm: View {
         .onChange(of: scenePhase) { _, phase in if phase != .active { voiceRecorder.stop() } }
         .onDisappear { voiceRecorder.cancel() }
         .onChange(of: currentAnalysisInput) { _, _ in
+            if !frozen { localRecoveryID = UUID().uuidString }
             analysis = nil; analysisInput = nil; analysisError = nil; analyzing = false
             if !titleWasEdited { title = "" }
         }

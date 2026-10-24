@@ -41,8 +41,10 @@ const imageReceipt = await api.capture({title:'Screenshot smoke',image_data,clie
 const screenshot = await api.waitForSave(imageReceipt.id,{intervalMs:100});
 assert.equal(screenshot.has_image,true);
 assert.equal((await api.getMedia(screenshot.id)).image_data,image_data);
-await api.respond(screenshot.id,{action:'select',suggestion_id:screenshot.suggestions[1].id},mutation());
-assert.equal((await api.getSave(screenshot.id)).responses.at(-1).payload.label,'Plan something from it');
+const inspiration = screenshot.suggestions.find(suggestion => suggestion.claim === 'inspiration_only');
+assert.ok(inspiration, 'Unknown image in no-key mode must offer an honest inspiration-only choice');
+await api.respond(screenshot.id,{action:'select',suggestion_id:inspiration.id},mutation());
+assert.equal((await api.getSave(screenshot.id)).responses.at(-1).payload.label,inspiration.text);
 await api.deleteSave(screenshot.id,mutation());
 await assert.rejects(api.getMedia(screenshot.id),error=>error.status===404);
 console.log('Image HTTP smoke passed: image upload → shared question → intent → private media → deletion.');

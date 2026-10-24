@@ -168,3 +168,8 @@ dialog::backdrop { background: #0005; }
 .voice-review textarea { width: 100%; box-sizing: border-box; margin: 8px 0 12px; }
 .voice-review button { margin: 4px 8px 4px 0; }
 #profile-view { padding: 24px 0; }
+.voice-tools .secondary, .voice-review .primary, .voice-review .secondary, #profile-connect {
+  min-height: 44px; padding: 11px 16px; border-radius: 999px; font-size: 13px; font-weight: 600;
+}
+.voice-review .primary, .voice-review .secondary { width: 100%; margin: 5px 0; }
+.voice-review h3 { margin-top: 0; }

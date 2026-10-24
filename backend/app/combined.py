@@ -26,7 +26,7 @@ def create_app(*, tokens=None, api_key=None, model=None, price_directory=None,
 
     tokens = tokens if tokens is not None else json.loads(os.getenv("API_TOKENS", '{"demo-alex":"alex","demo-sam":"sam"}'))
     main = create_main(tokens=tokens, **(main_options or {}))
-    key = api_key if api_key is not None else os.getenv("ASTRA_API_KEY") or os.getenv("OPENAI_API_KEY", "")
+    key = (api_key if api_key is not None else os.getenv("ASTRA_API_KEY") or os.getenv("OPENAI_API_KEY", "")).strip()
     selected_model = model or os.getenv("ASTRA_MODEL", "gpt-6-astra")
     store = Path(price_directory or ("/tmp/mymah-price-watches" if os.getenv("VERCEL")
         else os.getenv("MYMAH_PRICE_DIRECTORY", "local-data/price-watches")))
@@ -63,7 +63,7 @@ def create_app(*, tokens=None, api_key=None, model=None, price_directory=None,
 
     @app.get("/health")
     async def health():
-        return JSONResponse({"status": "ok", "ready": bool(key),
+        return JSONResponse({**main.state.health(), "ready": bool(key),
                              "multimodal": main.state.multimodal.enabled},
                             headers={"Cache-Control": "no-store"})
 

@@ -264,6 +264,18 @@ def annotation_from_result(result, model_version, *, image_present=False):
                        for claim in ("save_inspiration", "compare_options", "buy_intent")]}, model_version)
 
 
+def capture_source(url):
+    """Match the existing Chrome URL classifier without fetching the source."""
+    if not url:
+        return "other"
+    host = (urlsplit(url).hostname or "").lower()
+    if host == "pinterest.com" or host.endswith(".pinterest.com"):
+        return "pinterest"
+    if host == "instagram.com" or host.endswith(".instagram.com"):
+        return "instagram"
+    return "web"
+
+
 class MultimodalService:
     def __init__(self, factory, provider=None, enabled=None):
         self.factory = factory
@@ -563,7 +575,7 @@ def register_multimodal(app, service, *, user, database, mutate, state_for, APIE
             assets = assets_for(db, capture)
             image = next((a for a in assets if a.kind == "image"), None)
             item = SavedItem(user_id=user_id, title=capture.title or capture.result["preview"].get("product_name") or "Saved content",
-                original_url=capture.url or "", canonical_url="multimodal:" + capture.id, source="other", client=capture.client,
+                original_url=capture.url or "", canonical_url="multimodal:" + capture.id, source=capture_source(capture.url), client=capture.client,
                 selected_text=capture.text, note=capture.note,
                 image_data_url="data:" + image.media_type + ";base64," + base64.b64encode(image.content).decode() if image else None)
             db.add(item)

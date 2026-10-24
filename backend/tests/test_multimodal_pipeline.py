@@ -599,6 +599,25 @@ def test_explicit_publish_preserves_analysis_search_citations_and_annotation_onl
     assert items[0]["catalog_citation"]["record_id"] == "digital"
 
 
+@pytest.mark.parametrize("url,expected", [
+    ("https://www.instagram.com/p/watch", "instagram"),
+    ("https://instagram.com/p/watch", "instagram"),
+    ("https://WWW.PINTEREST.COM/pin/watch", "pinterest"),
+    ("https://pinterest.com/pin/watch", "pinterest"),
+    ("https://instagram.com.unrelated.example/watch", "web"),
+    ("https://example.com/watch", "web"),
+    (None, "other"),
+])
+def test_publication_retains_platform_source_for_library_filters(client, url, expected):
+    capture = ready(client, images=1, url=url)
+    saved_id = publish(client, capture)["id"]
+    saved = client.get(f"/v1/saves/{saved_id}").json()
+    assert saved["source"] == expected
+    assert saved["original_url"] == (url or "")
+    collection = client.get("/v1/collection").json()["items"]
+    assert [item["id"] for item in collection if item["source"] == expected] == [saved_id]
+
+
 def test_shared_library_deletion_erases_linked_multimodal_assets_and_results(client):
     capture = ready(client, audio=True)
     receipt = publish(client, capture)

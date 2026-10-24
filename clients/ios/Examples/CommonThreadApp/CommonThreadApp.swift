@@ -518,11 +518,11 @@ struct MymahFindsView: View {
                 .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 20))
                 .accessibilityIdentifier("libraryError")
         }
-        if !pendingSaves.isEmpty {
+        if !pendingSaves.isEmpty || !pendingMultimodal.isEmpty {
             Button { selectedTab = .profile } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "arrow.triangle.2.circlepath")
-                    Text("\(pendingSaves.count) \(pendingSaves.count == 1 ? "save" : "saves") waiting to sync").font(.subheadline.weight(.semibold))
+                    Text("\(pendingSaves.count + pendingMultimodal.count) \(pendingSaves.count + pendingMultimodal.count == 1 ? "save" : "saves") waiting to sync").font(.subheadline.weight(.semibold))
                     Spacer(); Image(systemName: "chevron.right").font(.caption.bold())
                 }.padding(16).background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 20))
             }.buttonStyle(.plain)

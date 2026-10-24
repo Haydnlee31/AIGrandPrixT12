@@ -90,6 +90,7 @@ actor SharedMultimodalOutbox {
 
     func discard(_ id: String, client: CommonThreadClient, accountID: String, origin: URL) async throws {
         guard !active.contains(id) else { throw Failure.busy }
+        guard try await client.account().userId == accountID else { throw Failure.account }
         guard let entry = try read().first(where: { $0.id == id }), entry.accountID == accountID, entry.origin == origin else { throw Failure.missing }
         if let captureID = entry.captureID {
             do {

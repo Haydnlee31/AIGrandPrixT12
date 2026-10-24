@@ -18,7 +18,7 @@ enum SetupError: Error, LocalizedError {
 /// and queued captures. The explicitly group-free local device build uses its host
 /// sandbox instead. Credentials always remain in the shared Keychain access group.
 /// Local Share Extension captures use LocalShareInbox, independently of cloud login.
-struct SharedEnvironment: Codable {
+struct SharedEnvironment: Codable, Sendable {
     let baseURL: URL
     let accountId: String
     var loginSubject: String? = nil
