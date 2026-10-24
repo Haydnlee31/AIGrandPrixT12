@@ -15,7 +15,7 @@ docs
 reports
 extension
 experiments
-assets
+/assets
 research_notes
 .pytest_cache
 **/__pycache__
