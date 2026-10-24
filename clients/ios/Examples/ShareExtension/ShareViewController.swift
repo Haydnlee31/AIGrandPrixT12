@@ -502,7 +502,7 @@ struct ShareCaptureView: View {
                 let configuration = URLSessionConfiguration.ephemeral
                 configuration.timeoutIntervalForRequest = 10; configuration.timeoutIntervalForResource = 12
                 do {
-                    let client = try CommonThreadClient(baseURL: destination.baseURL, session: URLSession(configuration: configuration)) { try destination.token() }
+                    let client = try CommonThreadClient(baseURL: destination.baseURL, session: URLSession(configuration: configuration)) { try await destination.accessToken() }
                     try await destination.verify(client)
                     _ = try await client.capture(capture.request, key: capture.key)
                     sharedUploadConfirmed = true

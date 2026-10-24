@@ -95,6 +95,7 @@ struct MymahFindsView: View {
     @State private var selectedTab: Tab = .library
     @State private var apiURL = "https://mynah-finds.vercel.app"
     @State private var token = ""
+    @State private var showingLogin = false
     @State private var items: [SavedItem] = []
     @State private var pendingSaves: [PendingCapture] = []
     @State private var pendingErrors: [String: String] = [:]
@@ -422,7 +423,10 @@ struct MymahFindsView: View {
                 }
                 if let connection {
                     Section("Your library") {
-                        LabeledContent("Account", value: connection.accountId)
+                        LabeledContent("Account", value: connection.email ?? connection.accountId)
+                        if connection.loginSubject == nil {
+                            Button("Use email sign-in") { showingLogin = true }.disabled(busy)
+                        }
                         LabeledContent("Connection", value: connection.baseURL.host ?? connection.baseURL.absoluteString)
                         Text("New supported saves sync automatically. The library refreshes while the app is open.")
                             .font(.footnote).foregroundStyle(.secondary)
@@ -432,7 +436,8 @@ struct MymahFindsView: View {
                     }
                 } else {
                     Section {
-                        DisclosureGroup("Connect a shared library") {
+                        Button("Sign in with email") { showingLogin = true }.font(.headline).disabled(busy)
+                        DisclosureGroup("Demo access key / server settings") {
                             TextField("Server address", text: $apiURL).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                                 .accessibilityIdentifier("serverURL")
                             SecureField("Access key", text: $token).textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -442,7 +447,7 @@ struct MymahFindsView: View {
                                 .accessibilityIdentifier("connectLibrary")
                         }
                     } header: { Text("Sync") } footer: {
-                        Text("Use the same Mynah account key as the web app and Chrome extension. New shared saves use server-side AI. Existing iPhone finds stay local until you choose to copy them.")
+                        Text("Use the same email as the web app and Chrome extension. New shared saves use server-side AI. Existing iPhone finds stay local until you choose to copy them.")
                     }
                 }
                 Section(connection == nil ? "Storage" : "Sync") {
@@ -478,6 +483,11 @@ struct MymahFindsView: View {
                 }
             }
             .scrollContentBackground(.hidden).background(NativeTheme.bg).navigationTitle("Profile")
+            .sheet(isPresented: $showingLogin) {
+                if let url = URL(string: apiURL) {
+                    AccountSignInView(baseURL: url) { credential in try await connectLogin(credential, baseURL: url) }
+                }
+            }
         }.id(accountGeneration)
     }
 
@@ -592,6 +602,21 @@ struct MymahFindsView: View {
             items = page.items; nextOffset = page.nextOffset
             status = "Your library is connected."; selectedTab = .library
         } catch { errorMessage = error.localizedDescription; status = "Connection needs attention." }
+    }
+    private func connectLogin(_ credential: LoginCredential, baseURL: URL) async throws {
+        let auth = try NeonSessionClient(baseURL: baseURL)
+        let session = try await auth.token(for: credential)
+        let api = try CommonThreadClient(baseURL: baseURL) { session.token }
+        let identity = try await api.account()
+        _ = try await api.capabilities()
+        let environment = SharedEnvironment(baseURL: baseURL, accountId: identity.userId,
+                                            loginSubject: credential.subject, email: credential.email)
+        try environment.store(token: String(decoding: JSONEncoder().encode(session.credential), as: UTF8.self))
+        try environment.store()
+        accountGeneration = UUID(); connection = environment; localCopyResult = nil; token = ""
+        items = []; pendingSaves = []; nextOffset = nil; selectedSource = nil; pendingErrors = [:]
+        status = "Signed in. Your library updates automatically."
+        await refresh()
     }
     private func refresh(offset: Int = 0, retryRejected: Bool = false, preserveLoadedPages: Bool = false) async {
         guard !busy else { return }
@@ -717,6 +742,11 @@ struct MymahFindsView: View {
         }
     }
     private func signOut() {
+        if let environment = connection, environment.loginSubject != nil,
+           let stored = try? environment.token(),
+           let credential = try? JSONDecoder().decode(LoginCredential.self, from: Data(stored.utf8)) {
+            Task { try? await NeonSessionClient(baseURL: environment.baseURL).signOut(credential) }
+        }
         do {
             try connection?.signOut()
             accountGeneration = UUID(); connection = nil; localCopyResult = nil; items = []; pendingSaves = []; pendingErrors = [:]
