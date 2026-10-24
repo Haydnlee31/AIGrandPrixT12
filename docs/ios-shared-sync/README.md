@@ -1,6 +1,6 @@
 # iOS shared-library sync handoff
 
-Base: `codex/ios-app` at `17fdbcc` (catalog integration included). Review branch: `codex/mynah-ios-shared-sync`. This branch changes the native sync paths only. It does not replace the web deployment, native Radar, catalog integrations or shopping-intelligence relay.
+Base: `codex/ios-app` at `89ce907` (catalog integration and Taste Lab included). Review branch: `codex/mynah-ios-shared-sync`. This branch changes the native sync paths only. It does not replace the web deployment, native Radar, local Taste Lab, catalog integrations or shopping-intelligence relay.
 
 ## Connect once
 
@@ -23,6 +23,7 @@ Base: `codex/ios-app` at `17fdbcc` (catalog integration included). Review branch
 ## Validation
 
 - `swift test --package-path clients/ios`: 17 passing tests. Seven new tests cover network-loss replay across restart, import deduplication and receipt retention, account/origin isolation, permanent rejection/manual retry, unauthorized preservation, legacy queue decoding, unsupported content and bounded image preparation.
+- Read-only native Swift check against production: `/v1/me`, capabilities (3,145,728-byte image limit), one existing shared save and 20 Explore recommendations decoded successfully. No production writes.
 - `sh clients/ios/Scripts/local_library_smoke.sh`: existing local persistence, attachments, notes/intents, grouping, edits and replay checks pass.
 - `COMMONTHREAD_PYTHON=<existing-venv>/bin/python sh clients/ios/Scripts/native_http_smoke.sh`: native SDK against a temporary migrated backend passes two-account capture, same-key replay, read, duplicate, isolation and deletion checks.
 - `MYMAH_DERIVED_DATA=<isolated-folder> sh clients/ios/Scripts/build-simulator.sh`: builds the app and embedded Share Extension. The generated project also adds references for files already present in the base branch (live pricing and photo selection).

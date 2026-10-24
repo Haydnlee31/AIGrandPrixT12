@@ -599,7 +599,7 @@ struct MymahFindsView: View {
         let generation = accountGeneration
         guard let environment = connection else {
             var importError: String?
-            do { _ = try await LocalLibrary.shared.importPendingShares(outbox: SharedEnvironment.outbox()) }
+            do { _ = try await LocalLibrary.shared.importPendingShares(outbox: try? SharedEnvironment.outbox()) }
             catch { importError = "A shared find could not be imported yet. Your existing library is still available. " + error.localizedDescription }
             do {
                 let saved = try await LocalLibrary.shared.collection()
