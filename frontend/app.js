@@ -595,7 +595,7 @@ function openCapture() {
   $("#capture-dialog").showModal();
 }
 function detailTop(label) {
-  return `<div class="sheet-handle" aria-hidden="true"></div><div class="dialog-top"><span class="eyebrow">${escape(label)}</span><button class="icon-button" data-close aria-label="Close">×</button></div>`;
+  return `<div class="detail-header"><div class="sheet-handle" aria-hidden="true"></div><div class="dialog-top"><span class="eyebrow">${escape(label)}</span><button class="icon-button" data-close aria-label="Close">×</button></div></div>`;
 }
 function detailMarkup(item) {
   const href = safeLink(item.original_url),
