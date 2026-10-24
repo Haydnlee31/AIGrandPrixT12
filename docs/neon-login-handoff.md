@@ -1,6 +1,6 @@
 # Mynah email login and automatic sync
 
-Status: real email-code sign-in and authenticated API access passed in the local preview; production and cross-client acceptance remain pending. Do not describe this as live until the acceptance checks below pass.
+Status: deployed to https://mynah-finds.vercel.app on 25 October 2026 (deployment dpl_G8qRo19qufCbhVmCvSbjyFvKRbzW). Real email-code login and authenticated API access passed locally and in production. The installed Chrome extension uses the same email session and shows the existing shared library and recommendations. Physical-device iOS and live cross-client mutation/recovery acceptance remain pending.
 
 ## Shared identity
 
@@ -28,7 +28,7 @@ Submitted web captures and Chrome uploads retain the original idempotency key an
 - `codex/mynah-auth-extension` builds on `codex/mynah-extension-intelligence`, including the latest 0.4.1 prompt fixes.
 - `codex/mynah-auth-ios` builds on `codex/mynah-ios-shared-sync`, with iOS source through `1fcda93` merged into the isolated branch.
 
-PR #7 was merged and then reverted by Adi (`b110375`). The iOS auth draft depends on that earlier shared-sync foundation and must not be merged into the active iOS branch until the team resolves that revert. No reverted changes have been restored to their branch.
+Adi finalized the current build on `main` at `9b79a97`. PR #7 was merged and then reverted by Adi (`b110375`) after shared login/sync issues. The iOS auth draft depends on that earlier shared-sync foundation and must not be merged into the active iOS branch until the team resolves that revert. No reverted changes have been restored to their branch.
 
 Merge the backend before relying on email login in either client. These branches do not update teammates' working branches.
 
@@ -44,3 +44,7 @@ Merge the backend before relying on email login in either client. These branches
 ## Rollback and remaining scope
 
 Disabling `NEON_AUTH_URL` and redeploying restores legacy-key login. Keep the identity mapping stable once users start saving; changing it makes an account point to a different library. No destructive migration is included. A later release still needs account deletion/export, production email delivery, abuse controls, and shared profile preferences; appearance/layout preferences are currently local to each client.
+
+## Verified deployment checks
+
+Production health, authenticated identity and revision endpoints return 200. The existing library contains three finds, including the preserved lamp demo; Explore returns 20 recommendations. Chrome settings shows the verified email account, with three shared finds plus three older local-only finds. No production saves were created, edited or deleted by these checks. Web login survives reload. Automated checks: 468 backend tests, 24 frontend tests, 57 extension tests and 20 Swift tests passed; the auth-cookie regression was rerun after correction.
