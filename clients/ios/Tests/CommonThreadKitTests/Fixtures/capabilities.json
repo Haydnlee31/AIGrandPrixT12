@@ -1,0 +1,48 @@
+{
+  "api_version": "v1",
+  "contract_version": "0.2.0",
+  "authentication": "development_bearer",
+  "capture": {
+    "clients": [
+      "web",
+      "chrome_extension",
+      "ios_app",
+      "ios_share_extension"
+    ],
+    "content_types": [
+      "url",
+      "selected_text",
+      "note"
+    ],
+    "max_url_length": 2048,
+    "max_title_length": 300,
+    "max_selected_text_length": 12000,
+    "max_note_length": 2000
+  },
+  "data_modes": {
+    "annotations": "demo_rules",
+    "catalog": "fixture",
+    "tracking": "simulated"
+  },
+  "features": {
+    "annotations": true,
+    "discovery": true,
+    "watches": true,
+    "price_simulation": true,
+    "demo_reset": true,
+    "image_upload": false,
+    "live_price_monitoring": false,
+    "push_notifications": false,
+    "merchant_handoff": false,
+    "personal_agent_connector": false
+  },
+  "currencies": [
+    "SGD"
+  ],
+  "refresh": {
+    "strategy": "poll_on_foreground",
+    "pending_save_interval_ms": 1500,
+    "pending_save_timeout_ms": 30000,
+    "incremental_sync": false
+  }
+}

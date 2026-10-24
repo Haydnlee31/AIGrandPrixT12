@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.*
+!.env.example
+node_modules/
+tmp/
+dist/
+.build/
+.swiftpm/
+DerivedData/
+*.xcodeproj/
+*.xcworkspace/
+.DS_Store
+# Superseded interface previews; current Mymah Finds previews are committed.
+docs/prototype-preview.jpg
+docs/ios-preview.jpg
+docs/ios-capture.jpg
+docs/ios-discovery.jpg

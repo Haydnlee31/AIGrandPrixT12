@@ -1,0 +1,10 @@
+{
+  "name": "@common-thread/client",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "./client.js",
+  "types": "./client.d.ts",
+  "exports": {".": {"types": "./client.d.ts", "default": "./client.js"}},
+  "scripts": {"test": "node --test test/*.test.js"}
+}

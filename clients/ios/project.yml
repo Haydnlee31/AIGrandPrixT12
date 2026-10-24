@@ -1,0 +1,88 @@
+name: Mymah Finds
+options:
+  deploymentTarget:
+    iOS: "16.0"
+packages:
+  CommonThreadKit:
+    path: .
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: "0.1.0"
+    COMMON_THREAD_BUNDLE_PREFIX: com.example.commonthread
+    COMMON_THREAD_APP_GROUP: group.com.example.commonthread
+    COMMON_THREAD_KEYCHAIN_GROUP: "$(AppIdentifierPrefix)com.example.commonthread.shared"
+targets:
+  CommonThread:
+    type: application
+    platform: iOS
+    sources:
+      - Examples/CommonThreadApp
+      - Examples/Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "$(COMMON_THREAD_BUNDLE_PREFIX)"
+        TARGETED_DEVICE_FAMILY: "1,2"
+    info:
+      path: Configuration/App-Info.plist
+      properties:
+        CFBundleDisplayName: Mymah Finds
+        UILaunchScreen: {}
+        CommonThreadAppGroup: "$(COMMON_THREAD_APP_GROUP)"
+        CommonThreadKeychainGroup: "$(COMMON_THREAD_KEYCHAIN_GROUP)"
+        NSLocalNetworkUsageDescription: Connect to your chosen server to sync your saved content.
+    entitlements:
+      path: Configuration/App.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - "$(COMMON_THREAD_APP_GROUP)"
+        keychain-access-groups:
+          - "$(COMMON_THREAD_KEYCHAIN_GROUP)"
+    dependencies:
+      - package: CommonThreadKit
+      - target: CommonThreadShare
+        embed: true
+  CommonThreadShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Examples/ShareExtension
+      - Examples/Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "$(COMMON_THREAD_BUNDLE_PREFIX).share"
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+    info:
+      path: Configuration/Share-Info.plist
+      properties:
+        CFBundleDisplayName: Save to Mymah Finds
+        CommonThreadAppGroup: "$(COMMON_THREAD_APP_GROUP)"
+        CommonThreadKeychainGroup: "$(COMMON_THREAD_KEYCHAIN_GROUP)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).ShareViewController"
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsText: true
+    entitlements:
+      path: Configuration/Share.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - "$(COMMON_THREAD_APP_GROUP)"
+        keychain-access-groups:
+          - "$(COMMON_THREAD_KEYCHAIN_GROUP)"
+    dependencies:
+      - package: CommonThreadKit
+schemes:
+  Mymah Finds:
+    build:
+      targets:
+        CommonThread: all
+    run:
+      config: Debug

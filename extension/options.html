@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mymah Finds settings</title>
+  <link rel="stylesheet" href="popup.css">
+  <script src="options.js" type="module"></script>
+</head>
+<body class="settings-page">
+  <span class="eyebrow">Mymah Finds</span>
+  <main>
+    <h1>Connect your Library.</h1>
+    <p>Choose where your Library is stored. Chrome will ask for access to this address when needed.</p>
+    <form id="settings-form">
+      <label>Backend origin<input id="base-url" name="baseURL" type="url" required placeholder="https://api.example.com" autocomplete="off" spellcheck="false" aria-describedby="backend-help"></label>
+      <p id="backend-help" class="hint">Use HTTPS for a hosted backend. For a local connection, use http://127.0.0.1:8000 or another localhost port. Do not include /v1 or a token.</p>
+      <div class="actions"><button id="connect" type="submit">Save and allow backend</button><button id="local" class="secondary" type="button">Use local default</button></div>
+    </form>
+    <p id="status" role="status" aria-live="polite">Loading settings…</p>
+    <p class="hint">Changing backends clears the workspace token and unfinished save for this browser session. The local connection remains available.</p>
+  </main>
+</body>
+</html>

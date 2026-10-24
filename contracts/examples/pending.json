@@ -1,0 +1,26 @@
+{
+  "id": "7239bf5c677f46dbb411991a24ee433d",
+  "original_url": "https://example.org/desk",
+  "canonical_url": "https://example.org/desk",
+  "title": "Warm desk lighting",
+  "source": "web",
+  "client": "ios_share_extension",
+  "selected_text": "",
+  "note": "Warm lighting for my small desk",
+  "captured_at": 1792857396.427017,
+  "status": "pending",
+  "features": {},
+  "revision": 1,
+  "suggestions": [],
+  "responses": [
+    {
+      "id": "9378bfc6d44348cb94fd45628ae3c4c5",
+      "item_id": "7239bf5c677f46dbb411991a24ee433d",
+      "event_type": "capture_note",
+      "payload": {
+        "text": "Warm lighting for my small desk"
+      },
+      "occurred_at": 1792857396.427805
+    }
+  ]
+}

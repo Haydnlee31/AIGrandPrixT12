@@ -1,0 +1,73 @@
+{
+  "items": [
+    {
+      "variant_id": "arc-sand",
+      "name": "Arc task lamp",
+      "variant": "Sand / warm LED",
+      "merchant": "Prototype catalog",
+      "price_minor": 5900,
+      "currency": "SGD",
+      "width_cm": 14,
+      "style": "focused",
+      "compact": true,
+      "in_stock": true,
+      "tradeoff": "Directional task light; less ambient glow.",
+      "source_record": "fixture:arc-sand:v1",
+      "data_mode": "fixture",
+      "shipping_minor": null,
+      "merchant_url": null
+    },
+    {
+      "variant_id": "halo-cream",
+      "name": "Halo ambient lamp",
+      "variant": "Cream / warm LED",
+      "merchant": "Prototype catalog",
+      "price_minor": 7900,
+      "currency": "SGD",
+      "width_cm": 20,
+      "style": "warm",
+      "compact": true,
+      "in_stock": true,
+      "tradeoff": "Soft atmosphere; not a dedicated reading light.",
+      "source_record": "fixture:halo-cream:v1",
+      "data_mode": "fixture",
+      "shipping_minor": null,
+      "merchant_url": null
+    },
+    {
+      "variant_id": "beam-black",
+      "name": "Beam monitor light",
+      "variant": "Black / adjustable",
+      "merchant": "Prototype catalog",
+      "price_minor": 9900,
+      "currency": "SGD",
+      "width_cm": 40,
+      "style": "focused",
+      "compact": true,
+      "in_stock": true,
+      "tradeoff": "Frees desk space; monitor compatibility needs checking.",
+      "source_record": "fixture:beam-black:v1",
+      "data_mode": "fixture",
+      "shipping_minor": null,
+      "merchant_url": null
+    },
+    {
+      "variant_id": "globe-oak",
+      "name": "Globe table lamp",
+      "variant": "Oak / opal",
+      "merchant": "Prototype catalog",
+      "price_minor": 12900,
+      "currency": "SGD",
+      "width_cm": 28,
+      "style": "warm",
+      "compact": false,
+      "in_stock": true,
+      "tradeoff": "A stronger visual centerpiece with a larger footprint.",
+      "source_record": "fixture:globe-oak:v1",
+      "data_mode": "fixture",
+      "shipping_minor": null,
+      "merchant_url": null
+    }
+  ],
+  "data_mode": "fixture"
+}

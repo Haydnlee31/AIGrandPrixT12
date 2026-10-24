@@ -1,0 +1,5 @@
+{
+  "user_id": "fixture-user",
+  "demo_mode": true,
+  "inference_provider": "demo-rules-v1"
+}

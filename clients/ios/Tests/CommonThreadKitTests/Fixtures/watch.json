@@ -1,0 +1,14 @@
+{
+  "id": "c581c1a48e3246148c16edac22a0a48e",
+  "variant_id": "halo-cream",
+  "currency": "SGD",
+  "target_minor": 7000,
+  "enabled": true,
+  "rule_version": 1,
+  "below": false,
+  "episode": 0,
+  "last_price_minor": null,
+  "last_checked_at": null,
+  "price_basis": "item_price_excluding_shipping",
+  "data_mode": "simulated"
+}

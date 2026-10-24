@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#faf9f6">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Mymah Finds">
+  <meta name="description" content="A little home for everything you want to come back to. Save, find, and revisit your links with Mymah Finds.">
+  <title>Mymah Finds — Your library</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" type="module"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#library" aria-label="Mymah Finds home"><span class="brand-mark" aria-hidden="true">m<span>✳</span></span><span class="brand-name">Mymah <span class="brand-word">Finds</span></span></a>
+      <div class="top-actions"><button class="icon-button" data-action="refresh" aria-label="Refresh library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 18 17"/></svg></button><button class="icon-button add-button" data-action="add" aria-label="Save a link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div>
+    </header>
+    <div class="workspace">
+      <nav class="tab-bar" aria-label="Main navigation">
+        <button class="nav-item active" data-view="library" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="16" rx="1.5"/><path d="m17 5 4 14M4 8h3M11 8h3"/></svg><span>Library</span></button>
+        <button class="nav-item" data-view="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><span>Search</span></button>
+        <button class="nav-item" data-view="profile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg><span>Profile</span></button>
+      </nav>
+      <main id="main" tabindex="-1"><div class="loader">Opening your library…</div></main>
+    </div>
+  </div>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="capture-dialog" aria-labelledby="capture-title">
+    <form id="capture-form">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="dialog-top"><span class="eyebrow">A GOOD FIND</span><button class="icon-button" type="button" data-close aria-label="Close">×</button></div>
+      <h2 id="capture-title">Keep it for later.</h2><p>Add a link and a little reminder of why you loved it.</p>
+      <label>Link<input name="url" type="url" inputmode="url" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="Paste your link" required maxlength="2048"></label>
+      <label>Title<input name="title" placeholder="Give your find a name" required maxlength="300"></label>
+      <label>Note <span class="optional">optional</span><textarea name="note" rows="2" maxlength="2000" placeholder="What caught your eye?"></textarea></label>
+      <details><summary>More details</summary><label>Content type<select name="source"><option value="web">Web link</option><option value="article">Article</option><option value="product">Product link</option><option value="pinterest">Pinterest</option><option value="instagram">Instagram</option></select></label><label>Text to keep<textarea name="selected_text" rows="3" maxlength="12000" placeholder="A passage or description you want to remember"></textarea></label></details>
+      <p id="capture-status" class="form-status" role="status"></p>
+      <button id="new-save" class="secondary wide" type="button" data-action="new-save" hidden>Start a new save</button>
+      <div class="sheet-footer"><button class="primary wide" type="submit">Save to Library</button></div>
+    </form>
+  </dialog>
+  <dialog id="detail-dialog" aria-labelledby="detail-title"><div id="detail-content"></div></dialog>
+  <dialog id="account-dialog" aria-labelledby="account-title"><form id="account-form"><div class="sheet-handle" aria-hidden="true"></div><div class="dialog-top"><span class="eyebrow">YOUR ACCOUNT</span><button type="button" class="icon-button" data-close aria-label="Close">×</button></div><h2 id="account-title">Connect your library.</h2><p>Use your access key to open your saved finds on this device.</p><label>Access key<input name="token" type="password" required autocomplete="off" spellcheck="false"></label><p id="account-status" class="form-status" role="status"></p><div class="sheet-footer"><button class="primary wide" type="submit">Connect</button></div></form></dialog>
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title"><form id="confirm-form"><div class="sheet-handle" aria-hidden="true"></div><div class="dialog-top"><span class="eyebrow">YOUR LIBRARY</span><button type="button" class="icon-button" data-close aria-label="Close">×</button></div><h2 id="confirm-title">Remove this find?</h2><p id="confirm-description">This link and its saved details will be removed from your library.</p><div class="sheet-footer"><button class="primary danger wide" type="submit">Remove from Library</button></div></form></dialog>
+  <dialog id="help-dialog" aria-labelledby="help-title"><div class="sheet-handle" aria-hidden="true"></div><div class="dialog-top"><span class="eyebrow">SAVE FROM ANYWHERE</span><button type="button" class="icon-button" data-close aria-label="Close">×</button></div><h2 id="help-title">Found something good?</h2><p><strong>On the web</strong><br>Open the Mymah Finds extension, review the page, and save it to your library.</p><p><strong>On your iPhone</strong><br>With Mymah Finds installed, share a link from another app and choose Mymah Finds.</p><p>You can always paste a link here, too.</p><button class="primary wide" data-action="add">Save a link</button></dialog>
+</body>
+</html>

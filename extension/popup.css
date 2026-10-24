@@ -1,0 +1,50 @@
+:root {
+  color-scheme: light;
+  --ink: #302b27;
+  --muted: #726961;
+  --line: #e5ddd4;
+  --paper: #fcfaf7;
+  --accent: #ae4c24;
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 22px; }
+.popup { width: 380px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.eyebrow { font-size: 16px; font-weight: 750; letter-spacing: -.5px; }
+h1 { font-size: 29px; line-height: 1.15; font-weight: 650; letter-spacing: -.9px; margin: 28px 0 10px; }
+p { color: var(--muted); margin: 10px 0; }
+fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
+label { display: block; margin: 16px 0; font-size: 12px; font-weight: 600; }
+input, textarea {
+  display: block; width: 100%; padding: 10px; margin-top: 6px;
+  border: 1px solid var(--line); border-radius: 9px;
+  background: white; color: var(--ink);
+  font-family: inherit; font-size: 13px; line-height: 1.4;
+}
+textarea { resize: vertical; }
+input[readonly] { background: #f3eee7; font-size: 11px; }
+button {
+  padding: 12px 14px; border: 0; border-radius: 9px;
+  background: var(--accent); color: white;
+  font-family: inherit; font-size: 13px; font-weight: 600; line-height: 1.4;
+  cursor: pointer;
+}
+button:disabled { opacity: .55; cursor: wait; }
+#save { width: 100%; margin-top: 14px; }
+.text-button { padding: 5px; background: transparent; color: var(--muted); font-size: 12px; }
+.text-button:hover { color: var(--accent); }
+.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+a { color: var(--accent); font-size: 13px; text-underline-offset: 3px; }
+details { margin: 14px 0; }
+summary { color: var(--muted); font-size: 12px; cursor: pointer; }
+.hint { font-size: 11px; overflow-wrap: anywhere; }
+#status { min-height: 21px; font-size: 12px; overflow-wrap: anywhere; }
+#status[data-kind="error"] { color: #a42e20; }
+#status[data-kind="success"] { color: #4b6543; }
+footer { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 18px; }
+.settings-page { max-width: 620px; margin: 30px auto; padding: 24px; }
+.actions { display: flex; gap: 12px; flex-wrap: wrap; }
+:focus-visible { outline: 3px solid #c26a3f; outline-offset: 3px; }

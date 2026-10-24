@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "unauthorized",
+    "message": "A valid bearer token is required",
+    "retryable": false,
+    "request_id": "eb72ff4af91a44cfa60bf8dc0df6e8c3"
+  }
+}
