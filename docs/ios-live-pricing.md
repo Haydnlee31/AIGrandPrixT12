@@ -1,5 +1,8 @@
 # Amazon matching and live price checks
 
+For current unavailable-price diagnostics, the checked iPhone example and
+provider alternatives, see [Amazon price diagnostics](amazon-price-diagnostics.md).
+
 The native Library, Explore and Radar retain their local save flow. Explore and Radar now retrieve only reviewed Amazon Berkeley Objects records with a same-record ASIN, original marketplace and licensed photo. Each shopping action opens that exact marketplace's `/dp/ASIN`, never a title search or a substituted product. Historical catalog identity does not establish current availability.
 
 Matching retains relevance order, prioritizes an explicitly saved Amazon ASIN and gates product subtypes. Explicit colors/materials cannot be satisfied merely by a shared style such as digital. The installed catalog has 147,702 ABO source records but only 28 WATCH source records. Missing Apple Watch/iPhone models return no close matches; landlines, headsets and ordinary watches are not replacements. On the final live check, a silver retro digital watch request returned one genuine silver digital watch, with its exact link and own photo.

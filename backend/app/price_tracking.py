@@ -18,6 +18,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .amazon_catalog_identity import amazon_asin
+from .live_prices import PRICE_FAILURE_MESSAGES, PRICE_FAILURE_REASONS
 from urllib.parse import urlsplit
 
 
@@ -159,23 +160,28 @@ class PriceTrackingService:
             await self._check(watch_id, owner)
         return self._list(owner)
 
-    def _failure(self, url, message="The current price could not be verified. Try again later."):
+    def _failure(self, url, reason="unverified_price"):
+        # A checker may be replaced by a third-party provider. Persist only our
+        # finite reason vocabulary and static copy, never arbitrary provider
+        # errors, response bodies or credentials echoed in a failure message.
+        if not isinstance(reason, str) or reason not in PRICE_FAILURE_REASONS:
+            reason = "unverified_price"
         return {"status": "unavailable", "product_url": url, "asin": amazon_asin(url),
             "marketplace": (urlsplit(url).hostname or "").removeprefix("www."),
             "price_minor": None, "currency": None, "reference_price_minor": None,
             "reference_label": None, "discount_percent": None, "checked_at": self.clock(),
-            "basis": PRICE_BASIS, "message": message}
+            "basis": PRICE_BASIS, "failure_reason": reason, "message": PRICE_FAILURE_MESSAGES[reason]}
 
     def _validated_result(self, value, url):
         if not isinstance(value, dict):
             return self._failure(url)
         try:
             if canonical_product_url(value.get("product_url", "")) != url:
-                return self._failure(url)
+                return self._failure(url, "identity_mismatch")
             # The checker may provide an explicit failed attempt. Keep that
             # status while never returning an earlier successful price as current.
             if value.get("status") != "available":
-                return self._failure(url, str(value.get("message") or "The current price could not be verified.")[:500])
+                return self._failure(url, value.get("failure_reason"))
             price, currency = value.get("price_minor"), value.get("currency")
             if type(price) is not int or not 0 < price <= 100_000_000_000 or not isinstance(currency, str) or not re.fullmatch(r"[A-Z]{3}", currency) or value.get("basis") != PRICE_BASIS:
                 return self._failure(url)
@@ -186,6 +192,7 @@ class PriceTrackingService:
             result["asin"] = amazon_asin(url)
             result["marketplace"] = (urlsplit(url).hostname or "").removeprefix("www.")
             result["checked_at"] = self.clock()
+            result["failure_reason"] = None
             result["message"] = str(result.get("message") or "Current product price verified.")[:500]
             reference = result.get("reference_price_minor")
             if type(reference) is not int or not price < reference <= 100_000_000_000:
@@ -216,6 +223,8 @@ class PriceTrackingService:
                 result = self._validated_result(value, url)
             except asyncio.CancelledError:
                 raise
+            except TimeoutError:
+                result = self._failure(url, "timeout")
             except Exception:
                 result = self._failure(url)
             with self.lock, self._connect() as db:

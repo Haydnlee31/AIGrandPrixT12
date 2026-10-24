@@ -19,6 +19,22 @@ import httpx
 from .amazon_catalog_identity import AMAZON_MARKETS, amazon_asin
 
 MAX_HTML_BYTES = 3 * 1024 * 1024
+PRICE_FAILURE_MESSAGES = {
+    "invalid_product_url": "Use an exact Amazon product link.",
+    "access_blocked": "Amazon restricted this automated price check. Open the product on Amazon.",
+    "rate_limited": "Amazon temporarily limited price requests. Wait before trying again.",
+    "listing_not_found": "Amazon did not return this product listing. Open Amazon to check whether it is still available.",
+    "redirected": "Amazon redirected this listing. Open Amazon to confirm the exact product before tracking it.",
+    "response_invalid": "Amazon returned a page this price checker could not safely read. Open Amazon to check.",
+    "response_too_large": "The Amazon page exceeded this price check's size limit. Open Amazon to check.",
+    "timeout": "The Amazon price check timed out. Try again later.",
+    "network_error": "The price checker could not reach Amazon. Try again later.",
+    "identity_mismatch": "The page did not confirm this exact Amazon product. Open Amazon to check the listing and variant.",
+    "no_primary_offer": "Amazon did not show a current primary offer for this exact listing. Availability may depend on location.",
+    "currency_mismatch": "The displayed currency could not be matched safely to this price check. Open Amazon to confirm the price and currency.",
+    "unverified_price": "A current price could not be verified. Open Amazon to check.",
+}
+PRICE_FAILURE_REASONS = frozenset(PRICE_FAILURE_MESSAGES)
 _ROOT_IDS = {"corePriceDisplay_desktop_feature_div", "corePriceDisplay_mobile_feature_div",
              "corePrice_feature_div", "corePrice_desktop", "corePrice_mobile",
              "priceblock_ourprice", "priceblock_dealprice", "priceblock_saleprice"}
@@ -83,7 +99,7 @@ class _Node:
     def restricted(self):
         current = self
         while current:
-            if _BLOCKED.search(current.attrs.get("id", "") + " " + current.attrs.get("class", "")):
+            if current.tag in _IGNORED or _BLOCKED.search(current.attrs.get("id", "") + " " + current.attrs.get("class", "")):
                 return True
             current = current.parent
         return False
@@ -94,7 +110,7 @@ class _Page(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.roots: list[_Node] = []
-        self.stack: list[tuple[str, _Node | None]] = []
+        self.stack: list[tuple[str, _Node | None, bool]] = []
         self.canonical: list[str] = []
         self.asins: set[str] = set()
         self.blocked = False
@@ -113,8 +129,10 @@ class _Page(HTMLParser):
         if tag == "form" and "validatecaptcha" in data.get("action", "").lower():
             self.blocked = True
         parent = self.stack[-1][1] if self.stack else None
+        excluded = ((self.stack[-1][2] if self.stack else False) or tag in _IGNORED
+                    or bool(_BLOCKED.search(data.get("id", "") + " " + data.get("class", ""))))
         node = None
-        if data.get("id") in _ROOT_IDS and parent is None:
+        if not excluded and data.get("id") in _ROOT_IDS and parent is None:
             node = _Node(tag, data)
             self.roots.append(node)
         elif parent is not None:
@@ -125,7 +143,7 @@ class _Page(HTMLParser):
             if self.nodes > 8000 or len(self.stack) > 200:
                 raise ValueError("Price block too large")
         if tag not in _VOID:
-            self.stack.append((tag, node))
+            self.stack.append((tag, node, excluded))
 
     def handle_startendtag(self, tag, attrs):
         self.handle_starttag(tag, attrs)
@@ -179,6 +197,10 @@ def _money(text: str, marketplace: str) -> int | None:
 
 
 def _amount(node: _Node, marketplace: str) -> int | None:
+    # Do not let a hidden/conditional descendant supply an amount through an
+    # otherwise visible price container. Ambiguous containers fail closed.
+    if any(child.restricted() for child in node.descendants()):
+        return None
     values = {_money(child.text(), marketplace) for child in node.descendants() if "a-offscreen" in child.classes}
     values.discard(None)
     if len(values) == 1:
@@ -206,19 +228,40 @@ def _reference_label(text: str) -> str | None:
     return None
 
 
-def _parse(html: str, asin: str, marketplace: str) -> tuple[int, int | None, str | None] | None:
+def _different_currency(text: str, marketplace: str) -> bool:
+    """Recognize an explicit foreign currency without converting its amount.
+
+    Longest-symbol matching distinguishes S$/US$/AU$ from a bare dollar sign.
+    Shared symbols are not enough to assert a mismatch for a matching market.
+    """
+    expected = _CURRENCY[marketplace][0]
+    symbols = {}
+    for currency, tokens in _CURRENCY.values():
+        for token in (currency, *tokens):
+            symbols.setdefault(token, set()).add(currency)
+    pattern = "|".join(re.escape(token) for token in sorted(symbols, key=len, reverse=True))
+    return any(expected not in symbols[match.group()] for match in re.finditer(pattern, text))
+
+
+def _parse_with_reason(html: str, asin: str, marketplace: str):
     page = _Page()
     page.feed(html)
-    if page.blocked or not page.canonical:
-        return None
+    if page.blocked:
+        return None, "access_blocked"
+    if not page.canonical:
+        return None, "identity_mismatch"
     identities = [_identity(url) for url in page.canonical]
     if any(not identity or identity[:2] != (asin, marketplace) for identity in identities):
-        return None
+        return None, "identity_mismatch"
     if page.asins and page.asins != {asin}:
-        return None
+        return None, "identity_mismatch"
     offers: list[tuple[int, tuple[int, str] | None]] = []
+    attempted_amount, foreign_currency, wrong_block_identity = False, False, False
     for root in page.roots:
-        if root.attrs.get("data-csa-c-asin") not in (None, "", asin) or root.restricted():
+        if root.attrs.get("data-csa-c-asin") not in (None, "", asin):
+            wrong_block_identity = True
+            continue
+        if root.restricted():
             continue
         if re.search(r"prime (?:exclusive )?price|members?[- ]only price|subscribe.{0,4}save|price with coupon|\bused\b|pre-owned|refurbished|renewed", root.text(), re.I):
             continue
@@ -227,9 +270,12 @@ def _parse(html: str, asin: str, marketplace: str) -> tuple[int, int | None, str
             if node.restricted():
                 continue
             if node.attrs.get("id") in _LEGACY_IDS or node.classes & {"priceToPay", "apexPriceToPay", "apex-pricetopay-value"}:
+                attempted_amount = True
                 amount = _amount(node, marketplace)
                 if amount is not None:
                     prices.add(amount)
+                elif _different_currency(node.text(), marketplace):
+                    foreign_currency = True
             if "a-text-price" in node.classes and node.attrs.get("data-a-strike") == "true":
                 context = node.parent.text() if node.parent else root.text()
                 label = _reference_label(context)
@@ -241,11 +287,20 @@ def _parse(html: str, asin: str, marketplace: str) -> tuple[int, int | None, str
             price = prices.pop()
             reference = references.pop() if len(references) == 1 else None
             offers.append((price, reference if reference and reference[0] > price else None))
-    if not offers or len({offer[0] for offer in offers}) != 1:
-        return None
+    if not offers:
+        reason = ("identity_mismatch" if wrong_block_identity else "currency_mismatch" if foreign_currency
+                  else "unverified_price" if attempted_amount else "no_primary_offer")
+        return None, reason
+    if len({offer[0] for offer in offers}) != 1:
+        return None, "unverified_price"
     references = {offer[1] for offer in offers if offer[1] is not None}
     reference = references.pop() if len(references) == 1 else None
-    return offers[0][0], reference[0] if reference else None, reference[1] if reference else None
+    return (offers[0][0], reference[0] if reference else None, reference[1] if reference else None), None
+
+
+def _parse(html: str, asin: str, marketplace: str) -> tuple[int, int | None, str | None] | None:
+    """Compatibility wrapper; callers needing diagnostics use the same parse."""
+    return _parse_with_reason(html, asin, marketplace)[0]
 
 
 class LivePriceService:
@@ -261,10 +316,14 @@ class LivePriceService:
                   "price_minor": None, "currency": None, "reference_price_minor": None,
                   "reference_label": None,
                   "discount_percent": None, "checked_at": time.time(), "basis": "item_excluding_shipping",
-                  "message": "A current price could not be verified. Open Amazon to check."}
-        if not identity:
-            result["message"] = "Use an exact Amazon product link."
+                  "failure_reason": "unverified_price", "message": PRICE_FAILURE_MESSAGES["unverified_price"]}
+
+        def failure(reason):
+            result.update(failure_reason=reason, message=PRICE_FAILURE_MESSAGES[reason], checked_at=time.time())
             return result
+
+        if not identity:
+            return failure("invalid_product_url")
         asin, marketplace, target = identity
         try:
             async with asyncio.timeout(self.timeout):
@@ -274,27 +333,45 @@ class LivePriceService:
                             headers={"User-Agent": "MynahFinds/1.0 (public product price check)", "Accept": "text/html"}) as client:
                         async with client.stream("GET", target) as response:
                             content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+                            if response.status_code in {401, 403}:
+                                return failure("access_blocked")
+                            if response.status_code == 429:
+                                return failure("rate_limited")
+                            if response.status_code in {404, 410}:
+                                return failure("listing_not_found")
+                            if 300 <= response.status_code < 400:
+                                return failure("redirected")
                             if response.status_code != 200 or content_type not in {"text/html", "application/xhtml+xml"}:
-                                return result
+                                return failure("response_invalid")
                             length = response.headers.get("content-length")
-                            if length and (not length.isdigit() or int(length) > MAX_HTML_BYTES):
-                                return result
+                            if length and not length.isdigit():
+                                return failure("response_invalid")
+                            if length and int(length) > MAX_HTML_BYTES:
+                                return failure("response_too_large")
                             data = bytearray()
-                            async for chunk in response.aiter_bytes():
+                            async for chunk in response.aiter_bytes(chunk_size=64 * 1024):
+                                if len(data) + len(chunk) > MAX_HTML_BYTES:
+                                    return failure("response_too_large")
                                 data.extend(chunk)
-                                if len(data) > MAX_HTML_BYTES:
-                                    return result
-                            parsed = _parse(data.decode("utf-8", errors="replace"), asin, marketplace)
+                            parsed, reason = _parse_with_reason(data.decode("utf-8", errors="replace"), asin, marketplace)
             if parsed:
                 price, reference, label = parsed
                 # Round down so our claim never exceeds the observed reduction.
                 discount = (reference - price) * 100 // reference if reference else None
                 result.update(status="available", price_minor=price, currency=_CURRENCY[marketplace][0],
                               reference_price_minor=reference, reference_label=label, discount_percent=discount,
+                              failure_reason=None,
                               message="Amazon item price; shipping and eligibility may vary.")
-        except (TimeoutError, httpx.HTTPError, ValueError, RecursionError):
-            pass
-        result["checked_at"] = time.time()
+            else:
+                failure(reason)
+        except (TimeoutError, httpx.TimeoutException):
+            failure("timeout")
+        except httpx.HTTPError:
+            failure("network_error")
+        except (ValueError, RecursionError):
+            failure("response_invalid")
+        finally:
+            result["checked_at"] = time.time()
         return result
 
 

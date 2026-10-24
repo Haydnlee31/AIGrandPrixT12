@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from backend.app.price_routes import register_prices
+from backend.app.live_prices import PRICE_FAILURE_MESSAGES, PRICE_FAILURE_REASONS
 from backend.app.price_tracking import (
     CHECK_INTERVAL, MAX_HISTORY, PRICE_BASIS, PriceTrackingService,
     PriceWatchError, PriceWatchRequest,
@@ -79,16 +80,66 @@ def test_failed_attempt_preserves_history_but_never_shows_old_price_as_current(t
     async def scenario():
         owner = uuid4()
         clock = [100.0]
-        checker = Checker(observation(), observation(status="unavailable", price_minor=500000, message="Amazon blocked the request."))
+        checker = Checker(observation(), observation(status="unavailable", price_minor=500000,
+            failure_reason="access_blocked", message="Untrusted upstream content or credentials must not be copied"))
         service = PriceTrackingService(checker, tmp_path / "watch.db", clock=lambda: clock[0])
         first = (await service.dispatch(save(owner, target_minor=650000, currency="INR")))["watches"][0]
         clock[0] = 250.0
         failed = (await service.dispatch(request(owner, "check", watch_id=first["id"])))["watches"][0]
         assert failed["last_result"]["status"] == "unavailable"
+        assert failed["last_result"]["failure_reason"] == "access_blocked"
+        assert failed["last_result"]["message"] == PRICE_FAILURE_MESSAGES["access_blocked"]
         assert failed["last_result"]["price_minor"] is None and failed["last_result"]["discount_percent"] is None
         assert failed["last_success_at"] == 100 and failed["last_checked_at"] == 250
         assert failed["history"] == first["history"]
         assert failed["target_reached"] is None and failed["price_drop_minor"] is None
+        restored = PriceTrackingService(Checker(observation()), tmp_path / "watch.db")
+        assert (await restored.dispatch(request(owner, "list")))["watches"] == [failed]
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("reason", sorted(PRICE_FAILURE_REASONS))
+def test_known_failure_reasons_survive_save_and_list_without_provider_payload(tmp_path, reason):
+    async def scenario():
+        owner = uuid4()
+        value = observation(status="unavailable", failure_reason=reason,
+            message="PRIVATE_PROVIDER_ERROR", html="PRIVATE_HTML", api_key="PRIVATE_API_KEY")
+        service = PriceTrackingService(Checker(value), tmp_path / "watch.db")
+        watch = (await service.dispatch(save(owner)))["watches"][0]
+        result = watch["last_result"]
+        assert result["failure_reason"] == reason
+        assert result["message"] == PRICE_FAILURE_MESSAGES[reason]
+        assert result["price_minor"] is None and result["currency"] is None
+        assert watch["history"] == [] and watch["last_success_at"] is None
+        assert "html" not in result and "api_key" not in result
+        assert "PRIVATE_" not in str(result)
+        restored = PriceTrackingService(Checker(observation()), tmp_path / "watch.db")
+        assert (await restored.dispatch(request(owner, "list")))["watches"] == [watch]
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("reason", [None, "unknown_upstream_reason", "<html>private</html>", {}, [], True, 503])
+def test_unknown_failure_reasons_use_fixed_safe_fallback(tmp_path, reason):
+    value = observation(status="unavailable", failure_reason=reason, message="PRIVATE_PROVIDER_ERROR")
+    service = PriceTrackingService(Checker(value), tmp_path / "watch.db")
+    watch = asyncio.run(service.dispatch(save(uuid4())))["watches"][0]
+    assert watch["last_result"]["failure_reason"] == "unverified_price"
+    assert watch["last_result"]["message"] == PRICE_FAILURE_MESSAGES["unverified_price"]
+    assert watch["history"] == []
+
+
+def test_success_clears_failure_reason_and_checker_timeout_is_classified(tmp_path):
+    async def scenario():
+        owner = uuid4()
+        checker = Checker(TimeoutError("PRIVATE_NETWORK_DETAIL"), observation(failure_reason="access_blocked"))
+        service = PriceTrackingService(checker, tmp_path / "watch.db")
+        failed = (await service.dispatch(save(owner)))["watches"][0]
+        assert failed["last_result"]["failure_reason"] == "timeout"
+        assert failed["last_result"]["message"] == PRICE_FAILURE_MESSAGES["timeout"]
+        current = (await service.dispatch(request(owner, "check", watch_id=failed["id"])))["watches"][0]
+        assert current["last_result"]["status"] == "available"
+        assert current["last_result"]["failure_reason"] is None
+        assert len(current["history"]) == 1
     asyncio.run(scenario())
 
 

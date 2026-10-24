@@ -1,10 +1,11 @@
 import asyncio
 import time
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
-from backend.app.live_prices import LivePriceService, MAX_HTML_BYTES, _money, _parse
+from backend.app.live_prices import LivePriceService, MAX_HTML_BYTES, PRICE_FAILURE_MESSAGES, PRICE_FAILURE_REASONS, _money, _parse
 
 ASIN = "B07FCLBWD9"
 URL = f"https://www.amazon.in/dp/{ASIN}"
@@ -37,6 +38,7 @@ def test_exact_live_primary_price_and_same_offer_mrp_are_integer_units():
     assert result["discount_percent"] == 61  # Conservative floor of 61.818%; not a past selling-price claim.
     assert result["product_url"] == URL and result["asin"] == ASIN
     assert result["basis"] == "item_excluding_shipping"
+    assert result["failure_reason"] is None
     assert before <= result["checked_at"] <= time.time()
     assert len(requests) == 1
     assert "authorization" not in requests[0].headers and "cookie" not in requests[0].headers
@@ -137,3 +139,127 @@ def test_timeout_is_explicit_unavailable():
         return httpx.Response(200, text=page(), headers={"content-type": "text/html"})
     result = asyncio.run(LivePriceService(transport=httpx.MockTransport(reply), timeout_seconds=0.05).check_price(URL))
     assert result["status"] == "unavailable" and result["price_minor"] is None
+    assert result["failure_reason"] == "timeout"
+
+
+@pytest.mark.parametrize("status,reason", [
+    (301, "redirected"), (302, "redirected"), (307, "redirected"),
+    (401, "access_blocked"), (403, "access_blocked"), (404, "listing_not_found"),
+    (410, "listing_not_found"), (429, "rate_limited"), (500, "response_invalid"), (503, "response_invalid"),
+])
+def test_upstream_failures_are_classified_without_echoing_upstream_content(status, reason):
+    requests = []
+    result = check('PRIVATE_UPSTREAM_TEXT api_key=do-not-return', status=status, requests=requests,
+                   headers={"location": "https://secret.example.invalid/?token=private-token"})
+    assert len(requests) == 1
+    assert result["status"] == "unavailable" and result["price_minor"] is None
+    assert result["failure_reason"] == reason
+    assert result["message"] == PRICE_FAILURE_MESSAGES[reason]
+    assert not any(secret in str(result) for secret in ("PRIVATE_UPSTREAM_TEXT", "do-not-return", "private-token"))
+
+
+def test_invalid_url_does_not_echo_credentials_or_make_requests():
+    requests = []
+    result = check(page(), url="https://user:secret@amazon.in/dp/" + ASIN, requests=requests)
+    assert result["failure_reason"] == "invalid_product_url" and not requests
+    assert result["product_url"] is None and "secret" not in str(result)
+
+
+@pytest.mark.parametrize("body,reason", [
+    (page(extra='<form action="/errors/validateCaptcha"><input id="captchacharacters"></form>'), "access_blocked"),
+    (page(asin="B000000000"), "identity_mismatch"),
+    (page().replace('rel="canonical"', 'rel="alternate"'), "identity_mismatch"),
+    (page(block_asin="B000000000"), "identity_mismatch"),
+    (page().replace(f'<input id="ASIN" value="{ASIN}">', '<input id="ASIN" value="B000000000">'), "identity_mismatch"),
+    (page(price="not a price"), "unverified_price"),
+])
+def test_html_failure_reasons_keep_identity_and_challenge_checks(body, reason):
+    result = check(body)
+    assert result["failure_reason"] == reason
+    assert result["status"] == "unavailable" and result["price_minor"] is None
+
+
+def test_real_world_empty_primary_offer_shape_is_not_reported_as_access_blocked():
+    # Reduced from the observed Amazon.sg page: exact identity, empty primary
+    # price block, unavailable buy box. No raw downloaded HTML is retained here.
+    market = "amazon.sg"
+    body = f'''<link rel="canonical" href="https://www.{market}/Title/dp/{ASIN}">
+      <input id="ASIN" value="{ASIN}"><div id="corePrice_desktop" data-csa-c-asin="{ASIN}"></div>
+      <div id="outOfStockBuyBox_feature_div">Currently unavailable.</div>'''
+    result = check(body, url=f"https://www.{market}/dp/{ASIN}")
+    assert result["failure_reason"] == "no_primary_offer"
+    assert result["price_minor"] is None and result["currency"] is None
+
+
+def test_real_world_changed_variant_takes_priority_over_availability_and_currency():
+    # Observed .com response had a different canonical parent and selected ASIN,
+    # plus SGD display prices. That amount cannot belong to the requested item.
+    body = page(asin="B000000001", market="amazon.com", price="S$24.29", reference="")
+    body = body.replace('id="ASIN" value="B000000001"', 'id="ASIN" value="B000000002"')
+    result = check(body, url=f"https://www.amazon.com/dp/{ASIN}")
+    assert result["failure_reason"] == "identity_mismatch"
+    assert result["price_minor"] is None
+
+
+def test_explicit_geolocated_currency_is_not_relabelled_as_marketplace_currency():
+    body = page(market="amazon.com", price="S$24.29", reference="")
+    result = check(body, url=f"https://www.amazon.com/dp/{ASIN}")
+    assert result["failure_reason"] == "currency_mismatch"
+    assert result["price_minor"] is None and result["currency"] is None
+    # Supported currency still uses exact existing parsing and _parse contract.
+    valid = page(market="amazon.com", price="US$24.29", reference="")
+    assert _parse(valid, ASIN, "amazon.com") == (2429, None, None)
+    assert check(valid, url=f"https://www.amazon.com/dp/{ASIN}")["failure_reason"] is None
+
+
+@pytest.mark.parametrize("outer", ['<template>{}</template>', '<div class="coupon-price">{}</div>'])
+def test_price_roots_cannot_start_inside_hidden_or_conditional_ancestor_context(outer):
+    body = page()
+    start, end = body.index('<div id="corePrice'), body.index('</div>') + len('</div>')
+    body = body[:start] + outer.format(body[start:end]) + body[end:]
+    result = check(body)
+    assert result["price_minor"] is None and result["failure_reason"] == "no_primary_offer"
+
+
+@pytest.mark.parametrize("hidden_price", [
+    '<template><span class="priceToPay"><span class="a-offscreen">₹6,300</span></span></template>',
+    '<span class="priceToPay"><template><span class="a-offscreen">₹6,300</span></template></span>',
+    '<span class="priceToPay"><span class="coupon-price"><span class="a-offscreen">₹6,300</span></span></span>',
+])
+def test_hidden_or_conditional_prices_inside_an_existing_primary_root_stay_unavailable(hidden_price):
+    body = f'''<link rel="canonical" href="{URL}"><input id="ASIN" value="{ASIN}">
+      <div id="corePrice_desktop" data-csa-c-asin="{ASIN}">{hidden_price}</div>'''
+    result = check(body)
+    assert result["status"] == "unavailable" and result["price_minor"] is None
+
+
+@pytest.mark.parametrize("headers,reason", [
+    ({"content-type": "application/json"}, "response_invalid"),
+    ({"content-length": "not-a-number"}, "response_invalid"),
+    ({"content-length": str(MAX_HTML_BYTES + 1)}, "response_too_large"),
+])
+def test_response_validation_has_bounded_specific_diagnostics(headers, reason):
+    result = check(page(), headers=headers)
+    assert result["failure_reason"] == reason
+    assert check(" " * (MAX_HTML_BYTES + 1))["failure_reason"] == "response_too_large"
+
+
+@pytest.mark.parametrize("error,reason", [(httpx.ConnectError, "network_error"), (httpx.ReadTimeout, "timeout")])
+def test_network_exceptions_are_sanitized(error, reason):
+    def reply(request):
+        raise error("PRIVATE upstream credentials must not leak", request=request)
+    result = asyncio.run(LivePriceService(transport=httpx.MockTransport(reply)).check_price(URL))
+    assert result["failure_reason"] == reason
+    assert result["message"] == PRICE_FAILURE_MESSAGES[reason]
+    assert "PRIVATE" not in str(result)
+
+
+def test_checked_at_records_completion_for_early_http_failure(monkeypatch):
+    clock = {"now": 10.0}
+    monkeypatch.setattr("backend.app.live_prices.time", SimpleNamespace(time=lambda: clock["now"]))
+    def reply(request):
+        clock["now"] = 20.0
+        return httpx.Response(403, text="ignored")
+    result = asyncio.run(LivePriceService(transport=httpx.MockTransport(reply)).check_price(URL))
+    assert result["checked_at"] == 20.0
+    assert result["failure_reason"] in PRICE_FAILURE_REASONS
