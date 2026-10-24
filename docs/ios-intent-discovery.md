@@ -2,6 +2,8 @@
 
 Implemented on the iOS branch, 25 October 2026.
 
+Update: the separate discovery entry and screen were removed at the user’s request because they duplicate Explore. Explore remains the recommendation surface; saved-product preference editing remains available. The discovery API below is retained but is no longer exposed by the iOS app.
+
 ## Saved product: What matters to you
 
 The saved-product screen presents the confirmed preferences and an Edit sheet. Optional detail suggestions come from the existing image analysis (including detected dial/strap descriptions) and its contextual prompts. Nothing is selected merely because the model observed it. Users select/remove suggestions or edit one preference per line, including Brand flexible. Save uses the existing local library's grouped-product preference persistence, so original images, sources and notes are preserved. Cancel does not modify preferences. Find options for these details opens recommendations scoped to this product, using the newly saved preferences. Brand flexible removes the original-brand scoring boost. This version uses corresponding detail suggestions, not image-region segmentation or pixel tapping.

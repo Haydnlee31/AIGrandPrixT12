@@ -64,7 +64,6 @@ struct LocalExploreScreen: View {
     var refreshID = UUID()
     var onlyFindID: String? = nil
     var onChanged: () -> Void = {}
-    @State private var showingDiscovery = false
     @State private var finds: [SavedItem] = []
     @State private var metadata: [String: LocalFindMetadata] = [:]
     @State private var page: LocalRecommendationPage?
@@ -82,21 +81,10 @@ struct LocalExploreScreen: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
-                Button { showingDiscovery = true } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "sparkles.rectangle.stack.fill").foregroundStyle(.purple).font(.title2)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Show me something interesting").font(.headline)
-                            Text("Follow your curiosity.").font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer(); Image(systemName: "arrow.up.right").foregroundStyle(.secondary)
-                    }.padding(18).background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 22))
-                }.buttonStyle(.plain)
                 recommendations
             }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 24)
         }
         .scrollDismissesKeyboard(.interactively)
-        .sheet(isPresented: $showingDiscovery) { DiscoveryScreen() }
         .task(id: taskID) { await load() }
     }
     @ViewBuilder private var recommendations: some View {
@@ -138,7 +126,7 @@ struct LocalExploreScreen: View {
     }
     @ViewBuilder private var emptyState: some View {
         if finds.isEmpty {
-            LibraryEmptyState(symbol: "bookmark", title: "Start anywhere.", detail: "Explore something interesting above, or save your own inspiration.")
+            LibraryEmptyState(symbol: "bookmark", title: "Find your next favourite.", detail: "Save an image or link to get recommendations based on what you like.")
         } else if !CaptureIntelligence.isConfigured {
             LibraryEmptyState(symbol: "sparkles", title: "Connect AI.", detail: "Open AI & privacy in Profile.")
         } else if page?.status == "catalog_unavailable" {
