@@ -16,15 +16,16 @@ export async function connect(baseURL, token) {
   const api = new CommonThreadClient({baseURL, token: token.trim()});
   const [identity, capabilities] = await Promise.all([api.me(), api.capabilities()]);
   if (!capabilities.features.image_upload) throw new Error('This backend needs the image-capture update before connecting.');
-  const connection = {baseURL, token: token.trim(), userId: identity.user_id, ai: capabilities.features.multimodal_ai};
+  const connection = {baseURL, token: token.trim(), userId: identity.user_id, ...connectionFeatures(capabilities)};
   await chrome.storage.session.set({sharedConnection: connection});
   return connection;
 }
 
 export async function sync(id, retryUnderstanding = false) {
   return navigator.locks.request('mynah-shared-sync', async () => {
-    const connection = await getConnection();
+    let connection = await getConnection();
     if (!connection) throw new Error('Connect your library to share this save. Your local copy is safe.');
+    if (connection.modern === undefined) connection = await inspectConnection(connection);
     return syncSave({id, connection, retryUnderstanding, api: new CommonThreadClient({baseURL: connection.baseURL, token: connection.token}), read: getSave, update: updateSave});
   });
 }
@@ -40,11 +41,27 @@ export async function removeShared(id) {
     if (identity.user_id !== connection.userId) throw new Error('Reconnect to the original account first.');
     // A capture with an unknown result must be recovered before deleting its server copy.
     if (!item.shared.remoteId) {
-      const receipt = await api.capture(item.shared.payload, {idempotencyKey: item.shared.captureKey});
+      let receipt;
+      try { receipt = await api.capture(item.shared.payload, {idempotencyKey: item.shared.captureKey}); }
+      catch (error) { if (error.status === 422) return; throw error; }
       item = await updateSave(id, current => ({...current, shared: {...current.shared, remoteId: receipt.id}}));
     }
     if (!item.shared.removing) item = await updateSave(id, current => ({...current, shared: {...current.shared, removing: crypto.randomUUID()}}));
     try { await api.deleteSave(item.shared.remoteId, {idempotencyKey: item.shared.removing}); }
     catch (error) { if (![404, 410].includes(error.status)) throw error; }
   });
+}
+
+export function connectionFeatures(capabilities) {
+  return {ai: Boolean(capabilities.features.product_analysis || capabilities.features.multimodal_ai),
+    modern: Number(capabilities.contract_version?.split('.')[1]) >= 4,
+    productAnalysis: Boolean(capabilities.features.product_analysis), explore: Boolean(capabilities.features.explore),
+    maxImageBytes: capabilities.capture?.max_image_bytes};
+}
+// Re-read capabilities for sessions connected before this extension upgrade.
+export async function inspectConnection(connection) {
+  const api = new CommonThreadClient(connection);
+  const [identity, capabilities] = await Promise.all([api.me(), api.capabilities()]);
+  if (identity.user_id !== connection.userId) throw new Error('The account changed. Reconnect in settings.');
+  return {...connection, ...connectionFeatures(capabilities)};
 }

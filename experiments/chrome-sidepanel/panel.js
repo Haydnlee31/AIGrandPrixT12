@@ -1,7 +1,13 @@
 import { capturePage, importImage } from './capture.js';
-import { addSave, listSaves, saveAnswer, deleteSave } from './storage.js';
+import { addSave, listSaves, getSave, updateSave, saveAnswer, deleteSave } from './storage.js';
 import { safeUrl } from './questions.js';
-import { connect, disconnect, getConnection, sync, removeShared } from './connection.js';
+import { connect, disconnect, getConnection, inspectConnection, sync, removeShared } from './connection.js';
+
+import {CommonThreadClient} from './lib/client.js';
+import {loadSavedLibrary} from './lib/library.js';
+import {mergeLibrary} from './library-view.js';
+import {reconcileRemote} from './shared.js';
+import {createExplore, renderInsights} from './intelligence.js';
 
 const $ = selector => document.querySelector(selector);
 const detail = $('#detail');
@@ -13,6 +19,83 @@ let uploadType = '';
 let contextRevision;
 let refreshPending = false;
 let connection = null;
+let remoteItems = null;
+let connectionRevision = 0;
+let libraryController;
+let imageController;
+let imageURL;
+let view = 'library';
+let lastPull = 0;
+const client = () => new CommonThreadClient(connection);
+const explore = createExplore({client, connection: () => connection,
+  openSettings: () => $('#settings-dialog').showModal(),
+  openFind: id => run(async () => {
+    await pullLibrary();
+    const item = items.find(item => item.shared?.remoteId === id);
+    if (!item) throw new Error('This find was removed. Refresh Explore for current recommendations.');
+    selectedId = item.id; showView('library'); render(); detail.scrollIntoView({block: 'start'});
+  })});
+function showView(next) {
+  view = next;
+  $('#status').textContent = '';
+  $('#error').hidden = true;
+  $('#library-view').hidden = next !== 'library';
+  $('#explore-view').hidden = next !== 'explore';
+  $('#library-tab').setAttribute('aria-pressed', String(next === 'library'));
+  $('#explore-tab').setAttribute('aria-pressed', String(next === 'explore'));
+  if (next === 'explore') explore.load();
+  window.scrollTo({top: 0});
+}
+function clearImage() {
+  imageController?.abort();
+  if (imageURL) URL.revokeObjectURL(imageURL);
+  imageURL = null;
+}
+async function hydrateImage(item, image) {
+  if (item.image || !item.shared?.remote?.has_image || !connection) return;
+  const revision = connectionRevision;
+  imageController = new AbortController();
+  try {
+    const response = await fetch(new URL(`/v1/saves/${encodeURIComponent(item.shared.remoteId)}/image`, connection.baseURL),
+      {headers: {Authorization: `Bearer ${connection.token}`}, cache: 'no-store', redirect: 'error',
+        signal: AbortSignal.any([imageController.signal, AbortSignal.timeout(15000)])});
+    if (!response.ok || !/^image\/(jpeg|png|webp)(;|$)/i.test(response.headers.get('content-type') || '')) throw new Error('Image unavailable');
+    const blob = await response.blob();
+    if (revision !== connectionRevision || !image.isConnected) return;
+    imageURL = URL.createObjectURL(blob); image.src = imageURL; image.hidden = false;
+  } catch (error) {
+    if (revision === connectionRevision && image.isConnected && error.name !== 'AbortError') {
+      const message = element('p', 'field-help', 'Image unavailable right now. Refresh this find to try again.'); image.after(message);
+    }
+  }
+}
+async function ensureLocal(id) {
+  const item = items.find(item => item.id === id);
+  if (!item) throw new Error('This find is no longer in this library.');
+  if (await getSave(id)) {
+    if (item.shared?.remote) await updateSave(id, current => reconcileRemote(current, item.shared.remote));
+  }
+  else await addSave({...item, remoteOnly: false});
+}
+async function pullLibrary() {
+  if (!connection) return refresh();
+  libraryController?.abort();
+  const controller = libraryController = new AbortController();
+  const revision = connectionRevision;
+  $('#library-status').textContent = 'Syncing shared finds…';
+  try {
+    const records = await loadSavedLibrary(client(), {signal: controller.signal});
+    if (revision !== connectionRevision || controller.signal.aborted) return;
+    remoteItems = records; lastPull = Date.now();
+    $('#library-status').textContent = 'Shared library up to date';
+    await refresh();
+  } catch (error) {
+    if (revision !== connectionRevision || error.name === 'AbortError') return;
+    $('#library-status').textContent = 'Could not refresh shared finds. Your local copies are safe.';
+    throw error;
+  }
+}
+
 const kindLabel = { page: 'Saved page', screenshot: 'Screenshot', image: 'Uploaded image' };
 const channel = new BroadcastChannel('saved-shopping');
 
@@ -32,7 +115,7 @@ function element(tag, className, text) {
 
 function showError(error) {
   const target = $('#settings-dialog').open ? $('#connection-error') : $('#error');
-  target.textContent = error.message || 'Something went wrong. Please try again.';
+  target.textContent = error.message?.includes('Private addresses are not supported') ? 'Saved on this device. The shared library does not accept local or private page URLs. Upload the image on its own to share it.' : error.message || 'Something went wrong. Please try again.';
   target.hidden = false;
 }
 
@@ -41,14 +124,17 @@ async function run(work) {
   busy = true;
   $('#error').hidden = true;
   $('#connection-error').hidden = true;
-  document.querySelectorAll('button, input, textarea').forEach(control => { control.disabled = true; });
+  document.querySelectorAll('button:not(.close-find):not(#close-product):not(#close-settings), input, textarea').forEach(control => { control.disabled = true; });
   try { await work(); }
   catch (error) { $('#status').textContent = ''; showError(error); }
-  finally { busy = false; document.querySelectorAll('button, input, textarea').forEach(control => { control.disabled = false; }); if (refreshPending) { refreshPending = false; syncContext().catch(showError); } }
+  finally { busy = false; document.querySelectorAll('button:not(.close-find):not(#close-product):not(#close-settings), input, textarea').forEach(control => { control.disabled = false; }); if (refreshPending) { refreshPending = false; syncContext().catch(showError); } }
 }
 
 async function refresh() {
-  items = await listSaves();
+  const revision = connectionRevision;
+  const local = await listSaves();
+  if (revision !== connectionRevision) return;
+  items = mergeLibrary(local, remoteItems, connection);
   if (!items.some(item => item.id === selectedId)) { selectedId = undefined; editing = false; }
   render();
 }
@@ -65,7 +151,10 @@ function render() {
     empty.append(bird, element('h3', '', 'A home for your finds.'), element('p', '', 'An idea. A lovely object. Something for later. Save your first page above.'));
     library.append(empty);
   }
-  for (const item of items) {
+  const query = $('#library-query').value.trim().toLocaleLowerCase();
+  const visible = items.filter(item => [item.title, item.note, item.excerpt, item.shared?.remote?.analysis?.summary].join(' ').toLocaleLowerCase().includes(query));
+  if (items.length && !visible.length) library.append(element('p', 'field-help', 'No finds match your search.'));
+  for (const item of visible) {
     const button = element('button', 'library-item');
     button.setAttribute('aria-pressed', String(item.id === selectedId));
     const thumb = item.image ? element('img', 'thumbnail') : document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -83,6 +172,7 @@ function render() {
 }
 
 function renderDetail(item) {
+  clearImage();
   detail.replaceChildren();
   detail.hidden = !item;
   if (!item) return;
@@ -91,6 +181,8 @@ function renderDetail(item) {
   find('.saved-title').textContent = item.title;
   find('.kind-badge').textContent = labelFor(item);
   if (item.image) { find('.hero-image').src = item.image; find('.hero-image').hidden = false; }
+  hydrateImage(item, find('.hero-image'));
+  renderInsights(find('.insights'), item.shared?.remote, query => {showView('explore'); explore.search(query);});
   const source = safeUrl(item.url);
   if (source) find('.source-link').href = source;
   else find('.source-link').hidden = true;
@@ -98,10 +190,10 @@ function renderDetail(item) {
   if (item.excerpt) { find('.source-text').hidden = false; find('.source-text p').textContent = item.excerpt; }
   find('.sync-state').textContent = item.shared ? `Shared library · ${item.shared.remote?.status === 'ready' ? 'Saved' : item.shared.remote?.status === 'enrichment_failed' ? 'Saved; understanding failed' : 'Waiting to finish syncing'}` : 'Saved on this device';
   if (item.shared?.duplicate) find('.sync-state').textContent += ' · Already saved; original details kept';
-  find('.sync-save').textContent = item.shared ? 'Refresh / retry sync' : 'Share with library';
+  find('.sync-save').textContent = item.shared ? (connection?.productAnalysis ? 'Refresh AI insights' : 'Refresh / retry sync') : 'Share with library';
   find('.sync-save').addEventListener('click', () => run(() => share(item.id, true)));
   const features = item.shared?.remote?.features;
-  if (features?.summary) { find('.understanding').hidden = false; find('.understanding').textContent = `${features.data_mode === 'openai' ? 'AI interpretation: ' : ''}${features.summary}`; }
+  if (!item.shared?.remote?.analysis && !features?.analysis && features?.summary) { find('.understanding').hidden = false; find('.understanding').textContent = `${['openai', 'astra'].includes(features.data_mode) ? 'AI interpretation: ' : ''}${features.summary}`; }
   for (const evidence of features?.evidence || []) {
     find('.content-evidence').hidden = false;
     find('.content-evidence').append(element('li', '', `${evidence.text} — ${evidence.source === 'image' ? 'AI reading of image; check against the original' : 'Quote from saved content; not independently verified'}`));
@@ -125,8 +217,10 @@ function renderDetail(item) {
     if (item.answer.kind === 'skipped') find('.answer-block .answer-status').textContent = 'Kept for later';
     if (item.answer.kind === 'text') find('#own-answer').value = item.answer.label;
   }
-  find('.edit-answer').addEventListener('click', () => { editing = true; renderDetail(item); find('.choice').focus({preventScroll: true}); detail.scrollIntoView({block: 'start'}); });
-  find('.back-to-library').addEventListener('click', () => { if (busy) return; selectedId = undefined; editing = false; $('#status').textContent = ''; render(); const first = $('#library .library-item'); if (first) first.focus({preventScroll: true}); window.scrollTo({top: 0}); });
+  find('.edit-answer').addEventListener('click', () => { editing = true; renderDetail(item); find('.choice')?.focus({preventScroll: true}); detail.scrollIntoView({block: 'start'}); });
+  const closeFind = () => { selectedId = undefined; editing = false; $('#status').textContent = ''; render(); const first = $('#library .library-item'); if (first) first.focus({preventScroll: true}); window.scrollTo({top: 0}); };
+  find('.back-to-library').addEventListener('click', closeFind);
+  find('.close-find').addEventListener('click', closeFind);
   find('.delete').addEventListener('click', event => {
     if (event.currentTarget.dataset.confirm !== 'yes') {
       event.currentTarget.dataset.confirm = 'yes';
@@ -134,12 +228,13 @@ function renderDetail(item) {
       event.currentTarget.setAttribute('aria-label', 'Confirm remove this save');
       return;
     }
-    run(async () => { await removeShared(item.id); await deleteSave(item.id); selectedId = undefined; editing = false; await refresh(); channel.postMessage('changed'); $('#status').textContent = item.shared ? 'Removed from your device and shared library.' : 'Removed from this device.'; });
+    run(async () => { await ensureLocal(item.id); await removeShared(item.id); await deleteSave(item.id); selectedId = undefined; editing = false; if (connection) await pullLibrary(); else await refresh(); explore.reset(); channel.postMessage('changed'); $('#status').textContent = item.shared ? 'Removed from your device and shared library.' : 'Removed from this device.'; });
   });
 }
 
 function answer(id, response) {
   run(async () => {
+    await ensureLocal(id);
     await saveAnswer(id, response);
     const original = items.find(item => item.id === id);
     if (original?.shared) await share(id);
@@ -148,14 +243,15 @@ function answer(id, response) {
     channel.postMessage('changed');
     $('#status').textContent = response.skip ? 'Kept for later. No need to decide now.' : 'Your answer is saved with this item.';
     const summary = detail.querySelector('.answer-block');
-    summary.setAttribute('tabindex', '-1');
-    summary.focus();
+    summary?.setAttribute('tabindex', '-1');
+    summary?.focus();
   });
 }
 
 async function keep(capture) {
   $('#status').textContent = 'Saving…';
   const item = await capture();
+  showView('library');
   await addSave(item);
   selectedId = item.id;
   editing = false;
@@ -166,30 +262,57 @@ async function keep(capture) {
   const hasAnswer = Boolean(items.find(saved => saved.id === item.id)?.answer);
   $('#status').textContent = hasAnswer ? 'Saved with your existing intent.' : 'Saved. Choose what it means to you.';
   const focus = detail.querySelector(hasAnswer ? '.answer-block' : '.question-title');
-  focus.setAttribute('tabindex', '-1');
-  focus.focus({preventScroll: true});
+  focus?.setAttribute('tabindex', '-1');
+  focus?.focus({preventScroll: true});
   detail.scrollIntoView({ block: 'start' });
 }
 
 async function share(id, retryUnderstanding = false) {
   $('#status').textContent = 'Local copy saved. Syncing with your library…';
   try {
+    await ensureLocal(id);
     await sync(id, retryUnderstanding);
+    explore.reset();
     $('#status').textContent = 'Saved to your shared library. Choose an intent below.';
-  } finally { await refresh(); channel.postMessage('changed'); }
+  } finally {
+    // Retain a newly uploaded save even if the subsequent library refresh fails.
+    const local = await getSave(id);
+    if (local?.shared?.remote && remoteItems && local.shared.scope === JSON.stringify([connection?.baseURL, connection?.userId])) remoteItems = [...remoteItems.filter(item => item.id !== local.shared.remoteId), local.shared.remote];
+    await refresh(); channel.postMessage('changed');
+  }
 }
 
 async function refreshConnection() {
-  connection = await getConnection();
+  const revision = ++connectionRevision;
+  libraryController?.abort(); clearImage(); explore.reset();
+  connection = null; remoteItems = null; selectedId = undefined; editing = false;
+  const saved = await getConnection();
+  if (revision !== connectionRevision) return;
+  await refresh();
+  if (saved) {
+    try {
+      const inspected = await inspectConnection(saved);
+      if (revision !== connectionRevision) return;
+      connection = inspected;
+    } catch (error) { if (revision === connectionRevision) showError(error); }
+  }
+  if (revision !== connectionRevision) return;
   $('#connection-label').textContent = connection ? `Library connected · ${connection.userId}` : 'Connect a shared library';
-  $('#connection-status').textContent = connection ? (connection.ai ? 'AI understanding enabled on the server.' : 'Basic mode. No live AI key is configured on this server.') : 'Access tokens are kept only until Chrome restarts.';
+  $('#connection-status').textContent = connection ? (connection.ai ? 'AI understanding runs on your shared backend. Your OpenAI key stays on the server.' : 'Basic suggestions. Product AI is not enabled on this server.') : 'Use your Mynah account key. It stays in this Chrome session until you disconnect or restart Chrome.';
   $('#disconnect').hidden = !connection;
   $('#shared-library').hidden = !connection;
+  $('#library-refresh').hidden = !connection;
+  $('#library-status').textContent = '';
   if (connection) { $('#shared-library').href = connection.baseURL; $('#backend-url').value = connection.baseURL; }
-  render();
+  render(); explore.render();
+  if (connection) {
+    await pullLibrary();
+    if (view === 'explore') explore.load();
+  }
 }
 $('#connection-form').addEventListener('submit', event => {
   event.preventDefault();
+  if (busy) return;
   // Start permission request in the original user gesture.
   const pending = connect($('#backend-url').value, $('#backend-token').value);
   run(async () => { await pending; $('#backend-token').value = ''; await refreshConnection(); });
@@ -212,19 +335,31 @@ async function syncContext() {
   if (!chrome.storage?.session) { await refresh(); showError(new Error('Chrome still has the previous version loaded. Reload Mynah Finds in Chrome’s Extensions page to enable image saving.')); return; }
   const { imageCapture } = await chrome.storage.session.get('imageCapture');
   const firstRead = contextRevision === undefined;
-  if (firstRead) items = await listSaves();
+  if (firstRead) await refresh();
   if (imageCapture && imageCapture.revision !== contextRevision) {
     contextRevision = imageCapture.revision;
     const relevant = !firstRead || items[0]?.id === imageCapture.id;
-    if (imageCapture.id && relevant) { selectedId = imageCapture.id; editing = false; }
+    if (imageCapture.id && relevant) { selectedId = imageCapture.id; editing = false; showView('library'); }
     $('#status').textContent = imageCapture.state === 'saving' ? 'Saving that image…' : imageCapture.id && relevant ? 'Image saved. Tap an intent below.' : '';
     $('#error').hidden = true;
     if (imageCapture.error) showError(new Error(imageCapture.error));
   }
-  await refresh();
+  if (connection && imageCapture?.state === 'saved') await pullLibrary();
+  else await refresh();
   if (imageCapture?.id && selectedId === imageCapture.id) detail.querySelector('.question-block')?.scrollIntoView({ block: 'start' });
 }
 chrome.storage?.onChanged.addListener((changes, area) => { if (area === 'session' && changes.imageCapture) syncContext().catch(showError); if (area === 'session' && changes.sharedConnection) refreshConnection().catch(showError); });
 channel.onmessage = () => { if (!busy) refresh().catch(showError); else refreshPending = true; };
-syncContext().catch(showError);
-refreshConnection().catch(showError);
+$('#library-tab').addEventListener('click', () => showView('library'));
+$('#explore-tab').addEventListener('click', () => showView('explore'));
+$('#library-query').addEventListener('input', render);
+$('#library-refresh').addEventListener('click', () => run(pullLibrary));
+function refreshOnForeground() {
+  if (!busy && connection && Date.now() - lastPull > 10000) {
+    pullLibrary().catch(showError);
+    if (view === 'explore') explore.load();
+  }
+}
+window.addEventListener('focus', refreshOnForeground);
+document.addEventListener('visibilitychange', () => {if (!document.hidden) refreshOnForeground();});
+refreshConnection().then(syncContext).catch(showError);

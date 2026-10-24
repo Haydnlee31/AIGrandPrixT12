@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Mynah Finds",
   "description": "Save a page or screenshot, remember what caught your eye, and keep your shopping inspiration together.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "minimum_chrome_version": "116",
   "permissions": [
     "activeTab",
@@ -27,7 +27,7 @@
     "default_path": "panel.html"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https: http://127.0.0.1:* http://localhost:*; img-src 'self' data: blob:; style-src 'self'; base-uri 'none'; form-action 'none'"
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https: http://127.0.0.1:* http://localhost:*; img-src 'self' data: blob: https://amazon-berkeley-objects.s3.us-east-1.amazonaws.com; style-src 'self'; base-uri 'none'; form-action 'none'"
   },
   "icons": {
     "16": "icons/icon-16.png",
