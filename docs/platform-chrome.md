@@ -1,6 +1,6 @@
 # Mymah Finds — Chrome extension handoff
 
-The Mymah Finds Chrome extension saves links, selected text, and notes into the user's Library through the shared `/v1` API. The product structure is **Library**, **Search**, and **Profile**, with only the user's saved content in view. The Chrome teammate owns capture and browser interactions in `extension/`; persistence and access control belong in the backend. Intelligence, recommendations, product catalogs, and commerce tracking are later work and do not appear in the current interface.
+The Mymah Finds Chrome extension saves content through the shared `/v1` API. The agreed product structure is **Library**, **Explore**, and **Profile**. Start with the [AI integration guide](ios-ai-handoff.md) for contract **0.4.0**: image/text product analysis, predictive annotations, server Library search and cited Explore recommendations. The Chrome teammate owns capture and browser interactions in `extension/`; persistence and access control belong in the backend. Existing browser/extension views still need this new design and API wiring. Live tracking, reminder delivery and checkout remain separate work.
 
 ## Run and load
 
@@ -36,9 +36,14 @@ import {CommonThreadClient} from './lib/client.js';
 const client = new CommonThreadClient({baseURL, token});
 const capabilities = await client.capabilities();
 const page = await client.collection({offset:0, limit:20});
+const savedMatches = await client.searchLibrary({query:'digital watch', limit:20});
+const recommended = await client.explore();
+const catalogMatches = await client.explore({query:'digital watch'});
 ```
 
-`/v1/capabilities` declares content types, size limits, feature support, and data modes. Currently capture accepts a URL, title, selected text, and note; it does not accept image/video binaries or screenshots. The existing `collection()` SDK method supplies the user's Library; its API name is unchanged. Search should operate on that user's saved content, and Profile should contain account and connection controls. Do not surface fixture products, generated annotations, intelligence scores, or tracking demonstrations in this version. Follow the shared API contract for mutation keys, version conflicts, pagination, and authorization; timestamps are Unix seconds UTC.
+`/v1/capabilities` declares content limits and feature support. Capture accepts a URL or JPEG/PNG/WebP data URL plus title, selected text and note. Add an explicit image-selection path to the existing URL-capture popup; URL-only capture does not fetch pages or acquire images. `collection()` supplies Library; `searchLibrary()` searches saved content and analyzed facets; `explore()` returns source-scoped recommendations/search with reasons and citations. Profile holds account and connection controls. Show unknown brands and unsupported details honestly. Keep provider keys and developer diagnostics off product screens. Follow mutation keys, pagination and authorization; timestamps are Unix seconds UTC.
+
+The backend selects Explore's catalog through `EXPLORE_CATALOG_SOURCE`, default `abo`. Render **Why this?** with its actual saved-item evidence and catalog attribution; refresh after changes to that evidence. Historical catalog records may have no current price, merchant or purchase URL. Use the returned action semantics rather than inventing a checkout or treating an unknown price as free.
 
 ## State and retry rules
 
@@ -48,17 +53,18 @@ A key is persisted before sending. An unchanged retry uses that same key, includ
 
 Successful retries still contact the backend. If an earlier save was invalidated by deletion, the backend returns `410 mutation_expired`; the popup keeps the key and offers **Start a new save**. Only that explicit action clears the previous attempt. Do not silently generate a fresh key after `mutation_expired`, a timeout, or a server error.
 
-The popup recovers the URL/title from tab metadata when script injection is blocked on an otherwise supported public page. Browser-internal pages, local file URLs, and unsupported links show an explanation instead of attempting to capture. The server remains the final URL validator. Selection extraction is from the main document; iframe selections and image-only content require separate feature design.
+The popup recovers the URL/title from tab metadata when script injection is blocked on an otherwise supported public page. Browser-internal pages, local file URLs, and unsupported links show an explanation instead of attempting to capture. The server remains the final URL validator. Selection extraction is from the main document. Image selection and iframe handling are not implemented in this scaffold; use the new image contract only after adding an explicit, reviewed capture path.
 
 ## Chrome-specific work for the interface teammate
 
-- Design the toolbar popup around **Save to Library** and **Open Library**. If adding an extension page or side panel, retain **Library / Search / Profile** and show only the user's own saves. Use Mymah Finds branding, warm neutral surfaces, and a restrained orange accent; keep prototype and demo messaging out of the interface. Preserve editable preview, explicit Save, loading, success, retry, empty, unauthorized, and unsupported-page states, with clear labels and keyboard focus.
+- Design the toolbar popup around **Save to Library** and **Open Library**. If adding an extension page or side panel, use **Library / Explore / Profile**. Keep Library private to its owner and display only the Explore results/citations returned for that account. Use Mymah Finds branding, warm neutral surfaces, and a restrained orange accent; keep prototype/demo wording out of the interface. Preserve editable preview, explicit Save, loading, success, retry, empty, unauthorized, and unsupported-page states with keyboard focus.
 - Keep `activeTab` as the capture entry point. Do not add background browsing, cookies, persistent all-site content scripts, or account scraping to implement saving. A context-menu action or keyboard command is a separate explicit capture trigger and needs its own manifest entries and review flow.
 - Test toolbar pinning, site-access permission denial/revocation, HTTPS backend changes, restricted Chrome pages, navigation while opening the popup, selection-free pages, long titles/text, popup closure during submission, reload, and browser restart. An expired or missing workspace token must lead to a clear sign-in state.
 - If adding offline capture, build an explicit durable queue with per-entry mutation keys, account/origin scoping, retention, visible retry/cancel controls, and token revalidation. The present session draft intentionally does not promise persistence across browser restart.
 - Add proper hosted authentication and logout/session-expiry UX with the backend owner. The existing local bearer tokens are development credentials. A real browser auth flow may need `chrome.identity`; request it only as part of that feature.
 - Notifications and commerce tracking are later features. Browser notifications would require a separate permission, user controls, and real delivery integration. Worker lifetime is event-driven; do not rely on a popup remaining open or an in-memory timer for delivery.
-- Image capture/upload, screenshots, OCR, extracted product media, iframe selections, automatic metadata fetching, and direct purchasing are not implemented. Coordinate any new payload or backend capability before adding these UI affordances.
+- Add selected-image capture via an explicit gesture and necessary scoped permissions. Upload actual bounded bytes through `image_data_url`; do not ask the backend to fetch arbitrary remote URLs. Handle cross-origin image restrictions, popup closure and retries. Screenshot/OCR extraction, iframe selections, automatic metadata fetching and direct purchasing remain separate work.
+- Add optional annotation chips with edit/reject/skip and preserve the server suggestion ID. A selection records intent and can queue refined analysis; it does not schedule a reminder or enable monitoring. Refresh the saved item and Explore after changes, and expose deliberate `analyzeSave()` retry for analysis failure. Fetch private images with the current account bearer header and revoke object URLs when their view/account changes.
 - Prepare extension icons, screenshots, privacy disclosure, production backend configuration, and Chrome Web Store assets for distribution. Replace the development localhost grant for a production-only package. If a website offers **Add to Chrome**, it must link to the published store listing; a website cannot silently install this extension.
 
 ## Validation

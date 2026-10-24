@@ -1,19 +1,19 @@
 # Mymah Finds — team handoff
 
-Mymah Finds starts with a personal library of saved content. Chrome/browser and iOS are equal product surfaces, with exactly three main destinations: **Library**, **Search**, and **Profile**. Capture should be quick, and saved links, text, and notes should remain easy to find and revisit.
+Mymah Finds has three agreed main destinations: **Library**, **Explore**, and **Profile**. Library holds saved content with product analysis and search; Explore recommends and searches products with citations; Profile holds account and app controls. Chrome/browser and iOS share the backend and SDK contracts.
 
-This is a development framework handoff. Product screens must not expose prototype/demo labels, sample shopping journeys, generated interpretations, recommendations, catalogs, price watches, or developer diagnostics. Intelligence and commerce APIs remain in the backend for later work; their presence does not make them part of the current interface brief.
+**Start with the [Library / Explore / Profile integration guide](ios-ai-handoff.md).** Contract **0.4.0** provides structured product understanding, [predictive annotations](predictive-annotations.md), private Library search and cited Explore recommendations. Existing native and browser screens predate the new plan and still need teammate design and wiring. Product screens must not expose prototype/demo labels, provider keys, internal mode labels, or developer diagnostics. Live watches, reminder execution and checkout remain separate work.
 
 ## Ownership and starting points
 
 | Owner | Work area | Start here |
 | --- | --- | --- |
-| Haydn / backend | Capture, library persistence, contracts, identity, jobs, later intelligence/catalog integration | `backend/`, `contracts/`, `.env.example` |
-| Chrome teammate | Capture popup, Library/Search/Profile, permissions, lifecycle, store assets | `extension/`, [Chrome guide](platform-chrome.md), `clients/javascript/` |
-| iOS teammate | Native Library/Search/Profile, Share Extension, account state, accessibility, signing | `clients/ios/`, [iOS guide](platform-ios.md) |
+| Haydn / backend | Capture, product analysis, Library search, cited Explore, contracts, identity, jobs and catalog integration | `backend/`, `contracts/`, `.env.example` |
+| Chrome teammate | Capture popup, Library/Explore/Profile, permissions, lifecycle, store assets | `extension/`, [Chrome guide](platform-chrome.md), `clients/javascript/` |
+| iOS teammate | Native Library/Explore/Profile, Share Extension, analysis/citation presentation, account state and accessibility | [AI integration guide](ios-ai-handoff.md), `clients/ios/`, [iOS guide](platform-ios.md) |
 | Shared review | Contract changes, brand/copy, account isolation, cross-device acceptance | `contracts/openapi.json`, `contracts/examples/`, this checklist |
 
-Use **Mymah Finds** in user-visible names and copy. Internal `CommonThread` SDK symbols and existing API paths may retain older identifiers for compatibility. Teammates can replace scaffold views while keeping the shared transport, retry, and persistence behavior. `frontend/` is a reference for the current scope, not a requirement to reproduce its components in SwiftUI.
+Use **Mymah Finds** in user-visible names and copy. Internal `CommonThread` SDK symbols and existing API paths may retain older identifiers for compatibility. Teammates can replace scaffold views while keeping the shared transport, retry, and persistence behavior. The older `frontend/` navigation is not the new product specification or a requirement to reproduce its components in SwiftUI.
 
 ## First integration session
 
@@ -21,22 +21,26 @@ Use **Mymah Finds** in user-visible names and copy. Internal `CommonThread` SDK 
 2. Read `/v1/me` to establish the account. Check `/v1/capabilities` for transport/content limits without displaying development diagnostics. Both interfaces must use credentials for the same backend user to share a library.
 3. Chrome: run `make extension`, load `dist/chrome-extension/` through **Load unpacked**, configure the API, and explicitly save a public page. `dist/mymah-finds-chrome-extension.zip` is the extractable development package.
 4. iOS: install Xcode/XcodeGen, generate the host and Share Extension targets, set signing/App Group/Keychain identifiers, and connect the host before sharing.
-5. Confirm the saved item appears in Library on the other interface after refresh. Find it through Search, open its original link, and verify account isolation.
+5. Confirm the saved item appears in Library on the other interface after refresh. Find it through server Library search, inspect available product analysis, and verify account isolation. With a configured source and supported saved categories, fetch Explore and open its evidence citations.
 
 ## Current interface contract
 
 | Flow | API or framework responsibility | Interface responsibility |
 | --- | --- | --- |
-| Capture | `POST /v1/saves` stores URL/title/text/note and returns a durable receipt | Editable preview, optional note, explicit Save, retained action key, clear saved/failed state |
+| Capture | `POST /v1/saves` stores a URL, image, or both, plus title/text/note, and returns a durable receipt | Editable preview, optional note, explicit Save, retained action key, clear saved/failed state |
+| Predictive annotations | Saved-item suggestions; `POST /v1/saves/{id}/responses` records an explicit selection/edit | Optional chips, edit/skip, clear confirmation; `annotation_only` never means a reminder or watch was scheduled |
+| Product understanding | Typed `analysis` and `analysis_status` on saved items; `POST /v1/saves/{id}/analyze` requests a fresh analysis | Show observed/inferred facts, unknown brand/model and uncertainties; keep capture usable during analysis |
+| Private image | Authenticated `GET /v1/saves/{id}/image` | Fetch with the current account token, discard on account change, hide the original-link button for image-only content |
 | Library | `GET /v1/collection`, `GET /v1/saves/{id}` | Saved content is the primary screen; show title, source/link, supplied text/note, useful empty state and refresh |
-| Search | Search the user's fetched library content; no dedicated search endpoint exists | Find saved titles, links, text, notes and source; support clearing the query and no results |
+| Library search | `GET /v1/library/search?q=...&category=...` searches owned captures, confirmed notes and analyzed product facets | Query/clear/no-result states, category filters and server pagination |
+| Explore | `GET /v1/explore?q=...` returns source-scoped catalog matches, reasons and citations | Recommendation/search cards, **Why this?**, linked saved evidence and catalog attribution, empty/no-match states |
 | Profile | `GET /v1/me`; platform credential/settings storage | Account identity, connection/sign-out state and implemented account controls; keep diagnostics out of product screens |
 | Delete | `DELETE /v1/saves/{id}` removes the item from the active library and invalidates related cached results | Explicit removal, clear local library/search/detail views, refresh after success |
 | Retry/recovery | Idempotency and account-scoped capture state | Preserve the exact request/key across uncertain outcomes; keep unsent user intent recoverable |
 
-The browser reference loads all library pages before filtering titles, notes, selected text, source, and URLs locally. Other clients must provide the same coverage or agree on a search API with the backend owner; a loaded-page filter must not silently claim complete results. Refresh from the first page when the library changes.
+Use `searchLibrary()` for complete server-side matching of the current account's Library. The old browser reference still performs a local filter and should be updated by its teammate. Use `explore()` for personalized candidates and `explore(query:)` for catalog search. Refresh from the first page when the Library changes; do not substitute a loaded-page filter and label it complete search.
 
-The API accepts a URL, title, selected text, and note. There is no image upload, server search, folder/tag editing, saved-content metadata update, or production profile-edit endpoint. Do not add controls that imply these operations exist.
+The API accepts a URL or JPEG/PNG/WebP data URL, title, selected text, and note; see the [image contract](predictive-annotations.md). URL-only saves analyze supplied text without fetching the page. Upload actual image bytes for vision. Folder/tag editing, general saved-content metadata updates, and production profile editing remain unavailable.
 
 Field definitions and limits are in [OpenAPI](../contracts/openapi.json). [Response examples](../contracts/examples) come from an isolated API instance; regenerate with `make fixtures`. JavaScript types are generated; Swift models are maintained and checked against these fixtures. The schema includes future APIs, so it is broader than the current interface scope.
 
@@ -48,7 +52,7 @@ Field definitions and limits are in [OpenAPI](../contracts/openapi.json). [Respo
 - Distinguish a locally queued request whose save is not yet acknowledged from a server-saved item. Only the former needs pending upload/retry treatment in this interface.
 - Lists use offset/limit (maximum 100) and nullable `next_offset`. Reload offset zero on foreground or mutation and deduplicate IDs across pages. Concurrent changes can shift offsets; this is not delta sync.
 - Timestamps are Unix seconds UTC, not JavaScript milliseconds. Use source metadata supplied by the user/client; do not imply another platform account is connected.
-- Capabilities describe backend availability, not product navigation. Even when `annotations`, `discovery`, or `watches` are true, these flows remain outside the Library/Search/Profile brief.
+- Capabilities describe backend availability. Annotation chips belong with saved content within Library/Explore/Profile. Selecting or editing a chip can queue refined analysis; refresh the saved item and dependent Explore results. Legacy discovery and live watch interfaces need their own agreed contract.
 
 ### Error and retry rules
 
@@ -62,13 +66,13 @@ Field definitions and limits are in [OpenAPI](../contracts/openapi.json). [Respo
 | `422` | Show validation feedback; an edited submission gets a new key. |
 | `500` / `503` | Keep mutation identity and request ID; offer deliberate retry, not an infinite loop. |
 
-Every response includes `X-Request-ID`; error bodies include `error.request_id`. Do not log tokens or full personal capture content. Development bearer tokens are not a production login system. Developer setup instructions belong in these guides, not in Library/Search/Profile copy.
+Every response includes `X-Request-ID`; error bodies include `error.request_id`. Do not log tokens or full personal capture content. Development bearer tokens are not a production login system. Developer setup instructions belong in these guides, not in Library/Explore/Profile copy.
 
 ## Retained backend work for later
 
-Annotation responses, evidence/hypotheses, versioned discovery sessions, catalog filtering, watches, simulated price checks, and notifications remain available for backend development and regression coverage. They are not required screens or acceptance flows now. Do not wire them into either interface until the product scope is explicitly expanded.
+Product analysis, predictive annotations, Library search and cited catalog recommendations are in the current interface handoff. Legacy desk hypotheses, versioned discovery sessions, watches, simulated price checks and notifications remain available for backend regression coverage; they are not additional required screens now.
 
-These modules currently use deterministic demo inference, fictional catalog records, and simulated prices. They do not provide live AI, grounded merchant data, checkout, or push delivery. Future session editing must still handle `409 stale_version` by reconciling `error.current` before a new user action with a new key/version. Monetary fields use integer minor units and currency; these contracts are preserved without introducing shopping UI now.
+Explore uses the [catalog integration](catalog-integration.md), which provides licensed local catalogs, source attribution/exports, separate synthetic scenarios and optional approved impact/CJ imports. `EXPLORE_CATALOG_SOURCE` selects its source on the backend, defaulting to `abo`. It matches saved observations to retrieved catalog facts locally and cites both sides; it does not send the whole catalog to Astra. Historical records do not establish live price, merchant, stock or checkout availability. Legacy commerce retains separate fictional records and simulated prices. Checkout, live monitoring, reminder scheduling, push and Dots knowledge access remain unimplemented. Monetary fields use integer minor units and currency.
 
 ## Reminders specific to each interface
 
@@ -79,35 +83,38 @@ These modules currently use deterministic demo inference, fictional catalog reco
 | Popup/worker can close; persist retry identity outside memory | Persist intent before networking; app/extension are separate processes |
 | Session draft clears on restart; durable offline queue remains teammate work | Durable account-scoped outbox is included; foreground retry and pending/failed UI |
 | Optional API host permission; no background browsing or page credentials | Shared Keychain, HTTPS/ATS, foreground refresh; no guaranteed background polling |
-| Keyboard/focus, constrained popup, browser Library/Search/Profile layout | Safe areas, Dynamic Type, VoiceOver, keyboard handling, native navigation/sheets |
+| Keyboard/focus, constrained popup, browser Library/Explore/Profile layout | Safe areas, Dynamic Type, VoiceOver, keyboard handling, native navigation/sheets |
 | Extension icons, store assets and privacy disclosure | App icons, store assets and privacy disclosures |
 
-Media-specific expansion requires a coordinated backend contract. Image-only shares, screenshots, video, OCR/vision, upload storage, and large-file/background transfer are not supported yet. Browser notifications, APNs, and notification deep links also remain later work.
+The image upload and Astra vision contract is now available in the [predictive annotation guide](predictive-annotations.md). Teammates still need to implement selected-image capture, iOS image-share activation/HEIC conversion, and authenticated display. Video, screenshot extraction, large-file/background transfer, browser notifications, APNs and notification deep links remain later work.
 
 ## Acceptance checklist for both teammates
 
-- Show Mymah Finds with exactly Library, Search, and Profile as the main navigation. No demo/prototype labels, generated-meaning controls, shopping flows, or developer diagnostics appear in product screens.
+- Build Mymah Finds with Library, Explore, and Profile as the main navigation. No demo/prototype labels, internal hypothesis controls, provider key settings, or developer diagnostics appear in product screens. Explore cards must not claim checkout or live monitoring that the backend does not supply.
 - Save a real public link with optional text/note; see that saved content in Library on both surfaces after refresh. Opening it leads to the original link.
+- Save a selected image without inventing a source URL; retrieve it using the current account's authorization. Verify that another account cannot load it.
+- Show optional predictive annotations after a save; select, edit, reject and skip without losing the saved item. Selection confirms an annotation and never claims reminder or watch execution.
 - Search saved content, clear the query, handle no results, and verify that pagination does not silently omit the intended search scope.
+- Find a saved watch using a detected category/style; distinguish a supported brand from an unreadable one. Inspect **Why this?** on a relevant Explore card and reopen its actual Library/catalog citations. Preserve no-match and missing-offer states.
 - Start with an empty library that helps the person save their first item; do not seed a fictional shopping story.
 - Close the popup/share sheet during a request and retry without creating duplicate actions. A server-side enrichment failure must not hide or discard a saved item.
 - Resave a canonical duplicate and accurately report **Already saved** without claiming metadata was updated.
 - Delete a save, remove it from library/search/detail views, then retry its old action and handle 410 without resurrection.
 - Expire credentials, sign out or switch accounts/origins, deny/revoke permissions, and verify token/draft/library isolation.
-- Retain only implemented account controls in Profile. Do not imply account editing, complete account erasure, push delivery, or image capture is available.
+- Retain only implemented account controls in Profile. Do not imply account editing, complete account erasure, push delivery, or Dots knowledge access. Image capture affordances must be backed by the actual platform picker/share implementation.
 
 ## Validation and release boundary
 
-Validation completed: **28 backend tests** and **29 JavaScript tests** (10 shared SDK, 12 Chrome extension, 7 library/search), plus generated-contract drift checks. Coverage includes capture, ownership, pagination, error correlation/CORS, retained mutation keys, deletion invalidation, full-library search, unsafe links, and the retained future modules.
+Validation includes the existing library/transport checks plus predictive annotations, image capture, source adapters, catalog integration, operator CLI and worker concurrency tests. Run `make test` for the current full counts and generated-contract checks. Provider tests use mocked HTTP responses; they do not establish live credentials or latency. `make smoke-swift` additionally covers image payloads, private image transport, typed annotation intents, catalog models, money/null handling, expiry, request encoding and source errors.
 
 The Mymah Finds browser reference was checked on desktop and at a 393 px mobile viewport. Saving an actual link, finding it by its note, opening its detail view, and removing it were exercised against the running backend. These browser checks do not claim native iOS or installed-extension verification.
 
 The Swift package has a compiled harness for real response fixtures, transport, retries, and durable outbox behavior. Its XCTest suite is supplied but could not run on this workstation's mismatched Command Line Tools toolchain; see the platform guide.
 
-The framework's real HTTP smoke, SQLite upgrade/downgrade/reupgrade, legacy-row preservation, schema consistency, and PostgreSQL offline SQL generation passed. These checks establish the integration foundation; interface acceptance must follow the current saved-library checklist above.
+The framework includes real HTTP smoke, SQLite migration/row-preservation checks, schema consistency and PostgreSQL offline SQL checks. Current backend/SDK tests cover rich product analysis, Library search, cited Explore and annotation refinement. These establish API behavior; they do not establish live Astra accuracy or completed screen/device integration. Follow the [new interface acceptance guide](ios-ai-handoff.md).
 
 The browser interface was also checked at 375 × 667: no horizontal overflow, all three navigation targets exceeded 44 px, and the visible interface contained no previous brand or prototype/demo wording. Current [mobile](mymah-finds-library-mobile.png) and [desktop](mymah-finds-library-desktop.png) previews are included in the handoff.
 
 Chrome installation/permission prompts were not exercised. Native host/share targets are project templates: Xcode signing, iOS builds, Simulator, and physical-device integration remain to be tested. Live PostgreSQL remains untested.
 
-Before release, the backend owner must provide production identity/session handling, deployment settings, operational limits/monitoring, and data retention/erasure. Store publishing is separate work. Live inference, catalogs, tracking, uploads, and push are later integrations, not prerequisites for designing the current library experience.
+Before release, the backend owner must provide production identity/session handling, deployment settings, operational limits/monitoring, and data retention/erasure. Store publishing is separate work. No Astra key or full Xcode app was available for live-model/device verification in this workspace. Run `make smoke-astra` after backend key configuration, then test representative images and the real iOS flow. Preserve source attribution, currency/unknown fields, expiry and `data_kind` in Explore; historical or synthetic records must not appear to be current merchant offers.

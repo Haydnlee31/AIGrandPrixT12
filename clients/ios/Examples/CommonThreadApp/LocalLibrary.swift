@@ -19,11 +19,15 @@ actor LocalLibrary {
     }
 
     func capture(_ request: CaptureRequest) throws -> CaptureReceipt {
-        guard request.url.count <= 2048, !request.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        // This store still supports URL captures only. Do not acknowledge an
+        // image that would otherwise be silently discarded from local storage.
+        guard request.imageDataUrl == nil else { throw LocalError.imageRequiresConnection }
+        guard let url = request.url else { throw LocalError.invalidLink }
+        guard url.count <= 2048, !request.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               request.title.count <= 300, request.note.count <= 2000, request.selectedText.count <= 12000 else {
             throw LocalError.invalidContent
         }
-        let canonical = try Self.canonicalURL(request.url)
+        let canonical = try Self.canonicalURL(url)
         var items = try collection()
         if let existing = items.first(where: { $0.canonicalUrl == canonical && $0.client != "sample" }) {
             return try Self.receipt(id: existing.id, duplicate: true)
@@ -64,7 +68,7 @@ actor LocalLibrary {
     }
     private static func item(id: String, request: CaptureRequest, canonical: String, sample: Bool = false, date: Date = Date()) throws -> SavedItem {
         let object: [String: Any] = [
-            "id": id, "originalUrl": request.url, "canonicalUrl": canonical,
+            "id": id, "originalUrl": request.url ?? "", "canonicalUrl": canonical,
             "title": request.title, "source": request.source.rawValue, "client": sample ? "sample" : request.client.rawValue,
             "selectedText": request.selectedText, "note": request.note, "capturedAt": date.timeIntervalSince1970,
             "status": "saved", "features": [String: String](), "revision": 1,
@@ -80,17 +84,19 @@ actor LocalLibrary {
             ("ceramics", "Everyday, but a little special", "Those earthy colours. A few lovely pieces, not more clutter.")
         ]
         return try content.enumerated().map { offset, entry in
-            let request = CaptureRequest(url: "https://example.com/inspiration/\(entry.0)", title: entry.1, note: entry.2)
-            return try item(id: "sample-\(entry.0)", request: request, canonical: request.url, sample: true,
+            let sourceURL = "https://example.com/inspiration/\(entry.0)"
+            let request = CaptureRequest(url: sourceURL, title: entry.1, note: entry.2)
+            return try item(id: "sample-\(entry.0)", request: request, canonical: sourceURL, sample: true,
                             date: Date().addingTimeInterval(-Double(offset + 1) * 3600))
         }
     }
     enum LocalError: LocalizedError {
-        case invalidLink, invalidContent
+        case invalidLink, invalidContent, imageRequiresConnection
         var errorDescription: String? {
             switch self {
             case .invalidLink: return "Add a valid public http or https link without a username or password."
             case .invalidContent: return "Check the title and note length, then try saving again."
+            case .imageRequiresConnection: return "Connect your shared library to save images."
             }
         }
     }

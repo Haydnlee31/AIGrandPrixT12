@@ -30,6 +30,9 @@ env = dict(os.environ,
            DATABASE_URL=f"sqlite:///{scratch}/isolated.db",
            API_TOKENS=json.dumps({"demo-alex": "alex", "demo-sam": "sam"}),
            DEMO_MODE="true", EMBEDDED_WORKER="true", CORS_ORIGINS="[]")
+env["ANNOTATION_PROVIDER"] = "fallback"
+env.pop("ASTRA_API_KEY", None)
+env.pop("OPENAI_API_KEY", None)
 subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"],
                cwd=root, env=env, check=True, timeout=30)
 with (scratch / "server.log").open("w+") as log:

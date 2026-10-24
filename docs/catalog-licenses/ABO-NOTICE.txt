@@ -1,0 +1,26 @@
+Amazon Berkeley Objects (ABO) attribution and adaptation notice
+
+Data credit:
+Amazon.com
+
+Credit for building the dataset, archives and benchmark sets:
+Matthieu Guillaumin (Amazon.com), Thomas Dideriksen (Amazon.com),
+Kenan Deng (Amazon.com), Himanshu Arora (Amazon.com),
+Jasmine Collins (UC Berkeley) and Jitendra Malik (UC Berkeley)
+
+Source attribution:
+https://amazon-berkeley-objects.s3.us-east-1.amazonaws.com/README.md
+
+License:
+Creative Commons Attribution 4.0 International (CC BY 4.0)
+https://creativecommons.org/licenses/by/4.0/
+The full license is included in CC-BY-4.0.txt in this directory.
+
+Changes made by Mymah Finds:
+Product metadata is projected into the Mymah Finds normalized catalog schema.
+Source identifiers are retained. Current merchant, price, availability and
+purchase-link facts are not inferred from historical metadata. This handoff
+contains normalized metadata, not image binaries or 3D model archives.
+
+These credits identify the original data and dataset creators and do not imply
+their endorsement of Mymah Finds or its adaptations.

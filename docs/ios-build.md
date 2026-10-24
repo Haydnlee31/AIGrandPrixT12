@@ -1,5 +1,7 @@
 # Native iPhone build
 
+After the API 0.4.0 intelligence merge, the SDK checks, local-library checks, and real Swift-to-FastAPI checks passed. The full Xcode/simulator build recorded below predates this merge and must be repeated on the iOS workstation. The current screen work is described in the [Library / Explore / Profile handoff](ios-ai-handoff.md).
+
 Open `clients/ios/Mymah Finds.xcodeproj` in Xcode and select the **Mymah Finds** scheme. The checked-in project contains the iPhone app, embedded **Save to Mymah Finds** Share Extension, and the local `CommonThreadKit` Swift package. The app targets iOS 18 or later. The reusable SDK retains its iOS 16 minimum.
 
 ## Reproduce the project and build

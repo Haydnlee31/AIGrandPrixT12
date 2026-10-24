@@ -9,6 +9,7 @@ __pycache__/
 !.env.example
 node_modules/
 tmp/
+local-data/
 dist/
 .build/
 .swiftpm/

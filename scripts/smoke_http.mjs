@@ -4,7 +4,7 @@ import {CommonThreadClient, newMutationKey} from '../clients/javascript/client.j
 const api = new CommonThreadClient({baseURL:process.env.SMOKE_API_URL, token:process.env.SMOKE_API_TOKEN});
 const mutation = () => ({idempotencyKey:newMutationKey()});
 assert.equal((await api.health()).status,'ok');
-assert.equal((await api.capabilities()).contract_version,'0.2.0');
+assert.equal((await api.capabilities()).contract_version,'0.4.0');
 const payload = {url:'https://example.org/chrome-desk',title:'Warm desk lighting',note:'Warm lighting for my small desk',client:'chrome_extension'};
 const captureKey = mutation();
 const receipt = await api.capture(payload,captureKey);

@@ -1,7 +1,7 @@
 {
   "items": [
     {
-      "id": "7239bf5c677f46dbb411991a24ee433d",
+      "id": "a8bf8c3f87934d178aa3df9334557cd0",
       "original_url": "https://example.org/desk",
       "canonical_url": "https://example.org/desk",
       "title": "Warm desk lighting",
@@ -9,74 +9,95 @@
       "client": "ios_share_extension",
       "selected_text": "",
       "note": "Warm lighting for my small desk",
-      "captured_at": 1792857396.427017,
+      "captured_at": 1792865905.3487842,
       "status": "ready",
       "features": {
         "desk_related": true,
         "provenance": "captured title and selected text",
-        "data_mode": "demo_rules"
+        "data_mode": "demo_rules",
+        "suggestion_order": [
+          "warm_lighting",
+          "compact_space",
+          "low_clutter",
+          "inspiration_only"
+        ]
       },
       "revision": 1,
       "suggestions": [
         {
-          "id": "12cda228020b408f8aecabc35202c493",
-          "item_id": "7239bf5c677f46dbb411991a24ee433d",
+          "id": "beade279505a56d2b9242f8dc484e1fa",
+          "item_id": "a8bf8c3f87934d178aa3df9334557cd0",
           "kind": "attraction",
           "text": "I like the warm lighting",
           "claim": "warm_lighting",
           "model_version": "demo-rules-v1",
-          "status": "proposed"
+          "status": "proposed",
+          "intent": null,
+          "requires_confirmation": true
         },
         {
-          "id": "82d05332f48c456bae54ab843b3d3954",
-          "item_id": "7239bf5c677f46dbb411991a24ee433d",
+          "id": "f0d15a61e09753baa1b755d420a19757",
+          "item_id": "a8bf8c3f87934d178aa3df9334557cd0",
           "kind": "constraint",
           "text": "This could fit my small desk",
           "claim": "compact_space",
           "model_version": "demo-rules-v1",
-          "status": "proposed"
+          "status": "proposed",
+          "intent": null,
+          "requires_confirmation": true
         },
         {
-          "id": "cfa3a25e41a84eda8615a18917e2f047",
-          "item_id": "7239bf5c677f46dbb411991a24ee433d",
+          "id": "2d580576200e5083a5414da6a3cd2f2c",
+          "item_id": "a8bf8c3f87934d178aa3df9334557cd0",
           "kind": "attraction",
           "text": "I want less clutter",
           "claim": "low_clutter",
           "model_version": "demo-rules-v1",
-          "status": "proposed"
+          "status": "proposed",
+          "intent": null,
+          "requires_confirmation": true
         },
         {
-          "id": "3fa0461c17e3488c9d61be4da324b57b",
-          "item_id": "7239bf5c677f46dbb411991a24ee433d",
+          "id": "d069c457876d54368e4c210f3115aac3",
+          "item_id": "a8bf8c3f87934d178aa3df9334557cd0",
           "kind": "stage",
           "text": "Just inspiration, not shopping",
           "claim": "inspiration_only",
           "model_version": "demo-rules-v1",
-          "status": "proposed"
+          "status": "proposed",
+          "intent": null,
+          "requires_confirmation": true
         }
       ],
       "responses": [
         {
-          "id": "9378bfc6d44348cb94fd45628ae3c4c5",
-          "item_id": "7239bf5c677f46dbb411991a24ee433d",
+          "id": "b68a354bf6004910bfe349ba37641bae",
+          "item_id": "a8bf8c3f87934d178aa3df9334557cd0",
           "event_type": "capture_note",
           "payload": {
             "text": "Warm lighting for my small desk"
           },
-          "occurred_at": 1792857396.427805
+          "occurred_at": 1792865905.349686
         },
         {
-          "id": "3ab234ed5f634b048c1980403d3191a6",
-          "item_id": "7239bf5c677f46dbb411991a24ee433d",
+          "id": "0d32a6d5102d4a8a9251fd082b54d00b",
+          "item_id": "a8bf8c3f87934d178aa3df9334557cd0",
           "event_type": "annotation_response",
           "payload": {
             "action": "select",
-            "suggestion_id": "12cda228020b408f8aecabc35202c493",
-            "text": ""
+            "suggestion_id": "beade279505a56d2b9242f8dc484e1fa",
+            "text": "",
+            "suggestion_text": "I like the warm lighting",
+            "claim": "warm_lighting",
+            "kind": "attraction"
           },
-          "occurred_at": 1792857396.441612
+          "occurred_at": 1792865905.370007
         }
-      ]
+      ],
+      "has_image": false,
+      "image_path": null,
+      "analysis": null,
+      "analysis_status": "unavailable"
     }
   ],
   "next_offset": null

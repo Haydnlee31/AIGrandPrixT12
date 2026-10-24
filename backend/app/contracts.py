@@ -2,7 +2,9 @@ from typing import Literal
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 import ipaddress
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .media import MAX_IMAGE_DATA_URL_LENGTH, validate_image_data_url
 
 
 class Contract(BaseModel):
@@ -28,18 +30,32 @@ def canonical_url(value: str):
 
 
 class Capture(Contract):
-    url: str = Field(max_length=2048)
+    url: str | None = Field(default=None, max_length=2048)
     title: str = Field(min_length=1, max_length=300)
     source: Literal["web", "pinterest", "instagram", "article", "product"] = "web"
     client: Literal["web", "chrome_extension", "ios_app", "ios_share_extension"] = "web"
     selected_text: str = Field(default="", max_length=12000)
     note: str = Field(default="", max_length=2000)
+    image_data_url: str | None = Field(default=None, max_length=MAX_IMAGE_DATA_URL_LENGTH,
+        description="Base64 JPEG, PNG or WebP, up to 4 MiB decoded. Server strips metadata and resizes. Never a remote image URL.")
 
     @field_validator("url")
     @classmethod
     def valid_url(cls, value):
-        canonical_url(value)
+        if value is not None:
+            canonical_url(value)
         return value
+
+    @field_validator("image_data_url")
+    @classmethod
+    def valid_image(cls, value):
+        return validate_image_data_url(value) if value is not None else None
+
+    @model_validator(mode="after")
+    def has_content(self):
+        if self.url is None and self.image_data_url is None:
+            raise ValueError("Provide a URL or an image")
+        return self
 
 
 class AnnotationResponse(Contract):

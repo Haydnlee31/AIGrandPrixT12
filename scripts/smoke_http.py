@@ -18,6 +18,9 @@ def main():
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
         env = dict(os.environ, DATABASE_URL=f"sqlite:///{directory}/smoke.db", API_TOKENS='{"http-smoke-token":"http-smoke-user"}', EMBEDDED_WORKER="true", DEMO_MODE="true", CORS_ORIGINS="[]", SMOKE_API_URL=f"http://127.0.0.1:{port}", SMOKE_API_TOKEN="http-smoke-token")
+        env["ANNOTATION_PROVIDER"] = "fallback"
+        env.pop("ASTRA_API_KEY", None)
+        env.pop("OPENAI_API_KEY", None)
         subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=ROOT, env=env, check=True)
         with open(Path(directory) / "server.log", "w+") as log:
             server = subprocess.Popen([sys.executable, "-m", "uvicorn", "backend.app.main:app", "--host", "127.0.0.1", "--port", str(port)], cwd=ROOT, env=env, stdout=log, stderr=log)

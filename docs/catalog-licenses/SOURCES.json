@@ -1,0 +1,28 @@
+{
+  "ABO-NOTICE.txt": {
+    "source_url": "https://amazon-berkeley-objects.s3.us-east-1.amazonaws.com/README.md",
+    "description": "Amazon Berkeley Objects data and dataset-builder credits copied from the publisher's Attribution section, with license link and a description of Mymah Finds normalization changes."
+  },
+  "CC-BY-4.0.txt": {
+    "source_url": "https://amazon-berkeley-objects.s3.us-east-1.amazonaws.com/LICENSE-CC-BY-4.0.txt",
+    "description": "Full Creative Commons Attribution 4.0 license supplied with Amazon Berkeley Objects. The same standard license applies to UCI Online Retail II; per-source attribution is in the bundle manifest and every record."
+  },
+  "DbCL-1.0.txt": {
+    "source_url": "https://opendatacommons.org/licenses/dbcl/dbcl-10.txt",
+    "applicability_url": "https://raw.githubusercontent.com/openfoodfacts/openfoodfacts-server/main/docs/api/tutorials/license-be-on-the-legal-side.md",
+    "description": "Full Database Contents License downloaded directly from its publisher. Open Facts' official data-license guidance applies DbCL to individual database contents and ODbL to the database; these notices do not license product images, which are excluded."
+  },
+  "Microsoft-MIT.txt": {
+    "source_url": "https://raw.githubusercontent.com/microsoft/sql-server-samples/master/license.txt",
+    "description": "Complete Microsoft SQL Server sample license notice for Northwind and AdventureWorks."
+  },
+  "ODbL-1.0.txt": {
+    "source_url": "https://opendatacommons.org/licenses/odbl/odbl-10.txt",
+    "retrieved_from": "https://raw.githubusercontent.com/spdx/license-list-data/main/text/ODbL-1.0.txt",
+    "description": "Full Open Data Commons Open Database License, using the authoritative SPDX license-text copy after the publisher's direct download returned HTTP 403. Publisher text was checked through its web page. Open Facts adaptations remain separate source datasets with contributor attribution. No Open Facts image files are included."
+  },
+  "WANDS-MIT.txt": {
+    "source_url": "https://raw.githubusercontent.com/wayfair/WANDS/main/LICENSE",
+    "description": "Complete WANDS MIT notice, preserving copyright (c) 2021 ecir2022."
+  }
+}

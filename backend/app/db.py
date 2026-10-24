@@ -2,9 +2,9 @@ import os
 import time
 import uuid
 
-from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, UniqueConstraint, create_engine, event
+from sqlalchemy import JSON, BigInteger, Boolean, Float, ForeignKey, Index, Integer, String, UniqueConstraint, create_engine, event
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Mapped, column_property, mapped_column, sessionmaker
 
 
 def uid():
@@ -31,9 +31,13 @@ class SavedItem(Base):
     selected_text: Mapped[str] = mapped_column(String, default="")
     content_hash: Mapped[str] = mapped_column(String, default="")
     note: Mapped[str] = mapped_column(String, default="")
+    image_data_url: Mapped[str | None] = mapped_column(String, nullable=True, deferred=True)
+    has_image: Mapped[bool] = column_property(image_data_url.column.is_not(None))
     captured_at: Mapped[float] = mapped_column(Float, default=time.time)
     status: Mapped[str] = mapped_column(String, default="pending")
     features: Mapped[dict] = mapped_column(Document, default=dict)
+    search_text: Mapped[str] = mapped_column(String, default="", server_default="")
+    category_text: Mapped[str] = mapped_column(String, default="", server_default="")
     revision: Mapped[int] = mapped_column(Integer, default=1)
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -152,6 +156,67 @@ class Mutation(Base):
     key: Mapped[str] = mapped_column(String)
     fingerprint: Mapped[str] = mapped_column(String)
     response: Mapped[dict] = mapped_column(Document)
+
+
+class CatalogFeed(Base):
+    """An operator-approved catalog scope, independent of user libraries."""
+    __tablename__ = "catalog_feeds"
+    __table_args__ = (UniqueConstraint("source_id", "catalog_id"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    source_id: Mapped[str] = mapped_column(String, index=True)
+    catalog_id: Mapped[str] = mapped_column(String)
+    approval_reference: Mapped[str] = mapped_column(String)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_import_id: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class CatalogImport(Base):
+    __tablename__ = "catalog_imports"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    feed_id: Mapped[str] = mapped_column(ForeignKey("catalog_feeds.id"), index=True)
+    digest: Mapped[str] = mapped_column(String)
+    approval_reference: Mapped[str] = mapped_column(String)
+    imported_at: Mapped[float] = mapped_column(Float)
+    source_observed_at: Mapped[float] = mapped_column(Float)
+    expires_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    row_count: Mapped[int] = mapped_column(Integer)
+
+
+class CatalogMerchant(Base):
+    __tablename__ = "catalog_merchants"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    feed_id: Mapped[str] = mapped_column(ForeignKey("catalog_feeds.id"), index=True)
+    external_id: Mapped[str] = mapped_column(String)
+    name: Mapped[str] = mapped_column(String)
+    platform: Mapped[str] = mapped_column(String)
+
+
+class CatalogProduct(Base):
+    """One source record/variant; identities are never merged across merchants."""
+    __tablename__ = "catalog_products"
+    __table_args__ = (Index("ix_catalog_products_feed_id_id", "feed_id", "id"),
+                      Index("ix_catalog_products_feed_record", "feed_id", "source_record_id"))
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    feed_id: Mapped[str] = mapped_column(ForeignKey("catalog_feeds.id"), index=True)
+    import_id: Mapped[str] = mapped_column(ForeignKey("catalog_imports.id"))
+    source_record_id: Mapped[str] = mapped_column(String)
+    product_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    variant_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    title: Mapped[str] = mapped_column(String)
+    search_text: Mapped[str] = mapped_column(String)
+    record: Mapped[dict] = mapped_column(Document)
+
+
+class CatalogOffer(Base):
+    __tablename__ = "catalog_offers"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    product_id: Mapped[str] = mapped_column(ForeignKey("catalog_products.id"), unique=True)
+    merchant_id: Mapped[str | None] = mapped_column(ForeignKey("catalog_merchants.id"), nullable=True)
+    price_minor: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    currency: Mapped[str | None] = mapped_column(String, nullable=True)
+    availability: Mapped[str] = mapped_column(String)
+    observed_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    expires_at: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)
 
 
 def make_database(url=None):

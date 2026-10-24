@@ -48,6 +48,23 @@ struct LocalLibrarySmoke {
         try check(beforeInvalid == afterInvalid, "invalid link leaves persisted file byte-for-byte intact")
         print("PASS invalid link rejected without changing the saved library")
 
+        for imageRequest in [
+            CaptureRequest(title: "Image only", imageDataUrl: "data:image/png;base64,aW1hZ2U="),
+            CaptureRequest(url: "https://example.org/image", title: "Link and image", imageDataUrl: "data:image/png;base64,aW1hZ2U=")
+        ] {
+            do {
+                _ = try await library.capture(imageRequest)
+                throw SmokeFailure.assertion("local URL store silently accepted image data")
+            } catch LocalLibrary.LocalError.imageRequiresConnection {}
+        }
+        do {
+            _ = try await library.capture(CaptureRequest(title: "Missing content"))
+            throw SmokeFailure.assertion("local URL store accepted a missing URL")
+        } catch LocalLibrary.LocalError.invalidLink {}
+        let afterUnsupportedMedia = try Data(contentsOf: file)
+        try check(beforeInvalid == afterUnsupportedMedia, "unsupported image or missing URL does not change persisted local content")
+        print("PASS local URL storage rejects unsupported images without losing their content")
+
         try await library.delete(receipt.id)
         let afterDelete = try await LocalLibrary(fileURL: file).collection()
         try check(afterDelete.count == starter.count && !afterDelete.contains { $0.id == receipt.id }, "deletion persists")

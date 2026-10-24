@@ -1,4 +1,4 @@
-.PHONY: setup run worker test smoke-http smoke-swift migrate contracts check-contracts fixtures extension handoff
+.PHONY: setup run worker test smoke-http smoke-swift migrate contracts check-contracts fixtures extension handoff catalog-load catalog-bundle
 setup:
 	uv venv .venv
 	uv pip install --python .venv/bin/python -r requirements.lock
@@ -28,6 +28,10 @@ check-contracts:
 smoke-http:
 	.venv/bin/python scripts/smoke_http.py
 
+# Explicit opt-in: makes one paid request with the backend's configured key.
+smoke-astra:
+	.venv/bin/python scripts/smoke_astra.py
+
 smoke-swift:
 	sh clients/ios/Scripts/smoke.sh
 
@@ -39,3 +43,9 @@ extension:
 
 handoff: contracts fixtures test
 	.venv/bin/python scripts/package_handoff.py --all
+
+catalog-load: migrate
+	.venv/bin/python scripts/load_catalogs.py
+
+catalog-bundle:
+	.venv/bin/python scripts/package_catalogs.py

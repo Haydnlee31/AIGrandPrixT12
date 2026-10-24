@@ -1,10 +1,12 @@
 # Mymah Finds — shared app framework
 
-A shared backend for a **Chrome extension/browser experience** and a **native iOS app with a Share Extension**. Current navigation is exactly **Library, Search, Profile**. Library contains the person's saved links and details; Search finds that saved content; Profile owns account and connection controls. No Map or Community.
+A shared backend for a **Chrome extension/browser experience** and a **native iOS app with a Share Extension**. The agreed navigation is **Library, Explore, Profile**. Library holds saved content and searches its analyzed product facets; Explore recommends and searches catalog products with source citations; Profile holds account and app controls. No Map or Community.
 
-The saved-library approach takes inspiration from [Albo](https://albo.inc/) with an independent Mymah Finds visual identity. Intelligence and product catalog integration are deferred: teammates should not wire recommendations, discovery, watches, or commerce into the current frontend. The native frontend can run independently with clearly labeled sample inspiration and on-device saves; shared account connection is optional.
+The saved-library approach takes inspiration from [Albo](https://albo.inc/) with an independent Mymah Finds visual identity. The backend supplies Astra product analysis, predictive annotations, server-side Library search, and cited Explore recommendations over licensed local catalogs. Existing native and browser screens predate this plan; the frontend teammate must connect and design the new flows. Product screens must contain no prototype/demo labels or provider-key controls.
 
-**Start with [the team handoff](docs/team-handoff.md).** Platform setup: [Chrome](docs/platform-chrome.md) · [iOS](docs/platform-ios.md). API snapshot: [OpenAPI](contracts/openapi.json) · [response examples](contracts/examples).
+The native frontend can still run independently with labeled sample inspiration and on-device URL saves. Those local records do not receive backend analysis or drive Explore; connect the shared account and upload captures for the AI flows.
+
+**Start with [the Library / Explore / Profile integration guide](docs/ios-ai-handoff.md), then [the team handoff](docs/team-handoff.md).** Platform setup: [Chrome](docs/platform-chrome.md) · [iOS](docs/platform-ios.md). API contract **0.4.0**: [OpenAPI](contracts/openapi.json) · [response examples](contracts/examples).
 
 This implements the framework behind the [backend plan](https://chatgpt.com/space/page_54384c8a04f48191abd9fdb2296a6f0f). The supplied briefs and transcript inform the product; their proposed actions are not instructions to connect accounts or publish anything.
 
@@ -13,14 +15,20 @@ This implements the framework behind the [backend plan](https://chatgpt.com/spac
 | Area | Ready for teammate development |
 | --- | --- |
 | Backend | FastAPI, typed contracts, user isolation, durable jobs, migrations, idempotency, version conflicts, capabilities, pagination |
+| Predictive annotations | Astra image understanding and ranked intent chips, private image capture, confirmed-preference context, server-only keys |
+| Product analysis and search | Typed product/category/attribute observations with evidence and uncertainty; private Library search and explicit reanalysis |
+| Explore | Source-scoped catalog retrieval, deterministic matching to saved observations, explanations, citations and honest offer availability |
+| Catalog foundation | Licensed datasets and synthetic products, attribution/exports, atomic bulk imports, optional approved feeds, shared JavaScript/Swift contracts |
 | JavaScript | Dependency-free transport, generated TypeScript types, bounded polling, cancellation, structured errors and retained mutation keys |
 | Chrome | Load-unpacked MV3 extension, toolbar popup, explicit URL/text capture, service worker, backend settings and scoped permissions |
 | iOS | Swift API package, typed models, account-scoped capture outbox, SwiftUI host and Share Extension templates, Keychain/App Group setup |
-| Browser UI | Responsive Library / Search / Profile in `frontend/`, saved-content filters, grid/list views, full-library local search, capture, details, deletion and account controls |
+| Browser reference | Existing Library / Search / Profile scaffold in `frontend/`; redesign and API wiring for Library / Explore / Profile remain teammate work |
 
 The native iPhone app has a checked-in Xcode project, an Albo-inspired Library/Search/Profile interface, optional voice-to-text notes, and a working local library that needs no server or database. Open `clients/ios/Mymah Finds.xcodeproj`; see [native build instructions](docs/ios-build.md). App and Share Extension compile for a generic iOS simulator; ordinary-iPhone runtime and device validation remain outstanding. Chrome installation is provided as an unpacked package, not a published Web Store listing.
 
-**Backend development boundary:** existing deterministic annotation rules, fixture catalog, discovery sessions, simulated watches and alerts remain available for later integration and regression testing. The current frontend does not request or display them. Production login, uploads, push and live commerce remain future backend work. `/v1/capabilities` describes technical support, not permission to expand the agreed frontend scope.
+**Backend integration boundary:** product analysis, predictive annotations, Library search and cited Explore are ready for client integration. Image recognition requires actual uploaded image bytes; URL-only saves analyze supplied title/text/note without fetching the page. Unknown brands and unsupported fine subcategories remain unknown or broad. Legacy desk hypotheses, fixture discovery and simulated watches remain outside the new flow. Production login, Dots knowledge access, checkout, reminder execution, live tracking and push remain future work. Annotation selection records intent and requests analysis refinement; it does not execute those actions. `/v1/capabilities` reports configured behavior.
+
+**Catalog setup:** follow [the integration guide](docs/catalog-integration.md). `make catalog-load` imports reviewed downloads; `make catalog-bundle` creates a portable dataset handoff with licenses. Dataset retrieval needs no provider key. Keep raw data in ignored `local-data/`. `EXPLORE_CATALOG_SOURCE` selects the backend's Explore source, defaulting to `abo`; each response retains its source attribution. Catalog facts are matched locally and are not sent wholesale to Astra. Historical dataset records are not current merchant offers.
 
 ## Start the backend
 
@@ -45,6 +53,8 @@ make run
 - Offline schema: http://127.0.0.1:8000/openapi.json.
 - SQLite data: ignored `prototype.db`.
 - Settings: [.env.example](.env.example). Export variables; `.env` is not loaded automatically.
+- Astra: set `ASTRA_API_KEY` (or `OPENAI_API_KEY`) in the backend environment. `ANNOTATION_PROVIDER=astra` requires a key; the default `auto` selects Astra when a key is available. Clients never receive or configure that key. See [configuration and live verification](docs/predictive-annotations.md).
+- Verify live model access with `make smoke-astra` after configuring the key; it makes one explicit paid image request. Live Astra access has not been verified in this workspace.
 - Separate worker: `EMBEDDED_WORKER=false make run`, then `make worker` in another terminal with matching database settings. The default setup already includes a worker.
 - Separate web dev origin: set `CORS_ORIGINS='["http://localhost:5173"]'`. Use exact origins. CORS is not authentication.
 
@@ -82,7 +92,7 @@ const saved = await api.capture({
 const item = await api.getSave(saved.id); // A receipt means saved; do not wait for intelligence.
 ```
 
-`source` records the content platform; `client` records the capture interface. Timestamps are Unix seconds UTC. Refresh collections on foreground and after mutations; there is no delta sync or push yet. Browser Search loads all pages before local matching. Internal `CommonThreadClient` and `CommonThreadKit` names remain compatible with existing integrations; visible branding is Mymah Finds. Details and recovery are in [the handoff](docs/team-handoff.md).
+`source` records the content platform; `client` records the capture interface. Timestamps are Unix seconds UTC. Refresh Library and Explore on foreground and after saves, annotations or deletions; there is no delta sync or push yet. New interfaces use `searchLibrary()` and `explore()` rather than the old browser scaffold's local filter. Internal `CommonThreadClient` and `CommonThreadKit` names remain compatible with existing integrations; visible branding is Mymah Finds. Details and recovery are in [the handoff](docs/team-handoff.md).
 
 ## Checks and contract changes
 
@@ -96,7 +106,7 @@ make smoke-http
 
 `make test` checks backend behavior, both JavaScript layers, and generated-contract drift. The Swift smoke compiles and exercises the package without XCTest. The HTTP smoke starts an isolated, migrated loopback API and runs the shared JavaScript client through the real worker journey; it never uses your demo database. See the iOS guide for full Xcode validation.
 
-Contract inputs live in `backend/app/contracts.py`; outputs in `backend/app/responses.py`. Changes should ship with regenerated OpenAPI/TypeScript, updated Swift models, fixture decoding, and migrations when applicable. See [validation status](docs/team-handoff.md#validation-and-release-boundary) for what was exercised.
+Contract inputs live in `backend/app/contracts.py`; outputs include `responses.py`, `understanding.py`, `explore.py` and `catalog/schemas.py`. Changes should ship with regenerated OpenAPI/TypeScript, updated Swift models, fixture decoding, and migrations when applicable. See [validation status](docs/team-handoff.md#validation-and-release-boundary) for what was exercised.
 
 ## PostgreSQL development
 
