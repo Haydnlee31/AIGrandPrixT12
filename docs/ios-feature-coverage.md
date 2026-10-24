@@ -88,3 +88,12 @@ This section supersedes earlier descriptions of the microphone, Explore tab labe
 - The custom microphone is removed at the user's request after physical-device failure. Typed notes and iPhone keyboard dictation remain available. Existing audio attachments and historical voice-note metadata are preserved. The relay dictation endpoint remains available to other clients; no native microphone UI calls it.
 - A shared appearance state replaces independent preference observers after device testing showed a persisted selection without a visible mode change. On the final installed build, Aditya confirmed that Dark and Light both switch the app immediately.
 - Recommendation/index checks pass 57 tests. The restarted relay returned 24 actual catalog matches for the seven-save snapshot with zero incorrect landline matches for smartphone saves.
+
+
+## Current Radar and product grouping update
+
+- Radar review: editable intention, budget slider, persistent Show matches button, explicit keyboard dismissal and no autofocus. Results are a photo-led grid with product detail and Back navigation. Typed intentions no longer require source saves.
+- Exact repeat saves automatically appear together. Grouped notes/preferences/analysis remain attached to the product; original records and files are retained. Source aliases, group edits, flags and explicit deletion are handled by the local store.
+- Removed Explore's separate Insights list. Product cards show an insight preview; each detail combines highlights and original-source evidence/notes inline.
+- Focused real-data store verification: eight device snapshot records produce six groups; every original ID resolves and the copied source JSON remains unchanged. Tests cover identical photo sets, different URL variants, repeated-share replay, clear/unpin behavior and new context added after merging.
+- Live intent-only Radar examples: a silver retro watch returned 12 real catalog records with 12 photos; a small-desk reading lamp returned 12 records with nine photos. Budget does not imply verified live prices. Some catalog sources omit photos; exact-source recovery is separate from product recommendation.

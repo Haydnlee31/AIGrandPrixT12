@@ -111,50 +111,24 @@ struct NewInsightHighlights: View {
     let summary: String
     let evidence: [String]
     let uncertainties: [String]
-    private var fullSummary: String { summary.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var summaryHighlight: String {
-        var firstSentence: String?
-        fullSummary.enumerateSubstrings(in: fullSummary.startIndex..<fullSummary.endIndex, options: .bySentences) { sentence, _, _, stop in
-            firstSentence = sentence?.trimmingCharacters(in: .whitespacesAndNewlines)
-            stop = true
-        }
-        return firstSentence ?? fullSummary
-    }
-    private var observations: [String] {
-        var values: [String] = []
-        if !summaryHighlight.isEmpty { values.append(summaryHighlight) }
-        for text in evidence.map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where !text.isEmpty {
-            // A title/caption transcription adds no visual insight. The original
-            // remains available above, without repeating its wording as a finding.
-            guard !isTitleOrCaptionEcho(text) else { continue }
-            let key = normalized(text)
-            let existingObservations = values + (fullSummary.isEmpty ? [] : [fullSummary])
-            if !existingObservations.contains(where: {
-                let existing = normalized($0)
-                return existing == key || (min(existing.count, key.count) > 28 && (existing.contains(key) || key.contains(existing)))
-            }) { values.append(text) }
-        }
-        return values
-    }
-    // A synthesis already combines the evidence. Keep its supporting observations
-    // in Details so paraphrases never become duplicate main highlights.
-    private var visibleCount: Int { fullSummary.isEmpty ? 2 : 1 }
-    private var details: [String] {
-        (fullSummary != summaryHighlight && !fullSummary.isEmpty ? [fullSummary] : []) + Array(observations.dropFirst(visibleCount))
+    var additionalSummaries: [String] = []
+    private var combined: ProductInsightSummary {
+        ProductInsightSummary(summary: summary, evidence: evidence, uncertainties: uncertainties,
+            additionalSummaries: additionalSummaries)
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(observations.prefix(visibleCount).enumerated()), id: \.offset) { index, text in
+            ForEach(Array(combined.highlights.enumerated()), id: \.offset) { index, text in
                 FindInsightRow(text: text, index: index)
             }
-            if !details.isEmpty || !uncertainties.isEmpty {
+            if !combined.details.isEmpty || !combined.uncertainties.isEmpty {
                 DisclosureGroup("Details") {
                     VStack(alignment: .leading, spacing: 12) {
-                        ForEach(details, id: \.self) { text in
+                        ForEach(combined.details, id: \.self) { text in
                             Text(text).font(.subheadline).foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        ForEach(uncertainties, id: \.self) { text in
+                        ForEach(combined.uncertainties, id: \.self) { text in
                             Label(text, systemImage: "questionmark.circle")
                                 .font(.subheadline).foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -164,12 +138,7 @@ struct NewInsightHighlights: View {
             }
         }
     }
-    private func normalized(_ text: String) -> String {
-        text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.joined(separator: " ")
-    }
-    private func isTitleOrCaptionEcho(_ text: String) -> Bool {
-        normalized(text).range(of: "^(?:(?:the|saved|source|page|product|post|image|link) )*(?:title|caption)\\b", options: .regularExpression) != nil
-    }
+
 }
 
 private enum FindIntentAppearance {

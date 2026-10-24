@@ -36,8 +36,10 @@ struct LocalLibrarySmoke {
         ))
         let afterDuplicate = try await reopened.collection()
         try check(duplicate.duplicate && duplicate.id == receipt.id, "canonical URL identifies duplicate")
-        try check(afterDuplicate.count == reloaded.count && afterDuplicate.first?.note == note && afterDuplicate.first?.title == request.title, "duplicate preserves original title and note")
-        print("PASS capture, reload and canonical duplicate preserve original content")
+        try check(afterDuplicate.count == reloaded.count && afterDuplicate.first?.note == note + "\n\nDo not overwrite" && afterDuplicate.first?.title == request.title, "duplicate combines notes without replacing the original title")
+        let originalSources = try await reopened.metadata()[receipt.id]?.sourceItems
+        try check(originalSources?.map(\.note) == [note, "Do not overwrite"], "duplicate keeps both original source notes")
+        print("PASS capture, reload and canonical duplicate retain and combine original content")
 
         // Version-2 migration removes only the four known starter records.
         let originalObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(reloaded[0])) as! [String: Any]
@@ -194,6 +196,8 @@ struct LocalLibrarySmoke {
         let analysisObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(analysis))
         var oldPhotoObject = originalObject; oldPhotoObject["id"] = "old-photo"; oldPhotoObject["title"] = "IMG_2715.jpg"
         var protectedObject = originalObject; protectedObject["id"] = "protected-photo"; protectedObject["title"] = "IMG_2716.jpg"
+        protectedObject["originalUrl"] = "https://example.org/protected-photo"
+        protectedObject["canonicalUrl"] = "https://example.org/protected-photo"
         var oldPhotoMetadata = oldMetadata; oldPhotoMetadata["analysis"] = analysisObject
         var protectedMetadata = oldPhotoMetadata; protectedMetadata["userEditedTitle"] = true
         let titleMigrationFile = directory.appendingPathComponent("title-migration.json")
@@ -204,7 +208,7 @@ struct LocalLibrarySmoke {
         let firstMigrationBytes = try Data(contentsOf: titleMigrationFile)
         _ = try await titleMigrationLibrary.collection()
         let repeatedMigrationBytes = try Data(contentsOf: titleMigrationFile)
-        try check(migratedTitles[0].title == "Digital watch" && migratedTitles[1].title == "IMG_2716.jpg", "existing analyzed filenames migrate while manual titles are protected")
+        try check(migratedTitles.first(where: { $0.id == "old-photo" })?.title == "Digital watch" && migratedTitles.first(where: { $0.id == "protected-photo" })?.title == "IMG_2716.jpg", "existing analyzed filenames migrate while manual titles are protected")
         try check(firstMigrationBytes == repeatedMigrationBytes, "title migration does not create revision or persistence loops")
         let shareDraft = LocalShareDraft(title: "A new find", url: "https://example.org/watch", text: "A watch", note: "My note", attachments: [],
             intents: ["Retro face", "Smaller case"], analysis: analysis, userEditedTitle: false)
@@ -264,6 +268,121 @@ struct LocalLibrarySmoke {
         let emptied = try await LocalLibrary(fileURL: file).collection()
         try check(emptied.isEmpty, "empty collection stays empty after reopening")
         print("PASS deletion persists and empty library is not reseeded")
+        try await checkExactGrouping(directory: directory, png: png)
+        if CommandLine.arguments.count > 1 {
+            try await checkSnapshot(URL(fileURLWithPath: CommandLine.arguments[1]), directory: directory)
+        }
         print("All frontend local library checks passed without a backend.")
+    }
+
+    private static func checkSnapshot(_ source: URL, directory: URL) async throws {
+        let original = try Data(contentsOf: source)
+        let copy = directory.appendingPathComponent("snapshot/library.json")
+        try FileManager.default.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try original.write(to: copy)
+        let store = LocalLibrary(fileURL: copy)
+        let items = try await store.collection()
+        let metadata = try await store.metadata()
+        let raw = try JSONSerialization.jsonObject(with: original) as! [String: Any]
+        let sources = raw["items"] as! [[String: Any]]
+        let observedIDs = Set(items.flatMap { metadata[$0.id]?.sourceItems?.map(\.id) ?? [$0.id] })
+        let sourceIDs = Set(sources.compactMap { $0["id"] as? String })
+        try check(observedIDs == sourceIDs, "snapshot grouped view represents every original source")
+        let copiedAfterReads = try Data(contentsOf: copy)
+        let sourceAfterReads = try Data(contentsOf: source)
+        try check(copiedAfterReads == original, "reading snapshot groups preserves original JSON byte-for-byte")
+        try check(sourceAfterReads == original, "snapshot source is never modified")
+        for id in sourceIDs {
+            let resolved = try await store.item(id)
+            try check(resolved != nil && metadata[id] != nil, "every original snapshot ID resolves")
+        }
+        print("PASS isolated device snapshot: \(sources.count) originals → \(items.count) groups; source rows, metadata and input file unchanged")
+    }
+
+    private static func checkExactGrouping(directory: URL, png: Data) async throws {
+        let file = directory.appendingPathComponent("grouping/library.json")
+        let library = LocalLibrary(fileURL: file)
+        func analysis(_ time: Double, _ evidence: String) -> CaptureIntelligenceResult {
+            CaptureIntelligenceResult(productName: "Watch", categoryPath: ["Accessories", "Watches"], brand: "Example",
+                style: ["Classic"], summary: evidence, uncertainties: ["Fit unknown"], prompts: [], evidence: [evidence], analyzedAt: time, schemaVersion: 2)
+        }
+        let first = try await library.captureContent(url: "https://example.org/watch?variant=blue&utm_source=first", title: "My exact watch",
+            text: "First description", note: "A gift for Dad", attachments: [.init(filename: "watch.png", typeIdentifier: "public.png", data: png)],
+            id: "watch-first", capturedAt: Date(timeIntervalSince1970: 100), intents: ["Blue dial", "Small case"], analysis: analysis(10, "Blue dial visible"), userEditedTitle: true)
+        try await library.setPinned(first.id, true); try await library.setFavorite(first.id, true); try await library.setArchived(first.id, true)
+        _ = try await library.captureContent(url: "https://EXAMPLE.ORG/watch?utm_medium=share&variant=blue", title: "Watch",
+            text: "Second description", note: "Check the strap", attachments: [.init(filename: "note.m4a", typeIdentifier: "public.mpeg-4-audio", data: Data([1, 2, 3]))],
+            id: "watch-second", capturedAt: Date(timeIntervalSince1970: 200), intents: ["Small case", "Leather strap"], analysis: analysis(20, "Leather strap visible"), hasVoiceNote: true)
+        let group = try await library.collection()
+        let details = try await library.metadata()[first.id]!
+        try check(group.count == 1 && group[0].id == first.id && group[0].title == "My exact watch", "exact URL grouping keeps stable ID and manual title")
+        try check(group[0].note == "A gift for Dad\n\nCheck the strap" && group[0].selectedText == "First description\n\nSecond description", "distinct notes and source text combine without loss")
+        try check(details.selectedIntents == ["Blue dial", "Small case", "Leather strap"] && details.attachments.count == 2, "all selected details and attachments retained")
+        try check(details.pinned && details.isFavorite && !details.isArchived && details.hasVoiceNote == true, "organization flags and voice history survive grouping")
+        try check(details.analysis?.analyzedAt == 20 && details.sourceAnalyses?.count == 2 && details.sourceItems?.count == 2, "latest analysis and original insight sources retained")
+        let alias = try await library.item("watch-second")
+        let aliasMetadata = try await library.metadata()["watch-second"]
+        try check(alias?.id == first.id && aliasMetadata?.sourceItems?.count == 2, "old IDs resolve to the merged find and metadata")
+        let rawBeforeEdits = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
+        let rawSources = rawBeforeEdits["items"] as! [[String: Any]]
+        let rawMetadata = rawBeforeEdits["metadata"] as! [String: Any]
+        try check(rawSources.count == 2, "grouping does not remove original records")
+
+        try await library.setPinned("watch-second", false); try await library.setFavorite("watch-second", false)
+        try await library.setArchived("watch-second", true)
+        let archived = try await library.metadata()[first.id]!
+        try check(!archived.pinned && !archived.isFavorite && archived.isArchived, "group overrides can clear member pins and favorites and archive every source")
+        try await library.setArchived(first.id, false); try await library.setIntents("watch-second", [])
+        try await library.update("watch-second", title: "Dad’s birthday watch", note: "Final gift shortlist", text: "Combined description")
+        let edited = try await LocalLibrary(fileURL: file).item(first.id)!
+        let editedDetails = try await LocalLibrary(fileURL: file).metadata()[first.id]!
+        try check(edited.note == "Final gift shortlist" && edited.title == "Dad’s birthday watch" && editedDetails.selectedIntents.isEmpty && !editedDetails.isArchived, "combined edits persist without old selections reappearing")
+        try check(editedDetails.analysis == nil && editedDetails.sourceAnalyses?.count == 2, "source edit invalidates current analysis but retains original insight evidence")
+        let rawAfterEdits = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
+        let options: JSONSerialization.WritingOptions = [.sortedKeys]
+        let retainedRows = try JSONSerialization.data(withJSONObject: rawSources, options: options) == JSONSerialization.data(withJSONObject: rawAfterEdits["items"]!, options: options)
+        let retainedMetadata = try JSONSerialization.data(withJSONObject: rawMetadata, options: options) == JSONSerialization.data(withJSONObject: rawAfterEdits["metadata"]!, options: options)
+        try check(retainedRows, "group edits preserve every original row byte-for-byte logically")
+        try check(retainedMetadata, "group edits preserve original metadata")
+
+        _ = try await library.captureContent(url: "https://example.org/watch?variant=blue", title: "Third save", note: "Remember his wrist size",
+            id: "watch-third", capturedAt: Date(timeIntervalSince1970: 300), intents: ["Measure fit"])
+        let appended = try await library.item("watch-third")!
+        let appendedDetails = try await library.metadata()[first.id]!
+        try check(appended.note == "Final gift shortlist\n\nRemember his wrist size" && appendedDetails.selectedIntents == ["Measure fit"], "later source adds context without restoring explicitly removed details")
+        let beforeReplay = try Data(contentsOf: file)
+        let replay = try await library.captureContent(url: "https://example.org/watch?variant=blue", title: "Old payload", note: "Old payload", id: "watch-third")
+        let afterReplay = try Data(contentsOf: file)
+        try check(replay.id == first.id && replay.duplicate && beforeReplay == afterReplay, "replayed share alias stays idempotent after grouping and edits")
+        try await library.setAnalysis(first.id, analysis(30, "New complete analysis"))
+        let refreshed = try await library.metadata()[first.id]!
+        try check(refreshed.analysis?.analyzedAt == 30 && refreshed.sourceAnalyses?.count == 3, "new combined analysis retains individual sources")
+        _ = try await library.captureContent(url: "https://example.org/watch?variant=red", title: "Watch", id: "watch-red")
+        _ = try await library.captureContent(url: "https://another.example/watch?variant=blue", title: "My exact watch", id: "watch-other")
+        let variants = try await library.collection()
+        try check(variants.count == 3, "different variants and domains never merge by title or brand")
+
+        let photosFile = directory.appendingPathComponent("photos/library.json")
+        let photos = LocalLibrary(fileURL: photosFile)
+        let photo = LocalCaptureAttachment(filename: "a.png", typeIdentifier: "public.png", data: png)
+        _ = try await photos.captureContent(title: "Photo A", note: "Original photo note", attachments: [photo], id: "photo-a", capturedAt: Date(timeIntervalSince1970: 10))
+        let secondPhoto = try await photos.captureContent(title: "Photo B", note: "Another reason", attachments: [photo], id: "photo-b", capturedAt: Date(timeIntervalSince1970: 20))
+        let mergedPhotos = try await photos.collection()
+        try check(mergedPhotos.count == 1 && secondPhoto.id == "photo-a" && mergedPhotos[0].note.contains("Another reason"), "identical photo bytes combine notes")
+        var differentBytes = png; differentBytes.append(1)
+        let otherPhoto = LocalCaptureAttachment(filename: "a.png", typeIdentifier: "public.png", data: differentBytes)
+        _ = try await photos.captureContent(title: "Photo A", attachments: [otherPhoto], id: "photo-c")
+        _ = try await photos.captureContent(title: "Photo set", attachments: [photo, otherPhoto], id: "photo-set")
+        let separatePhotos = try await photos.collection()
+        try check(separatePhotos.count == 3, "different image bytes or complete photo sets remain distinct")
+        let sourceBytes = try await photos.metadata()["photo-a"]!.attachments
+        try await photos.delete("photo-b")
+        let removed = try await photos.item("photo-a")
+        try check(removed == nil, "explicit group deletion resolves aliases and deletes that group")
+        for attachment in sourceBytes {
+            let location = await photos.attachmentURL(attachment)
+            try check(!FileManager.default.fileExists(atPath: location.path), "explicit group deletion cleans its original attachment files")
+        }
+        print("PASS exact URL/photo grouping, source preservation, aliases, overrides, later notes, replay and variant separation")
     }
 }

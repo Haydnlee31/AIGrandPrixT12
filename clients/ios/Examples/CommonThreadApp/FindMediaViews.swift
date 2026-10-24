@@ -140,7 +140,7 @@ struct EditFindSheet: View {
                                 FindsHaptics.success(); onSaved(); dismiss()
                             } catch { errorMessage = error.localizedDescription; saving = false }
                         }
-                    }.bold().disabled(saving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || title.count > 300 || note.count > 2000 || text.count > 12000)
+                    }.bold().disabled(saving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || title.count > 300 || note.count > max(2000, item.note.count) || text.count > max(12000, item.selectedText.count))
                 }
             }
         }.interactiveDismissDisabled(saving)

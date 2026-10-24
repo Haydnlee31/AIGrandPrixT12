@@ -10,6 +10,7 @@
 		037E33BA0CC71004538ACB06 /* CaptureForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F9A2FB8637A369285F286 /* CaptureForm.swift */; };
 		097036657A9082AEB75F9D1A /* SharedAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B65AE68F0ECD65606BBA15 /* SharedAppearance.swift */; };
 		0B33E52218DE742B6B6B86B3 /* WebsitePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8CC2028089CF0E67E71865F /* WebsitePreview.swift */; };
+		18A9302F0F4B03D4C6E5DC46 /* ProductInsightSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3CBF7B12BFB0C5362EB9ED9 /* ProductInsightSummary.swift */; };
 		1B3FD8A25D82D6C125527CD3 /* SharedEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFBDAB5909186036DEE2BCC9 /* SharedEnvironment.swift */; };
 		1B79CADC8C7EE5518173F04E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8DB0DCFAABC8D5FB56F56981 /* Assets.xcassets */; };
 		1F7208DDF716C0B63AB76400 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFCA19337324824EC87C80F9 /* ShareViewController.swift */; };
@@ -44,6 +45,7 @@
 		A78568C49057E9045C60990A /* CatalogProductImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8130523840F62CE55D3E544B /* CatalogProductImage.swift */; };
 		AEDD5988A1C7ABC58C288E4A /* CaptureIntelligenceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C9A4D619AD782E8930F6886 /* CaptureIntelligenceModels.swift */; };
 		B3D9B6229B3C33FD56AB0995 /* RadarScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2A56BB52DAA860BD9857206 /* RadarScreen.swift */; };
+		BA454715B20AFE74E3F908DD /* RadarMatchingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB3BC272CB10B3DCE61BAFE2 /* RadarMatchingService.swift */; };
 		C20D748D62447CBE4EE2AEDC /* NativeTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CBDF56D1EBA655CFB77BF37 /* NativeTheme.swift */; };
 		C73DF63B54F84F069338BE58 /* LibraryPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B286E7C423A5202102A0AE95 /* LibraryPresentation.swift */; };
 		DEFE2FC49E0ECDD659663620 /* CaptureMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71619F1A734E5CF35100589D /* CaptureMedia.swift */; };
@@ -113,10 +115,12 @@
 		BD9D9FA35ED1E82755878AB5 /* ios */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ios; path = .; sourceTree = SOURCE_ROOT; };
 		BFCA19337324824EC87C80F9 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		C8A95CE6064A567D7F1F1BEB /* MynahDeepLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MynahDeepLink.swift; sourceTree = "<group>"; };
+		DB3BC272CB10B3DCE61BAFE2 /* RadarMatchingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadarMatchingService.swift; sourceTree = "<group>"; };
 		E144240FE076B72D13710D59 /* IntelligenceMutationKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntelligenceMutationKeys.swift; sourceTree = "<group>"; };
 		E1974E8EFEFEAA9869739E51 /* LocalShareInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalShareInbox.swift; sourceTree = "<group>"; };
 		E2A56BB52DAA860BD9857206 /* RadarScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadarScreen.swift; sourceTree = "<group>"; };
 		EFBDAB5909186036DEE2BCC9 /* SharedEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedEnvironment.swift; sourceTree = "<group>"; };
+		F3CBF7B12BFB0C5362EB9ED9 /* ProductInsightSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductInsightSummary.swift; sourceTree = "<group>"; };
 		FF76D69D2745B8BA4195301D /* ShoppingPlanViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShoppingPlanViews.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -207,7 +211,9 @@
 				4A37129F5DDEAF336E6DD4CB /* OnboardingView.swift */,
 				8322BFAE6E851D1BA8FC18B5 /* Preferences.swift */,
 				87867C667A92465A2C1E40B1 /* PreviewIntelligenceViews.swift */,
+				F3CBF7B12BFB0C5362EB9ED9 /* ProductInsightSummary.swift */,
 				52CB0EBE03F96EB551086E17 /* ProfileSettingsView.swift */,
+				DB3BC272CB10B3DCE61BAFE2 /* RadarMatchingService.swift */,
 				E2A56BB52DAA860BD9857206 /* RadarScreen.swift */,
 				7DCCFED2949AC94962AA5B7F /* RadarStore.swift */,
 				24DC9CEB2EB92AB9FE955C89 /* RecommendationCache.swift */,
@@ -369,7 +375,9 @@
 				4FEF38495FFD4131DD0BC41D /* OnboardingView.swift in Sources */,
 				320DEE3275B637264FEE90D7 /* Preferences.swift in Sources */,
 				EB60E23C7DE42084A5E94D07 /* PreviewIntelligenceViews.swift in Sources */,
+				18A9302F0F4B03D4C6E5DC46 /* ProductInsightSummary.swift in Sources */,
 				6D6CAED895AF3B3625F88D7F /* ProfileSettingsView.swift in Sources */,
+				BA454715B20AFE74E3F908DD /* RadarMatchingService.swift in Sources */,
 				B3D9B6229B3C33FD56AB0995 /* RadarScreen.swift in Sources */,
 				EC051BC704A7E0596AFC6506 /* RadarStore.swift in Sources */,
 				E12BDF743AC3CE15C6DE2F8A /* RecommendationCache.swift in Sources */,

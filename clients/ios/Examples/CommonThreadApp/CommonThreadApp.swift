@@ -222,7 +222,10 @@ struct MymahFindsView: View {
             selectedTab = .library; showingCapture = false
             Task {
                 await refresh()
-                if let savedFindID { linkedFind = items.first { $0.id.caseInsensitiveCompare(savedFindID.uuidString) == .orderedSame } }
+                if let savedFindID {
+                    if connection == nil { linkedFind = try? await LocalLibrary.shared.item(savedFindID.uuidString) }
+                    else { linkedFind = items.first { $0.id.caseInsensitiveCompare(savedFindID.uuidString) == .orderedSame } }
+                }
             }
         }
         .task(id: searchIdentity) { await searchLibrary() }
@@ -368,7 +371,11 @@ struct MymahFindsView: View {
                              connection: connection, onChanged: { Task { await refresh(); if !query.isEmpty { await searchLibrary(debounce: false) } } }) { id, key in
                 try await removeSave(id, key: key)
             }
-        } label: { SavedContentCard(item: item, compact: !grid, connection: connection, pinned: metadata[item.id]?.pinned ?? false) }
+        } label: {
+            SavedContentCard(item: item, compact: !grid, connection: connection, pinned: metadata[item.id]?.pinned ?? false,
+                insight: metadata[item.id]?.analysis.map { ProductInsightSummary.firstSentence($0.summary) },
+                mergedSaveCount: metadata[item.id]?.sourceItems?.count ?? 1)
+        }
         .buttonStyle(.plain).accessibilityIdentifier("savedItem-\(item.id)")
         .contextMenu {
             if connection == nil {
@@ -439,8 +446,8 @@ struct MymahFindsView: View {
                     }
                 }
                 ProfileSettingsSections(items: items, localOnly: connection == nil,
-                                        favoriteCount: metadata.values.filter { $0.isFavorite }.count,
-                                        archivedCount: metadata.values.filter { $0.isArchived }.count)
+                                        favoriteCount: items.filter { metadata[$0.id]?.isFavorite == true }.count,
+                                        archivedCount: items.filter { metadata[$0.id]?.isArchived == true }.count)
                 if connection != nil {
                     Section {
                         Button("Sign out", role: .destructive) { signOut() }.disabled(busy)

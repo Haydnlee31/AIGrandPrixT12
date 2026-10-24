@@ -20,6 +20,8 @@ struct SavedContentCard: View {
     var compact = false
     var connection: SharedEnvironment?
     var pinned = false
+    var insight: String? = nil
+    var mergedSaveCount = 1
     private var style: SourceStyle { SourceStyle(item.source) }
     private var originalURL: URL? {
         guard let url = URL(string: item.originalUrl), ["https", "http"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else { return nil }
@@ -60,11 +62,20 @@ struct SavedContentCard: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(item.title).font(.headline.bold()).foregroundStyle(.primary).lineLimit(2).multilineTextAlignment(.leading)
+            if let insight, !insight.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Label(insight, systemImage: "sparkles")
+                    .font(.caption.weight(.medium)).foregroundStyle(.purple)
+                    .lineLimit(compact ? 1 : 2).multilineTextAlignment(.leading)
+            }
             HStack(spacing: 5) {
                 Image(systemName: originalURL == nil ? (item.hasImage ? "photo" : "text.alignleft") : style.symbol)
                     .foregroundStyle(style.color)
                 Text(item.client == "sample" ? "Sample find" : domain).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 0)
+                if mergedSaveCount > 1 {
+                    Label("\(mergedSaveCount)", systemImage: "square.on.square")
+                        .foregroundStyle(.secondary).accessibilityLabel("\(mergedSaveCount) saves combined")
+                }
                 if pinned { Image(systemName: "pin.fill").foregroundStyle(.orange).accessibilityLabel("Pinned") }
             }.font(.caption)
         }.frame(maxWidth: .infinity, alignment: .leading)
@@ -165,7 +176,8 @@ struct SavedContentView: View {
                     questionFocusToken: questionFocusToken, onChanged: intelligenceChanged)
                     // Stable identity keeps active editors alive while metadata refreshes.
                     .id(displayed.id)
-                if !displayed.note.isEmpty { contentSection("Your note", text: displayed.note, symbol: "quote.bubble.fill") }
+                if !displayed.note.isEmpty { contentSection((metadata.sourceItems?.count ?? 1) > 1 ? "Your notes" : "Your note", text: displayed.note, symbol: "quote.bubble.fill") }
+                if let sources = metadata.sourceItems, sources.count > 1 { mergedSources(sources) }
                 if !displayed.selectedText.isEmpty {
                     DisclosureGroup("Saved text") {
                         Text(displayed.selectedText).font(.body).textSelection(.enabled)
@@ -214,7 +226,13 @@ struct SavedContentView: View {
         .confirmationDialog("Remove this find?", isPresented: $confirmsDelete, titleVisibility: .visible) {
             Button("Remove from library", role: .destructive) { Task { await delete() } }
             Button("Keep it", role: .cancel) {}
-        } message: { Text(localOnly ? "This removes the find and its note from this iPhone." : "This removes the link and its note from your library on all connected devices.") }
+        } message: {
+            if localOnly, let sources = metadata.sourceItems, sources.count > 1 {
+                Text("This removes all \(sources.count) saves in this product, including their original notes and files, from this iPhone.")
+            } else {
+                Text(localOnly ? "This removes the find and its note from this iPhone." : "This removes the link and its note from your library on all connected devices.")
+            }
+        }
         .task(id: "\(item.id)|\(item.revision)") {
             await reloadLocal()
             #if DEBUG
@@ -265,7 +283,7 @@ struct SavedContentView: View {
         errorMessage = nil; deletionFailed = false
         do {
             metadata = try await LocalLibrary.shared.metadata()[item.id] ?? LocalFindMetadata()
-            latestItem = try await LocalLibrary.shared.collection().first { $0.id == item.id }
+            latestItem = try await LocalLibrary.shared.item(item.id)
         } catch { errorMessage = error.localizedDescription }
     }
     private func intelligenceChanged() {
@@ -305,6 +323,33 @@ struct SavedContentView: View {
             try await LocalLibrary.shared.setArchived(item.id, !metadata.isArchived)
             metadata.isArchived.toggle(); FindsHaptics.selection(); onChanged(); dismiss()
         } catch { errorMessage = error.localizedDescription }
+    }
+    private func mergedSources(_ sources: [SavedItem]) -> some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 18) {
+                ForEach(sources) { source in
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(source.title).font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Text(source.capturedDate, style: .date).font(.caption).foregroundStyle(.secondary)
+                        }
+                        if !source.note.isEmpty {
+                            Text(source.note).font(.subheadline).foregroundStyle(.secondary).textSelection(.enabled)
+                        }
+                        if !source.selectedText.isEmpty, source.selectedText != source.note {
+                            Text(source.selectedText).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
+                        }
+                        if let url = URL(string: source.originalUrl), ["https", "http"].contains(url.scheme?.lowercased() ?? ""), url.host != nil {
+                            Link("View original", destination: url).font(.footnote.weight(.semibold))
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }.padding(.top, 14)
+        } label: {
+            Label("\(sources.count) saves, together", systemImage: "square.on.square")
+                .font(.subheadline.weight(.semibold))
+        }.tint(.secondary)
     }
     private func contentSection(_ title: String, text: String, symbol: String) -> some View {
         VStack(alignment: .leading, spacing: 14) {

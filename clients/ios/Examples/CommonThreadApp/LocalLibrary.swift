@@ -1,6 +1,7 @@
 import Foundation
 import CommonThreadKit
 import UniformTypeIdentifiers
+import CryptoKit
 
 struct LocalAttachment: Codable, Identifiable, Sendable {
     let id: UUID
@@ -27,6 +28,9 @@ struct LocalFindMetadata: Codable, Sendable {
     var analysis: CaptureIntelligenceResult? = nil
     var userEditedTitle: Bool? = nil
     var hasVoiceNote: Bool? = nil
+    // Read-only provenance for an exact-duplicate group. Original rows stay on disk.
+    var sourceItems: [SavedItem]? = nil
+    var sourceAnalyses: [CaptureIntelligenceResult]? = nil
     var selectedIntents: [String] {
         if let intents { return intents }
         let legacy = intent?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -38,10 +42,24 @@ struct LocalCaptureAttachment: Sendable {
     let typeIdentifier: String
     let data: Data
 }
+private struct LocalFindGroupEdits: Codable {
+    var title: String? = nil
+    var note: String? = nil
+    var text: String? = nil
+    var intents: [String]? = nil
+    var analysis: CaptureIntelligenceResult? = nil
+    var analysisInvalidated = false
+    var isFavorite: Bool? = nil
+    var isPinned: Bool? = nil
+    var isArchived: Bool? = nil
+    var hasVoiceNote: Bool? = nil
+    var revision = 0
+}
 private struct LocalLibraryDocument: Codable {
     var version = 3
     var items: [SavedItem]
     var metadata: [String: LocalFindMetadata] = [:]
+    var groupEdits: [String: LocalFindGroupEdits]? = nil
 }
 
 /// Durable on-device storage. Optional intelligence is separate from this store.
@@ -49,6 +67,7 @@ actor LocalLibrary {
     static let shared = LocalLibrary(fileURL: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("MymahFinds", isDirectory: true).appendingPathComponent("local-library.json"))
     private let fileURL: URL
+    private var attachmentDigests: [String: String] = [:]
     init(fileURL: URL) { self.fileURL = fileURL }
     private var root: URL { fileURL.deletingLastPathComponent() }
 
@@ -89,8 +108,122 @@ actor LocalLibrary {
         if needsMigration { document.version = 3; try persist(document) }
         return document
     }
-    func collection() throws -> [SavedItem] { try document().items }
-    func metadata() throws -> [String: LocalFindMetadata] { try document().metadata }
+    func collection() throws -> [SavedItem] { try grouped(document()).items }
+    func metadata() throws -> [String: LocalFindMetadata] { try grouped(document()).metadata }
+    /// Old share IDs and saved Radar sources continue to resolve after grouping.
+    func item(_ id: String) throws -> SavedItem? {
+        let view = try grouped(document())
+        return view.items.first { $0.id == (view.aliases[id] ?? id) }
+    }
+
+    private struct GroupedLibrary {
+        var items: [SavedItem] = []
+        var metadata: [String: LocalFindMetadata] = [:]
+        var aliases: [String: String] = [:]
+        var members: [String: [String]] = [:]
+    }
+
+    private func grouped(_ document: LocalLibraryDocument) throws -> GroupedLibrary {
+        var groups: [String: [SavedItem]] = [:]
+        for item in document.items {
+            let details = document.metadata[item.id] ?? LocalFindMetadata()
+            let key: String
+            if item.client == "sample" { key = "id:\(item.id)" }
+            else if !item.originalUrl.isEmpty, let canonical = try? Self.canonicalURL(item.originalUrl) {
+                key = "url:\(canonical)"
+            } else if item.originalUrl.isEmpty, !details.attachments.isEmpty, details.attachments.allSatisfy(\.isImage),
+                      let fingerprints = photoFingerprints(details.attachments) {
+                // Match the complete photo set, byte-for-byte. No name or visual similarity.
+                key = "photos:" + fingerprints.sorted().joined(separator: ":")
+            } else { key = "id:\(item.id)" }
+            groups[key, default: []].append(item)
+        }
+        var result = GroupedLibrary()
+        for sources in groups.values {
+            let sources = sources.sorted { ($0.capturedAt, $0.id) < ($1.capturedAt, $1.id) }
+            guard let first = sources.first else { continue }
+            let ids = sources.map(\.id)
+            let edits = document.groupEdits?[first.id]
+            var metadata = document.metadata[first.id] ?? LocalFindMetadata()
+            var displayed = first
+            if sources.count > 1 || edits != nil {
+                let sourceMetadata = sources.map { document.metadata[$0.id] ?? LocalFindMetadata() }
+                let customSource = sources.last { document.metadata[$0.id]?.userEditedTitle == true }
+                let analyzedSource = sources.filter { document.metadata[$0.id]?.analysis != nil }.max { (document.metadata[$0.id]?.analysis?.analyzedAt ?? 0) < (document.metadata[$1.id]?.analysis?.analyzedAt ?? 0) }
+                var analyses = sourceMetadata.compactMap(\.analysis)
+                if let analysis = edits?.analysis { analyses.append(analysis) }
+                analyses.sort { $0.analyzedAt > $1.analyzedAt }
+                var seenAnalyses = Set<Data>()
+                let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+                analyses = analyses.filter { analysis in
+                    guard let bytes = try? encoder.encode(analysis) else { return false }
+                    return seenAnalyses.insert(bytes).inserted
+                }
+                metadata.sourceItems = sources
+                metadata.sourceAnalyses = analyses
+                metadata.attachments = sourceMetadata.flatMap(\.attachments)
+                metadata.intents = edits?.intents ?? Self.unique(sourceMetadata.flatMap(\.selectedIntents))
+                metadata.intent = metadata.intents?.first
+                metadata.isFavorite = edits?.isFavorite ?? sourceMetadata.contains(where: \.isFavorite)
+                metadata.isPinned = edits?.isPinned ?? sourceMetadata.contains(where: \.pinned)
+                metadata.isArchived = edits?.isArchived ?? sourceMetadata.allSatisfy(\.isArchived)
+                metadata.hasVoiceNote = edits?.hasVoiceNote == true || sourceMetadata.contains(where: { $0.hasVoiceNote == true }) ? true : nil
+                metadata.userEditedTitle = edits?.title != nil || customSource != nil
+                metadata.analysis = edits?.analysisInvalidated == true ? nil : analyses.first
+                var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(first)) as! [String: Any]
+                var title = edits?.title ?? customSource?.title ?? analyzedSource?.title ?? first.title
+                if metadata.userEditedTitle != true {
+                    if let source = analyzedSource, title == document.metadata[source.id]?.analysis?.productName,
+                       let name = metadata.analysis?.productName, !name.isEmpty, name.count <= 300 { title = name }
+                    else { title = Self.analysisTitle(metadata.analysis, replacing: title, originalURL: first.originalUrl,
+                                                     imageFilenames: metadata.attachments.filter(\.isImage).map(\.filename)) }
+                }
+                object["title"] = title
+                object["note"] = edits?.note ?? Self.unique(sources.map(\.note)).joined(separator: "\n\n")
+                object["selectedText"] = edits?.text ?? Self.unique(sources.map(\.selectedText)).joined(separator: "\n\n")
+                object["capturedAt"] = sources.last!.capturedAt
+                object["revision"] = sources.reduce(0) { $0 + $1.revision } + (edits?.revision ?? 0)
+                object["hasImage"] = sourceMetadata.flatMap(\.attachments).contains(where: \.isImage) || sources.contains(where: \.hasImage)
+                displayed = try JSONDecoder().decode(SavedItem.self, from: JSONSerialization.data(withJSONObject: object))
+            }
+            result.items.append(displayed)
+            result.members[first.id] = ids
+            for id in ids { result.aliases[id] = first.id; result.metadata[id] = metadata }
+        }
+        result.items.sort { ($0.capturedAt, $0.id) > ($1.capturedAt, $1.id) }
+        return result
+    }
+
+    private func photoFingerprints(_ attachments: [LocalAttachment]) -> [String]? {
+        var values: [String] = []
+        for attachment in attachments {
+            if let digest = attachmentDigests[attachment.relativePath] { values.append(digest); continue }
+            guard let bytes = try? attachmentData(attachment) else { return nil }
+            let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+            attachmentDigests[attachment.relativePath] = digest; values.append(digest)
+        }
+        return values
+    }
+
+    private static func unique(_ values: [String]) -> [String] {
+        var result: [String] = []
+        for value in values where !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !result.contains(value) { result.append(value) }
+        return result
+    }
+
+    private func group(_ id: String, in document: LocalLibraryDocument) throws -> (id: String, item: SavedItem, metadata: LocalFindMetadata, members: [String]) {
+        let view = try grouped(document)
+        let primary = view.aliases[id] ?? id
+        guard let item = view.items.first(where: { $0.id == primary }), let metadata = view.metadata[primary], let members = view.members[primary] else { throw LocalError.missingItem }
+        return (primary, item, metadata, members)
+    }
+
+    private func saveGroupEdit(_ id: String, in document: inout LocalLibraryDocument, change: (inout LocalFindGroupEdits) -> Void) {
+        var edit = document.groupEdits?[id] ?? LocalFindGroupEdits()
+        change(&edit); edit.revision += 1
+        if document.groupEdits == nil { document.groupEdits = [:] }
+        document.groupEdits?[id] = edit
+    }
     func storageBytes() -> Int {
         guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
         return enumerator.compactMap { $0 as? URL }.reduce(0) { $0 + ((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
@@ -132,11 +265,11 @@ actor LocalLibrary {
         let cleanedIntents = try intents.map { try Self.validatedIntents($0) }
         let canonical = try link.flatMap { $0.isEmpty ? nil : try Self.canonicalURL($0) } ?? "local:\(id)"
         var document = try document()
-        if document.items.contains(where: { $0.id == id }) { return try Self.receipt(id: id, duplicate: true) }
-        if deduplicateLink, attachments.isEmpty, text.isEmpty,
-           let existing = document.items.first(where: { $0.canonicalUrl == canonical && $0.client != "sample" }) {
-            return try Self.receipt(id: existing.id, duplicate: true)
+        if document.items.contains(where: { $0.id == id }) {
+            return try Self.receipt(id: group(id, in: document).id, duplicate: true)
         }
+        // Every distinct save is durable, even when its URL already exists. Grouping
+        // combines the read view instead of throwing away the new note or attachments.
         let resolvedTitle = userEditedTitle == true ? title : Self.analysisTitle(analysis, replacing: title, originalURL: link ?? "", imageFilenames: attachments.filter { $0.typeIdentifier.contains("image") || ["public.jpeg", "public.png", "org.webmproject.webp", "public.heic"].contains($0.typeIdentifier) }.map(\.filename))
         let request = CaptureRequest(url: link, title: resolvedTitle, source: source, selectedText: text, note: note, client: client)
         let item = try Self.item(id: id, request: request, canonical: canonical, date: capturedAt, hasImage: attachments.contains { $0.typeIdentifier.contains("image") || ["public.jpeg", "public.png", "org.webmproject.webp"].contains($0.typeIdentifier) })
@@ -155,17 +288,42 @@ actor LocalLibrary {
             document.metadata[id] = LocalFindMetadata(attachments: stored, intent: cleanedIntents?.first,
                 intents: cleanedIntents, analysis: analysis, userEditedTitle: userEditedTitle,
                 hasVoiceNote: hasVoiceNote ? true : nil)
+            let joined = try group(id, in: document)
+            if let priorID = joined.members.first(where: { document.groupEdits?[$0] != nil }),
+               var edit = document.groupEdits?[priorID] {
+                // Explicit edits stay authoritative, while a later save still contributes
+                // its new context. Replaying the same source ID returns before this point.
+                if let previous = edit.note { edit.note = Self.unique([previous, note]).joined(separator: "\n\n") }
+                if let previous = edit.text { edit.text = Self.unique([previous, text]).joined(separator: "\n\n") }
+                if let previous = edit.intents { edit.intents = Self.unique(previous + (cleanedIntents ?? [])) }
+                if userEditedTitle == true { edit.title = resolvedTitle }
+                if analysis != nil { edit.analysisInvalidated = false }
+                edit.revision += 1
+                document.groupEdits?.removeValue(forKey: priorID)
+                document.groupEdits?[joined.id] = edit
+            }
             try persist(document)
         } catch {
             for attachment in stored { try? FileManager.default.removeItem(at: attachmentURL(attachment)) }
             throw error
         }
-        return try Self.receipt(id: id, duplicate: false)
+        let savedGroup = try group(id, in: document)
+        return try Self.receipt(id: savedGroup.id, duplicate: savedGroup.members.count > 1)
     }
 
     func update(_ id: String, title: String, note: String, text: String, hasVoiceNote: Bool = false) throws {
-        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, title.count <= 300, note.count <= 2000, text.count <= 12000 else { throw LocalError.invalidContent }
         var document = try document()
+        let group = try group(id, in: document)
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, title.count <= 300,
+              note.count <= max(2000, group.item.note.count), text.count <= max(12000, group.item.selectedText.count) else { throw LocalError.invalidContent }
+        if group.members.count > 1 || document.groupEdits?[group.id] != nil {
+            saveGroupEdit(group.id, in: &document) { edit in
+                if title != group.item.title || edit.title != nil { edit.title = title }
+                edit.note = note; edit.text = text; edit.analysis = nil; edit.analysisInvalidated = true
+                if hasVoiceNote { edit.hasVoiceNote = true }
+            }
+            try persist(document); return
+        }
         guard let index = document.items.firstIndex(where: { $0.id == id }) else { throw LocalError.missingItem }
         var value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(document.items[index])) as! [String: Any]
         if title != document.items[index].title { document.metadata[id, default: LocalFindMetadata()].userEditedTitle = true }
@@ -178,6 +336,13 @@ actor LocalLibrary {
     }
     func setAnalysis(_ id: String, _ analysis: CaptureIntelligenceResult) throws {
         var document = try document()
+        let group = try group(id, in: document)
+        if group.members.count > 1 || document.groupEdits?[group.id] != nil {
+            saveGroupEdit(group.id, in: &document) { edit in
+                edit.analysis = analysis; edit.analysisInvalidated = false
+            }
+            try persist(document); return
+        }
         guard let index = document.items.firstIndex(where: { $0.id == id }) else { throw LocalError.missingItem }
         let metadata = document.metadata[id] ?? LocalFindMetadata()
         let current = document.items[index]
@@ -200,8 +365,17 @@ actor LocalLibrary {
         try setIntents(id, text.map { [$0] } ?? [])
     }
     func setIntents(_ id: String, _ values: [String], hasVoiceNote: Bool = false) throws {
-        let values = try Self.validatedIntents(values)
         var document = try document()
+        let group = try group(id, in: document)
+        let values = try Self.validatedIntents(values, maximumCount: max(8, group.metadata.selectedIntents.count),
+                                              maximumLength: max(4000, group.metadata.selectedIntents.reduce(0) { $0 + $1.count }))
+        if group.members.count > 1 || document.groupEdits?[group.id] != nil {
+            saveGroupEdit(group.id, in: &document) { edit in
+                edit.intents = values
+                if hasVoiceNote { edit.hasVoiceNote = true }
+            }
+            try persist(document); return
+        }
         guard let index = document.items.firstIndex(where: { $0.id == id }) else { throw LocalError.missingItem }
         document.metadata[id, default: LocalFindMetadata()].intents = values
         document.metadata[id, default: LocalFindMetadata()].intent = values.first
@@ -209,12 +383,12 @@ actor LocalLibrary {
         document.items[index] = try Self.revised(document.items[index])
         try persist(document)
     }
-    private static func validatedIntents(_ input: [String]) throws -> [String] {
+    private static func validatedIntents(_ input: [String], maximumCount: Int = 8, maximumLength: Int = 4000) throws -> [String] {
         var values: [String] = []
         for value in input.map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where !value.isEmpty && !values.contains(value) {
             values.append(value)
         }
-        guard values.count <= 8, values.allSatisfy({ $0.count <= 500 }), values.reduce(0, { $0 + $1.count }) <= 4000 else { throw LocalError.invalidIntents }
+        guard values.count <= maximumCount, values.allSatisfy({ $0.count <= 500 }), values.reduce(0, { $0 + $1.count }) <= maximumLength else { throw LocalError.invalidIntents }
         return values
     }
     private static func revised(_ item: SavedItem, title: String? = nil) throws -> SavedItem {
@@ -240,11 +414,19 @@ actor LocalLibrary {
         return title
     }
     func setFavorite(_ id: String, _ value: Bool) throws {
-        var document = try document(); guard document.items.contains(where: { $0.id == id }) else { throw LocalError.missingItem }
+        var document = try document()
+        let group = try group(id, in: document)
+        if group.members.count > 1 || document.groupEdits?[group.id] != nil {
+            saveGroupEdit(group.id, in: &document) { $0.isFavorite = value }; try persist(document); return
+        }
         document.metadata[id, default: LocalFindMetadata()].isFavorite = value; try persist(document)
     }
     func setPinned(_ id: String, _ value: Bool) throws {
         var document = try document()
+        let group = try group(id, in: document)
+        if group.members.count > 1 || document.groupEdits?[group.id] != nil {
+            saveGroupEdit(group.id, in: &document) { $0.isPinned = value }; try persist(document); return
+        }
         guard let index = document.items.firstIndex(where: { $0.id == id }) else { throw LocalError.missingItem }
         guard document.metadata[id, default: LocalFindMetadata()].pinned != value else { return }
         document.metadata[id, default: LocalFindMetadata()].isPinned = value
@@ -252,15 +434,24 @@ actor LocalLibrary {
         try persist(document)
     }
     func setArchived(_ id: String, _ value: Bool) throws {
-        var document = try document(); guard document.items.contains(where: { $0.id == id }) else { throw LocalError.missingItem }
+        var document = try document()
+        let group = try group(id, in: document)
+        if group.members.count > 1 || document.groupEdits?[group.id] != nil {
+            saveGroupEdit(group.id, in: &document) { $0.isArchived = value }; try persist(document); return
+        }
         document.metadata[id, default: LocalFindMetadata()].isArchived = value; try persist(document)
     }
     func delete(_ id: String) throws {
         var document = try document()
-        let attachments = document.metadata.removeValue(forKey: id)?.attachments ?? []
-        document.items.removeAll { $0.id == id }
+        let group = try group(id, in: document)
+        let attachments = group.members.flatMap { document.metadata.removeValue(forKey: $0)?.attachments ?? [] }
+        document.items.removeAll { group.members.contains($0.id) }
+        document.groupEdits?.removeValue(forKey: group.id)
         try persist(document)
-        for attachment in attachments { try? FileManager.default.removeItem(at: attachmentURL(attachment)) }
+        for attachment in attachments {
+            attachmentDigests.removeValue(forKey: attachment.relativePath)
+            try? FileManager.default.removeItem(at: attachmentURL(attachment))
+        }
     }
 
     private func persist(_ document: LocalLibraryDocument) throws {

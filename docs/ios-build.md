@@ -155,3 +155,17 @@ Current automated evidence: **142 tests passed** across `test_dictation.py`, `te
 - Saved-photo loading now ignores canceled tasks before clearing active image state, preventing stale task entry from removing a newer photo.
 
 - Final physical-device acceptance: Aditya confirmed **Both modes now switch correctly** when tapping Dark then Light in Profile on the newly installed shared-state build. First-opening share suggestions were also user-confirmed earlier in this revision. These confirmations supersede the pending appearance/share checks above; custom recording remains intentionally removed.
+
+
+### Radar simplification and inline merged insights
+
+- Fixed a deterministic failure: a custom Radar intention created no source IDs, while the old native path rejected empty source selections before making any request. The new intent endpoint works with or without selected saves; conversational needs are not hard all-word catalog filters.
+- Replaced the long review form with an intention and budget slider. Removed optional search terms, small-space template settings, saved-example controls and the separate Insights list. Show matches opens photo results with standard Back navigation, and parent/editor focus is cleared before presentation transitions.
+- Product insight reducer checks pass for deduplication, complete stored summaries, retained uncertainty/conflicts, caption echo removal and no invented empty-input facts. Local store checks pass, including the copied real eight-save library rendering as six exact groups while originals remain byte-identical.
+- The first signed build passed. Final installed-build and manual navigation evidence follows below when complete.
+
+- Final signed Xcode build passed (`/tmp/mynah-radar-merged-build.log`), then app and Share Extension installed on Adi's physical iPhone. Device screenshots show grouped product cards, inline insight previews, the two-save badge and actual Library/Explore photos. Raw local Library remains byte-equivalent after installation: all eight originals retained behind six displayed groups.
+- Final backend verification: 150 tests pass across Radar, capture-preview, catalog retrieval/search, official photo recovery and integration. Native Radar matching smoke covers source aliases, deleted-source fallback, exact target propagation, retired-control removal and cache/retry behavior; local-store and insight reducer suites pass.
+- Live authenticated HTTPS `POST /v1/radar` with no saved examples returned 12 real silver-retro-watch matches with 12 photos in 2.53 seconds. After final relay restart, the actual saved Apple Watch context returned eight relevant matches with six official OPF photos recovered in 3.21 seconds. Photo lookup is bounded to 12 records, four workers and three seconds; it never substitutes another product or invents images/prices. Records without genuine images remain labeled unavailable.
+- Profile Light/Dark and first-share suggestion acceptance from the prior revision remain confirmed. Final Radar slider → photo results → Back/keyboard interaction was requested on the physical device; no automated tap claim is made because the phone review tool cannot tap.
+- Credential scan passed on tracked/unignored sources and the signed app bundle. The scoped relay connection remains private; no provider key is embedded in the app.

@@ -104,3 +104,15 @@ Library filters are presentation-only. `LocalFindMetadata.hasVoiceNote` is optio
 The native app now owns one observable `AppAppearanceState`; Profile selects it directly, and it updates persisted choice, shared-extension appearance and SwiftUI/UIKit presentation. `AppAppearance` resides beside this state, with platform mappings in `Preferences.swift`.
 
 At Aditya's request, native microphone recording and its API client were removed after physical-device failure. Keep typed notes, iOS keyboard dictation, imported audio attachments and legacy `hasVoiceNote` metadata. The independent relay dictation endpoint remains available for other clients, but the iOS UI no longer calls it. Do not advertise custom voice recording as a native feature.
+
+
+### Simplified Radar and merged product insights (25 October)
+
+Radar now sends the reviewed intention to authenticated `POST /v1/radar` through `RadarMatchingService`. A request can stand alone without a saved example. Only implicitly chosen suggestion sources are included; repeated-save aliases resolve to a single group and deleted sources fall back to the current intention. Budget is stated context, not a verified current-price filter. Native results use a separate photo grid and ordinary back navigation. The review form contains intention and a budget slider; retired optional search, fit, small-space and source-selection fields are absent and no longer constrain new searches. Manual retries bypass the native result cache.
+
+LocalLibrary presents exact canonical-URL or byte-identical complete photo-set groups while retaining all raw source rows/files. `collection()` returns grouped finds, `item(_:)` resolves any source alias, and `metadata()` exposes group-wide values plus optional `sourceItems` and `sourceAnalyses`. Group edits use separate overrides; original sources are preserved. Original URL query variants remain separate, and there is no fuzzy title/model merge. A new save of an existing link contributes its note rather than silently discarding it. Pins/favorites/archive and selected details operate on the group; removal is an explicit group deletion with a source-count warning.
+
+Insights live on Library product cards and inside each product detail. Explore's duplicated Insights list is removed. Stored analyses are combined with repeated wording removed; full summaries, supporting facts, uncertainty and original notes remain available inline. This is evidence-preserving presentation, not a claim of a new model synthesis. Requests cap merged context only at transport boundaries; complete source context stays on disk.
+
+
+`backend/app/catalog_images.py` optionally enriches already-selected catalog records from official Open Products Facts API/image hosts using the exact barcode. Both `/v1/recommendations` and `/v1/radar` use it. It is bounded/cached, forwards no user context or credentials to OPF, preserves attribution, and cannot add or replace catalog products. Some records genuinely have no source image. The provider relay still runs on the development Mac behind the existing temporary HTTPS tunnel, not a permanent cloud deployment.

@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 from .media import validate_image_data_url
 from .local_recommendations import register_recommendations
 from .dictation import MAX_DICTATION_BODY_BYTES, register_dictation
+from .radar import RADAR_INSTRUCTIONS, RadarInterpretation, interpretation_input, register_radar
 
 ENDPOINT = "https://api.openai.com/v1/responses"
 MAX_IMAGE_BYTES = 1_572_864
@@ -293,7 +294,7 @@ class RequestBoundary:
         self.app, self.token = app, token
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or scope["path"] not in {"/v1/capture-preview", "/v1/recommendations", "/v1/refine-intent", "/v1/dictation"}:
+        if scope["type"] != "http" or scope["path"] not in {"/v1/capture-preview", "/v1/recommendations", "/v1/refine-intent", "/v1/dictation", "/v1/radar"}:
             return await self.app(scope, receive, send)
         headers = dict(scope.get("headers", []))
         authorization = headers.get(b"authorization", b"")
@@ -525,6 +526,24 @@ class RefinementService(PreviewService):
         return parsed
 
 
+class RadarIntentService(PreviewService):
+    output_model = RadarInterpretation
+    instructions = RADAR_INSTRUCTIONS
+    schema_name = "mynah_radar_intent"
+
+    def _result(self, parsed):
+        return parsed
+
+    def _content(self, capture):
+        return [{"type": "input_text", "text": json.dumps(interpretation_input(capture), ensure_ascii=False)}]
+
+    def _validate_response(self, parsed, capture):
+        source = json.dumps(interpretation_input(capture), ensure_ascii=False).casefold()
+        if parsed.brand and parsed.brand.casefold() not in source:
+            raise PreviewError(502, "ungrounded_intent", "The request could not be interpreted reliably. Try a product name.")
+        return parsed
+
+
 def create_app(*, api_key: str | None = None, token: str | None = None, model: str | None = None,
                transport=None, clock: Callable = time.monotonic, wall_clock: Callable = time.time,
                rate_limit: int = REQUESTS_PER_MINUTE, timeout: float = 40, recommendation_factory=None) -> FastAPI:
@@ -553,6 +572,8 @@ def create_app(*, api_key: str | None = None, token: str | None = None, model: s
         # Never serialize validation.input, which can contain photos or private notes.
         if _request.url.path == "/v1/dictation":
             return error_response(PreviewError(422, "invalid_audio", "Use an AAC M4A recording of at most 4 MiB and 60 seconds."))
+        if _request.url.path == "/v1/radar":
+            return error_response(PreviewError(422, "invalid_intention", "Use a short shopping need and at most 24 selected examples."))
         return error_response(PreviewError(422, "invalid_capture", "Check the link, text lengths and image format (JPEG, PNG or WebP, at most 1.5 MiB)."))
 
     @app.exception_handler(Exception)
@@ -576,6 +597,9 @@ def create_app(*, api_key: str | None = None, token: str | None = None, model: s
         return JSONResponse(result.model_dump(), headers={"Cache-Control": "no-store"})
 
     register_recommendations(app, factory=recommendation_factory)
+    register_radar(app, interpreter=RadarIntentService(api_key=key, model=selected_model, transport=transport,
+        clock=clock, wall_clock=wall_clock, rate_limit=min(rate_limit, 12), timeout=timeout),
+        recommendation_service=app.state.recommendation_service)
     register_dictation(app, api_key=key, transport=transport, clock=clock,
         rate_limit=min(rate_limit, 8), timeout=min(timeout, 30))
     return app

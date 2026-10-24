@@ -13,6 +13,8 @@ struct LocalIntelligencePreview: View {
     @State private var editor: IntentEdit?
     @State private var refinement: IntentRefinementContext?
     @State private var analysis: CaptureIntelligenceResult?
+    @State private var sourceAnalyses: [CaptureIntelligenceResult] = []
+    @State private var sourceCount = 1
     @State private var analyzing = false
     @State private var analysisError: String?
     @State private var analysisRequestID: UUID?
@@ -30,7 +32,14 @@ struct LocalIntelligencePreview: View {
                 .font(.title3.bold()).foregroundStyle(.primary)
                 .symbolRenderingMode(.hierarchical)
             if let analysis {
-                NewInsightHighlights(summary: analysis.summary, evidence: analysis.evidence, uncertainties: analysis.uncertainties)
+                NewInsightHighlights(summary: analysis.summary,
+                    evidence: analysis.evidence + sourceAnalyses.flatMap(\.evidence),
+                    uncertainties: analysis.uncertainties + sourceAnalyses.flatMap(\.uncertainties),
+                    additionalSummaries: sourceAnalyses.map(\.summary))
+                if sourceCount > 1 {
+                    Label("Combined from \(sourceCount) saves", systemImage: "square.on.square")
+                        .font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                }
             } else if analyzing {
                 ProgressView("Taking a closer look…").font(.subheadline).tint(.purple)
             } else {
@@ -71,7 +80,7 @@ struct LocalIntelligencePreview: View {
             do {
                 let saved = try await LocalLibrary.shared.metadata()[item.id]
                 try Task.checkCancellation()
-                intents = saved?.selectedIntents ?? []; analysis = saved?.analysis
+                readMetadata(saved)
             } catch is CancellationError {} catch { if !Task.isCancelled { errorMessage = error.localizedDescription } }
         }
         .task(id: analysisTaskID) { await analyzeFind() }
@@ -91,6 +100,13 @@ struct LocalIntelligencePreview: View {
                 } catch { errorMessage = error.localizedDescription; return false }
             }
         }
+    }
+
+    private func readMetadata(_ saved: LocalFindMetadata?) {
+        intents = saved?.selectedIntents ?? []
+        analysis = saved?.analysis
+        sourceAnalyses = saved?.sourceAnalyses ?? []
+        sourceCount = saved?.sourceItems?.count ?? 1
     }
 
     private func openRefinement(_ value: String) {
@@ -113,7 +129,7 @@ struct LocalIntelligencePreview: View {
             let metadata = try await LocalLibrary.shared.metadata()[item.id]
             try Task.checkCancellation()
             guard analysisRequestID == requestID else { return }
-            analysis = metadata?.analysis
+            readMetadata(metadata)
             guard metadata?.analysis?.schemaVersion != 2 else { return }
             analyzing = true
             var image: Data?
@@ -143,7 +159,7 @@ struct LocalIntelligencePreview: View {
         do {
             var unique: [String] = []
             for value in values.map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where !value.isEmpty && !unique.contains(value) { unique.append(value) }
-            guard unique.count <= 8 else {
+            guard unique.count <= max(8, intents.count) else {
                 errorMessage = "You can choose up to 8 details. Remove one to add another."
                 return false
             }
@@ -170,7 +186,7 @@ fileprivate extension LocalLibrary {
     /// cannot receive a late analysis produced from its previous content.
     func setAnalysis(_ analysis: CaptureIntelligenceResult, matching input: SavedAnalysisInput) throws -> Bool {
         try Task.checkCancellation()
-        guard let current = try collection().first(where: { $0.id == input.id }), SavedAnalysisInput(current) == input else { return false }
+        guard let current = try item(input.id), SavedAnalysisInput(current) == input else { return false }
         try setAnalysis(input.id, analysis)
         return true
     }

@@ -29,6 +29,7 @@ from .catalog.registry import SOURCES
 from .catalog.schemas import public_url
 from .catalog.search_index import matching_product_ids
 from .catalog.recommendation_index import category_product_ids
+from .catalog_images import enrich_product_images
 from .db import CatalogFeed, CatalogImport, CatalogProduct
 from .explore import Facet, Profile, _candidate_queries, _catalog_fields, _match, _profile_match, _tokens
 
@@ -485,13 +486,14 @@ def recommend(factory, request: RecommendationRequest, now=None, *, catalog_snap
 
 
 class LocalRecommendationService:
-    def __init__(self, factory=None, path=CATALOG_PATH, *, clock=time.monotonic):
+    def __init__(self, factory=None, path=CATALOG_PATH, *, clock=time.monotonic, image_enricher=None):
         self.factory = factory
         self.path = Path(path)
         self.engine = None
         self.lock = threading.Lock()
         self.capacity = threading.BoundedSemaphore(4)
         self.clock = clock
+        self.image_enricher = image_enricher
         self.cache: OrderedDict[str, tuple[float, bytes]] = OrderedDict()
         self.inflight: dict[str, Future] = {}
         self.opened_identity = None
@@ -576,6 +578,23 @@ class LocalRecommendationService:
                     response = self._busy()
                     future.set_result((response.body, response.status_code))
                     return response
+            if result.status == "ready" and self.image_enricher is not None:
+                # Enrich only the already-qualified result page. Photos cannot
+                # add products, alter relevance/citations, or invent an offer.
+                original_items = result.items
+                try:
+                    rows = self.image_enricher([item.model_dump() for item in original_items])
+                    if len(rows) == len(original_items) and [row.get("id") for row in rows] == [item.id for item in original_items]:
+                        items = [item.model_copy(update={
+                            "image_url": _https_url(row.get("image_url")) or item.image_url,
+                            "attribution": row.get("attribution") if isinstance(row.get("attribution"), str) else item.attribution,
+                        }) for item, row in zip(original_items, rows)]
+                        items.sort(key=lambda item: item.image_url is None)
+                        result = result.model_copy(update={"items": items})
+                except Exception:
+                    # An unavailable public image source must never prevent a
+                    # genuine catalog match from reaching the user.
+                    pass
             body = result.model_dump_json().encode()
             if result.status != "catalog_unavailable":
                 final_key = hashlib.sha256((snapshot[0] + fingerprint).encode()).hexdigest()
@@ -603,7 +622,7 @@ class LocalRecommendationService:
 
 
 def register_recommendations(app: FastAPI, factory=None):
-    service = LocalRecommendationService(factory)
+    service = LocalRecommendationService(factory, image_enricher=enrich_product_images)
     app.state.recommendation_service = service
 
     @app.post("/v1/recommendations", response_model=RecommendationResult)

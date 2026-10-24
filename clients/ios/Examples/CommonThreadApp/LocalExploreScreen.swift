@@ -34,20 +34,10 @@ struct LocalRecommendation: Decodable, Identifiable {
 /// Local saves remain on the device. Only the selected shopping context is sent
 /// to the configured relay to retrieve real, attributed catalog records.
 struct LocalExploreScreen: View {
-    enum Segment: String, CaseIterable, Identifiable {
-        case explore = "Explore", yours = "Insights"
-        var id: String { rawValue }
-    }
     let query: String
     let libraryRevision: String
     var refreshID = UUID()
     var onChanged: () -> Void = {}
-    @State private var segment: Segment = {
-        #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-showYourFinds") { return .yours }
-        #endif
-        return .explore
-    }()
     @State private var finds: [SavedItem] = []
     @State private var metadata: [String: LocalFindMetadata] = [:]
     @State private var page: LocalRecommendationPage?
@@ -60,65 +50,15 @@ struct LocalExploreScreen: View {
     @State private var forceNext = false
     @State private var lastPayload: Data?
     @Environment(\.dynamicTypeSize) private var typeSize
-    private var taskID: String { libraryRevision + "|" + query + "|" + segment.rawValue + "|" + (focusedFind ?? "all") + "|" + retryID.uuidString + "|" + refreshID.uuidString }
-    private var visibleFinds: [SavedItem] {
-        finds.filter { find in
-            query.isEmpty || ([find.title, find.note, find.selectedText, metadata[find.id]?.analysis?.searchableText ?? ""] + (metadata[find.id]?.selectedIntents ?? [])).contains { $0.localizedStandardContains(query) }
-        }.sorted { a, b in
-            let first = metadata[a.id]?.pinned ?? false, second = metadata[b.id]?.pinned ?? false
-            return first != second ? first : a.capturedAt > b.capturedAt
-        }
-    }
+    private var taskID: String { libraryRevision + "|" + query + "|" + (focusedFind ?? "all") + "|" + retryID.uuidString + "|" + refreshID.uuidString }
     private var columns: [GridItem] { Array(repeating: GridItem(.flexible(), spacing: 12), count: typeSize.isAccessibilitySize ? 1 : 2) }
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 18) {
-                if segment == .yours { yourFinds }
-                else { recommendations }
+                recommendations
             }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 24)
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            glassTabs.padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 12)
-        }
         .task(id: taskID) { await load() }
-        .onChange(of: segment) { _, _ in FindsHaptics.selection() }
-    }
-    @ViewBuilder private var glassTabs: some View {
-        if #available(iOS 26.0, *) {
-            tabs.padding(6).glassEffect(.regular, in: Capsule())
-        } else { tabs.padding(6).background(.ultraThinMaterial, in: Capsule()) }
-    }
-    private var tabs: some View {
-        Picker("Explore view", selection: $segment) {
-            ForEach(Segment.allCases) { Text($0.rawValue).tag($0) }
-        }.pickerStyle(.segmented).labelsHidden().controlSize(.large)
-            .accessibilityIdentifier("exploreSegments")
-    }
-    @ViewBuilder private var yourFinds: some View {
-        if visibleFinds.isEmpty {
-            LibraryEmptyState(symbol: "bookmark", title: query.isEmpty ? "No finds yet." : "No matches.", detail: query.isEmpty ? "Save a photo, link or note." : "Try another search.")
-        } else {
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
-                ForEach(visibleFinds) { find in
-                    NavigationLink {
-                        SavedContentView(item: find, stillSaved: true, localOnly: true, onChanged: reloadLibrary,
-                            onDelete: { id, _ in try await LocalLibrary.shared.delete(id); reloadLibrary() })
-                    } label: {
-                        SavedContentCard(item: find, pinned: metadata[find.id]?.pinned ?? false)
-                    }.buttonStyle(.plain)
-                        .contextMenu {
-                            Button("Explore similar", systemImage: "sparkles") { focusedFind = find.id; segment = .explore }
-                            Button(metadata[find.id]?.pinned == true ? "Unpin" : "Pin", systemImage: "pin.fill") {
-                                Task {
-                                    do { try await LocalLibrary.shared.setPinned(find.id, !(metadata[find.id]?.pinned ?? false)); reloadLibrary() }
-                                    catch { errorMessage = error.localizedDescription }
-                                }
-                            }
-                        }
-                }
-            }
-        }
-        if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.secondary) }
     }
     @ViewBuilder private var recommendations: some View {
         if let id = focusedFind, let find = finds.first(where: { $0.id == id }) {
@@ -166,14 +106,21 @@ struct LocalExploreScreen: View {
     }
     private func reloadLibrary() { retryID = UUID(); onChanged() }
     @MainActor private func readLibrary() async throws {
-        metadata = try await LocalLibrary.shared.metadata()
-        finds = try await LocalLibrary.shared.collection().filter { $0.client != "sample" && !(metadata[$0.id]?.isArchived ?? false) }
+        let savedMetadata = try await LocalLibrary.shared.metadata()
+        let savedFinds = try await LocalLibrary.shared.collection()
+        try Task.checkCancellation()
+        metadata = savedMetadata
+        finds = savedFinds.filter { $0.client != "sample" && !(savedMetadata[$0.id]?.isArchived ?? false) }
         if let focusedFind, !finds.contains(where: { $0.id == focusedFind }) { self.focusedFind = nil }
     }
     @MainActor private func payload() throws -> Data {
         let input: [[String: Any]] = try finds.filter { focusedFind == nil || $0.id == focusedFind }.prefix(24).map { find in
             let context = metadata[find.id] ?? LocalFindMetadata()
-            var value: [String: Any] = ["id": find.id, "title": find.title, "note": find.note, "text": find.selectedText, "intents": context.selectedIntents]
+            // Duplicate saves keep their complete notes locally; transport respects
+            // the shared recommendation contract instead of rejecting a large group.
+            var value: [String: Any] = ["id": find.id, "title": find.title,
+                "note": String(find.note.prefix(2_000)), "text": String(find.selectedText.prefix(12_000)),
+                "intents": Array(context.selectedIntents.prefix(8))]
             if let analysis = context.analysis { value["analysis"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(analysis)) }
             return value
         }
@@ -189,12 +136,12 @@ struct LocalExploreScreen: View {
         page = try JSONDecoder().decode(LocalRecommendationPage.self, from: data)
     }
     @MainActor private func load() async {
+        guard !Task.isCancelled else { return }
         busy = true; errorMessage = nil
         defer { if !Task.isCancelled { busy = false; analyzing = false } }
         do {
             try await readLibrary()
             if finds.isEmpty || !CaptureIntelligence.isConfigured { page = nil; lastPayload = nil; return }
-            guard segment == .explore else { return }
             try await Task.sleep(for: .milliseconds(query.isEmpty ? 60 : 230))
             let force = forceNext || (previousRefresh != nil && previousRefresh != refreshID)
             forceNext = false
