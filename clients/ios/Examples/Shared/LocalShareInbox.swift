@@ -1,11 +1,9 @@
 import Foundation
 import Security
 import CryptoKit
-import CommonThreadKit
 
 /// A short-lived local handoff. The app moves each draft to its ordinary file store,
-/// then removes it from this inbox. Shared captures additionally carry an immutable,
-/// account-scoped request; legacy drafts remain local. Nothing synchronizes to iCloud.
+/// then removes it from this inbox. No content is uploaded or synchronized to iCloud.
 struct LocalShareDraft: Codable, Identifiable, Sendable {
     var id: UUID = UUID()
     var createdAt: Date = Date()
@@ -17,7 +15,6 @@ struct LocalShareDraft: Codable, Identifiable, Sendable {
     var intents: [String]? = nil
     var analysis: CaptureIntelligenceResult? = nil
     var userEditedTitle: Bool? = nil
-    var sharedCapture: PendingCapture? = nil
 }
 
 struct LocalShareAttachment: Codable, Identifiable, Sendable {

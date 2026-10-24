@@ -17,8 +17,7 @@ enum SetupError: Error, LocalizedError {
 /// A fully provisioned build uses the App Group for nonsecret cloud configuration
 /// and queued captures. The explicitly group-free local device build uses its host
 /// sandbox instead. Credentials always remain in the shared Keychain access group.
-/// The Share Extension reads a nonsecret destination from Keychain Sharing, which
-/// also works in group-free builds. Its durable payload handoff uses LocalShareInbox.
+/// Local Share Extension captures use LocalShareInbox, independently of cloud login.
 struct SharedEnvironment: Codable {
     let baseURL: URL
     let accountId: String
@@ -46,30 +45,7 @@ struct SharedEnvironment: Codable {
     }
     func store() throws {
         let defaults = try Self.configurationDefaults()
-        try publishShareDestination()
         defaults.set(try JSONEncoder().encode(self), forKey: "connection")
-    }
-    private static var shareDestinationQuery: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "MynahFinds.SharedDestination.v1",
-         kSecAttrAccount as String: "active", kSecAttrAccessGroup as String: keychainGroup]
-    }
-    static func readForSharing() throws -> Self? {
-        var query = shareDestinationQuery
-        query[kSecReturnData as String] = true; query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = result as? Data else { throw SetupError.keychain(status) }
-        return try JSONDecoder().decode(Self.self, from: data)
-    }
-    func publishShareDestination() throws {
-        let values: [String: Any] = [kSecValueData as String: try JSONEncoder().encode(self),
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
-        var status = SecItemUpdate(Self.shareDestinationQuery as CFDictionary, values as CFDictionary)
-        if status == errSecItemNotFound {
-            status = SecItemAdd(Self.shareDestinationQuery.merging(values) { _, new in new } as CFDictionary, nil)
-        }
-        guard status == errSecSuccess else { throw SetupError.keychain(status) }
     }
     static func outbox() throws -> CaptureOutbox {
         let root: URL
@@ -104,10 +80,6 @@ struct SharedEnvironment: Codable {
     }
     func signOut() throws {
         let defaults = try Self.configurationDefaults()
-        if let shared = try Self.readForSharing(), shared.accountId == accountId, shared.baseURL == baseURL {
-            let removal = SecItemDelete(Self.shareDestinationQuery as CFDictionary)
-            guard removal == errSecSuccess || removal == errSecItemNotFound else { throw SetupError.keychain(removal) }
-        }
         let status = SecItemDelete(credentialQuery as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw SetupError.keychain(status) }
         // Clear only this account's connection. Queued captures remain scoped by

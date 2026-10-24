@@ -2,7 +2,6 @@ import UIKit
 import SwiftUI
 import UniformTypeIdentifiers
 import ImageIO
-import CommonThreadKit
 
 final class ShareViewController: UIViewController {
     override func viewDidLoad() {
@@ -28,9 +27,6 @@ struct ShareCaptureView: View {
     @State private var loading = true
     @State private var saving = false
     @State private var saved = false
-    @State private var sharingConnection: SharedEnvironment?
-    @State private var keepLocal = false
-    @State private var sharedUploadConfirmed = false
     @State private var message: String?
     @State private var importWarnings: [String] = []
     @State private var acceptedPartial = false
@@ -50,12 +46,6 @@ struct ShareCaptureView: View {
 
     private var hasContent: Bool {
         !(draft.url ?? "").isEmpty || !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draft.attachments.isEmpty
-    }
-    private var sharedAttachments: [SharedCaptureRequest.Attachment] {
-        draft.attachments.map { .init(data: $0.data, isImage: UTType($0.typeIdentifier)?.conforms(to: .image) == true) }
-    }
-    private var sharedDestination: SharedEnvironment? {
-        !keepLocal && SharedCaptureRequest.supports(url: draft.url, attachments: sharedAttachments) ? sharingConnection : nil
     }
     private var canSave: Bool {
         !loading && !saving && hasContent && LocalShareInbox.validationIssue(draft) == nil
@@ -81,8 +71,7 @@ struct ShareCaptureView: View {
                         VStack(spacing: 16) {
                             Image(systemName: "checkmark.circle.fill").font(.system(size: 64)).foregroundStyle(.green)
                             Text("Saved!").font(.system(.largeTitle, weight: .bold))
-                            Text(draft.sharedCapture == nil ? "Returning to where you left off…" : sharedUploadConfirmed
-                                 ? "Saved to your shared library." : "Queued for your shared library. Open Mynah Finds to finish syncing.")
+                            Text("Returning to where you left off…")
                                 .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
                             if !draft.title.isEmpty {
                                 Text(draft.title).font(.headline).lineLimit(3).multilineTextAlignment(.center)
@@ -95,16 +84,7 @@ struct ShareCaptureView: View {
                             Image(systemName: "bookmark.fill").font(.system(size: 27, weight: .bold))
                             VStack(alignment: .leading, spacing: 3) {
                                 Text("Keep a good find.").font(.system(.title2, weight: .bold))
-                                Text(sharedDestination.map { "Shared library · \($0.accountId)" } ?? "Saved on this iPhone")
-                                    .font(.subheadline).foregroundStyle(.secondary)
-                            }
-                        }
-                        if sharingConnection != nil {
-                            if SharedCaptureRequest.supports(url: draft.url, attachments: sharedAttachments) {
-                                Toggle("Keep only on this iPhone", isOn: $keepLocal)
-                                if !keepLocal { Text("Available on your connected devices. Shared content is processed by the server’s AI.").font(.footnote).foregroundStyle(.secondary) }
-                            } else if !loading {
-                                Text(SharedCaptureRequest.PreparationError.unsupported.localizedDescription).font(.footnote).foregroundStyle(.secondary)
+                                Text("Saved on this iPhone").font(.subheadline).foregroundStyle(.secondary)
                             }
                         }
                         if loading { ProgressView("Getting your find…").frame(maxWidth: .infinity).padding() }
@@ -180,14 +160,10 @@ struct ShareCaptureView: View {
                     return true
                 }
             }
-            .task {
-                do { sharingConnection = try SharedEnvironment.readForSharing() }
-                catch { message = "Your shared connection could not be read. This save will stay on this iPhone." }
-                await loadItems()
-            }
+            .task { await loadItems() }
             .task(id: request) { await loadIntelligence(request) }
             .task(id: saved) {
-                guard saved, draft.sharedCapture == nil || sharedUploadConfirmed else { return }
+                guard saved else { return }
                 do { try await Task.sleep(for: .milliseconds(850)); completeShare() }
                 catch is CancellationError {} catch {}
             }
@@ -483,31 +459,9 @@ struct ShareCaptureView: View {
         draft.intents = selectedIntents.isEmpty ? nil : selectedIntents
         draft.analysis = intelligenceSourceContext == intelligenceContext ? intelligence : nil
         draft.userEditedTitle = titleWasEdited
+        let snapshot = draft
         do {
-            let destination = sharedDestination
-            draft.sharedCapture = nil
-            if let destination {
-                // Freeze account + payload + key before attempting any network write.
-                // An offline share is replayed only for this exact account and origin.
-                let request = try SharedCaptureRequest.prepare(url: draft.url, title: draft.title, text: draft.text,
-                    note: draft.note, intents: selectedIntents, client: .iosShareExtension, attachments: sharedAttachments)
-                draft.sharedCapture = PendingCapture(request: request, accountId: destination.accountId,
-                    baseURL: destination.baseURL, sourceId: draft.id.uuidString)
-            }
-            let snapshot = draft
             try await Task.detached(priority: .userInitiated) { try LocalShareInbox.save(snapshot) }.value
-            if let destination, let capture = snapshot.sharedCapture {
-                // The inbox is already durable. A timeout or extension termination
-                // leaves the SAME key for the host to reconcile, without duplicates.
-                let configuration = URLSessionConfiguration.ephemeral
-                configuration.timeoutIntervalForRequest = 10; configuration.timeoutIntervalForResource = 12
-                do {
-                    let client = try CommonThreadClient(baseURL: destination.baseURL, session: URLSession(configuration: configuration)) { try destination.token() }
-                    try await destination.verify(client)
-                    _ = try await client.capture(capture.request, key: capture.key)
-                    sharedUploadConfirmed = true
-                } catch { /* Host retries the durable inbox; never claim an online save. */ }
-            }
             saved = true
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         } catch { message = error.localizedDescription }

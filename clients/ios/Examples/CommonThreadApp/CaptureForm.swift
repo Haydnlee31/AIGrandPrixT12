@@ -41,7 +41,6 @@ struct CaptureForm: View {
     @State private var maxURL = 2048
     @State private var maxTitle = 300
     @State private var maxNote = 2000
-    @State private var captureLimits: Capabilities.CaptureLimits?
     @State private var analysis: CaptureIntelligenceResult?
     @State private var analysisInput: AnalysisInput?
     @State private var analysisError: String?
@@ -122,7 +121,6 @@ struct CaptureForm: View {
             #endif
             if let connection, let limits = try? await connection.client().capabilities().capture {
                 maxURL = limits.maxUrlLength; maxTitle = limits.maxTitleLength; maxNote = limits.maxNoteLength
-                captureLimits = limits
             }
         }
         .task(id: analysisRequest) { await analyzeCapture(analysisRequest) }
@@ -411,10 +409,10 @@ struct CaptureForm: View {
                 FindsHaptics.success(); onSave()
                 return
             }
-            let draft = try pending ?? PendingCapture(
-                request: SharedCaptureRequest.prepare(url: cleanedLink, title: resolvedTitle, text: savedText,
-                    note: note, intents: selectedIntents, source: captureSource, client: .iosApp,
-                    attachments: attachments.map { .init(data: $0.value.data, isImage: $0.preview != nil) }, limits: captureLimits),
+            let draft = pending ?? PendingCapture(
+                request: CaptureRequest(url: cleanedLink.isEmpty ? nil : cleanedLink, title: resolvedTitle, source: captureSource,
+                    selectedText: savedText, note: connectedNote, client: .iosApp,
+                    imageDataUrl: attachments.first.map { "data:image/jpeg;base64," + $0.value.data.base64EncodedString() }),
                 accountId: connection.accountId, baseURL: connection.baseURL)
             let outbox = try SharedEnvironment.outbox()
             try await outbox.enqueue(draft)
@@ -423,11 +421,10 @@ struct CaptureForm: View {
             try await connection.verify(client)
             let result = try await client.capture(draft.request, key: draft.key)
             receipt = result
-            do { try await outbox.complete(draft, receipt: result) }
+            do { try await outbox.remove(draft) }
             catch { message = "Saved online. A local queue entry will be reconciled on your next sync." }
             onSave()
         } catch {
-            if let pending { try? await SharedEnvironment.outbox().recordFailure(error, for: pending) }
             if let api = error as? APIError { canRetry = api.retryable }
             message = pending == nil ? error.localizedDescription
                 : "Pending on this device. \(error.localizedDescription) You can close this sheet and manage it in Profile."
