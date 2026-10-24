@@ -122,7 +122,8 @@ struct NewInsightHighlights: View {
                 FindInsightRow(text: text, index: index)
             }
             if !combined.details.isEmpty || !combined.uncertainties.isEmpty {
-                DisclosureGroup("Details") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Details").font(.headline)
                     VStack(alignment: .leading, spacing: 12) {
                         ForEach(combined.details, id: \.self) { text in
                             Text(text).font(.subheadline).foregroundStyle(.secondary)
