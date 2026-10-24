@@ -115,6 +115,75 @@ def test_different_actual_saves_are_represented_in_a_short_result_page(database)
     assert {item.reasons[0].find_id for item in result.items} == {"saved-watch", "my-lamp"}
 
 
+def test_photo_order_preserves_imageless_matches_and_find_representation(database):
+    factory, _ = database
+    import_dataset(factory, "abo", [
+        record("phone", "Black phone", "Phones", offer={"id": "phone", "environment": "local", "image_url": None}),
+        record("watch", "Black digital wristwatch", "Watches", brand="Casio"),
+        record("phone-case", "Black smartphone case", "Phone cases"),
+    ], version="mixed-photo-coverage", checksum="e" * 64)
+    result = recommend(factory, request(find("saved-phone", "phone"), find(), limit=2))
+    assert [item.source_record_id for item in result.items] == ["watch", "phone"]
+    assert result.items[0].image_url == "https://catalog.example.org/photo.jpg"
+    assert result.items[1].image_url is None
+    assert {item.reasons[0].find_id for item in result.items} == {"saved-phone", "saved-watch"}
+    # A photo is never enough to turn an accessory into the requested product.
+    phone_only = recommend(factory, request(find("saved-phone", "phone")))
+    assert [item.source_record_id for item in phone_only.items] == ["phone"]
+    assert phone_only.items[0].image_url is None
+
+
+def test_photo_presentation_keeps_preference_order_within_photo_group(database):
+    factory, _ = database
+    result = recommend(factory, request(find(intents=["I like blue", "I prefer digital"])))
+    assert result.items[0].source_record_id == "blue-watch"
+    assert all(item.image_url for item in result.items)
+
+
+@pytest.mark.parametrize("category", ["Smartphones", "Mobilephones"])
+def test_phone_category_aliases_survive_fts_and_match_without_accessories(database, category):
+    factory, _ = database
+    import_dataset(factory, "abo", [
+        record("actual-phone", "Black smartphone", category, offer={"id": "phone", "environment": "local", "image_url": None}),
+        record("case", "Black smartphone case", category + " cases"),
+        record("stand", "Black smartphone stand", category + " stands"),
+    ], version="phone-category-alias", checksum="f" * 64)
+    result = recommend(factory, request(find("my-phone", "phone")))
+    assert [item.source_record_id for item in result.items] == ["actual-phone"]
+    assert result.items[0].image_url is None  # Never invent a photo to fill a gap.
+    assert result.items[0].reasons[0].find_id == "my-phone"
+    assert [item.source_record_id for item in recommend(factory, request(find("my-phone", "phone"), query="phone")).items] == ["actual-phone"]
+
+
+@pytest.mark.parametrize("signal", ["product_name", "category_path", "saved_title", "selected_intent"])
+def test_smartphone_intent_never_promotes_pictured_home_telephones(database, signal):
+    factory, _ = database
+    phones = [record("mobile", "Samsung Galaxy smartphone", "Smartphones",
+        offer={"id": "mobile", "environment": "local", "image_url": None})]
+    for index, title in enumerate([
+        "AmazonBasics DECT Home Telephone Set 3", "Telephone with answering machine",
+        "Corded office phone", "Cordless telephone", "Land-line phone", "Desktop phone",
+    ]):
+        phones.append(record(f"home-{index}", title, "PHONE"))
+    import_dataset(factory, "abo", phones, version="mobile-vs-landline", checksum="9" * 64)
+    saved = find("saved-phone", "phone")
+    if signal == "product_name":
+        saved["analysis"]["product_name"] = "iPhone 18 Pro Max"
+    elif signal == "category_path":
+        saved["analysis"]["category_path"] = ["Electronics", "Mobile phones", "Smartphones"]
+    elif signal == "saved_title":
+        saved["title"] = "iPhone 18 Duo"
+    else:
+        saved["intents"] = ["I want a mobile phone"]
+    result = recommend(factory, request(saved))
+    assert [item.source_record_id for item in result.items] == ["mobile"]
+    assert result.items[0].image_url is None
+    assert all(reason.find_id == "saved-phone" for reason in result.items[0].reasons)
+    # The restriction belongs to mobile intent, not every phone in the catalog.
+    generic = recommend(factory, request(find("home-phone", "phone")))
+    assert "home-0" in {item.source_record_id for item in generic.items}
+
+
 def test_search_filters_personalized_catalog_results(database):
     factory, _ = database
     assert [item.source_record_id for item in recommend(factory, request(find(), query="blue")).items] == ["blue-watch"]

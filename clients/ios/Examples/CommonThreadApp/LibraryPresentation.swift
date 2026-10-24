@@ -112,7 +112,7 @@ struct SavedContentView: View {
     let onDelete: (String, MutationKey) async throws -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @ScaledMetric(relativeTo: .subheadline) private var questionSpace: CGFloat = 92
+    @ScaledMetric(relativeTo: .subheadline) private var questionSpace: CGFloat = 146
     @State private var confirmsDelete = false
     @State private var deleting = false
     @State private var deleteKey: MutationKey?

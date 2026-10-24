@@ -29,7 +29,6 @@ project = {
             'info': {'path': 'App-Info.plist', 'properties': {**shared_info,
                 'CFBundleDisplayName': 'Mynah Finds', 'UILaunchScreen': {},
                 'CFBundleURLTypes': [{'CFBundleURLName': 'com.aigrandprix.mymahfinds.navigation', 'CFBundleTypeRole': 'Editor', 'CFBundleURLSchemes': ['mynah']}],
-                'NSMicrophoneUsageDescription': 'Record a short note and send it to OpenAI for editable transcription.',
                 'NSCameraUsageDescription': 'Take a photo to save something that caught your eye.',
                 'UIApplicationSceneManifest': {'UIApplicationSupportsMultipleScenes': False}}},
             'entitlements': {'path': 'App.entitlements', 'properties': shared_entitlements},

@@ -22,8 +22,8 @@ struct FindsOnboardingView: View {
     private let titles = ["A home for\nevery little find.", "Save the thing.\nKeep the feeling.", "Start small.\nMake it yours."]
     private let subtitles = [
         "Links, photos, and ideas, collected in one calm place. Welcome to Mynah Finds.",
-        "What caught your eye? Add a note, or say it out loud and edit the words before saving.",
-        "Explore a few sample finds, then add your own finds. Your saves stay on this iPhone. You can connect a separate shared library later."
+        "What caught your eye? Add a note to keep the details that matter to you.",
+        "Start with a link, photo, or idea. Your saves stay on this iPhone. You can connect a separate shared library later."
     ]
     var body: some View {
         VStack(spacing: 0) {
@@ -85,7 +85,7 @@ struct FindsOnboardingView: View {
                 Text("Why are you saving this?").font(.headline.bold())
                 Text("“That warm glow would be perfect next to my reading chair.”")
                     .font(.title3).foregroundStyle(.secondary)
-                HStack { Text("Your words. Your context.").font(.caption); Spacer(); Image(systemName: "mic.fill").foregroundStyle(.blue) }
+                HStack { Text("Your words. Your context.").font(.caption); Spacer(); Image(systemName: "text.bubble.fill").foregroundStyle(.blue) }
             }.padding(24).background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 30)).rotationEffect(.degrees(-3))
         } else {
             VStack(spacing: 20) {

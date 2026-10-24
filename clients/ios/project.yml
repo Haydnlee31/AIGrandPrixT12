@@ -43,7 +43,6 @@ targets:
         CommonThreadKeychainGroup: "$(COMMON_THREAD_KEYCHAIN_GROUP)"
         NSLocalNetworkUsageDescription: Connect to your chosen server to sync your saved content.
         NSCameraUsageDescription: Take a photo to save something that caught your eye.
-        NSMicrophoneUsageDescription: Record a short note and send it to OpenAI for editable transcription.
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
     entitlements:

@@ -42,36 +42,67 @@ struct FindInsightRow: View {
     }
 }
 
-/// One concise question leads to the options below. Opening it never records an answer.
+/// Swipe between questions without turning a question into a recorded preference.
 struct FindIntentOverlay: View {
     let prompts: [CaptureIntelligenceResult.Prompt]
     let selected: [String]
     var busy = false
     let onOpen: () -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    private var prompt: CaptureIntelligenceResult.Prompt? {
-        prompts.first(where: { !selected.contains($0.text) }) ?? prompts.first
-    }
+    @ScaledMetric(relativeTo: .subheadline) private var pageHeight: CGFloat = 96
+    @State private var page = 0
     var body: some View {
-        if let prompt {
-            Button(action: onOpen) {
-                HStack(spacing: 11) {
-                    Image(systemName: "sparkles").font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.purple).frame(width: 34, height: 34)
-                        .background(Color.purple.opacity(0.1), in: Circle())
-                    Text(prompt.question.flatMap { $0.isEmpty ? nil : $0 } ?? prompt.text)
-                        .font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
-                        .multilineTextAlignment(.leading).lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.secondary)
-                }.padding(13)
-                    .background(Color(.systemBackground).opacity(0.97), in: RoundedRectangle(cornerRadius: 19))
-                    .overlay { RoundedRectangle(cornerRadius: 19).strokeBorder(Color.primary.opacity(0.08), lineWidth: 1) }
-                    .shadow(color: .black.opacity(0.08), radius: 9, y: 3)
-            }.buttonStyle(.plain).disabled(busy)
-                .accessibilityHint("Open personalization options in New Insights")
+        if !prompts.isEmpty {
+            VStack(spacing: 2) {
+                TabView(selection: $page) {
+                    ForEach(Array(prompts.enumerated()), id: \.element.id) { index, prompt in
+                        questionCard(prompt, index: index).padding(.horizontal, 3).padding(.vertical, 5).tag(index)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .frame(height: pageHeight)
+                if prompts.count > 1 {
+                    HStack(spacing: 0) {
+                        ForEach(prompts.indices, id: \.self) { index in
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) { page = index }
+                            } label: {
+                                Capsule().fill(page == index ? Color.primary : Color.secondary.opacity(0.3))
+                                    .frame(width: page == index ? 16 : 5, height: 5)
+                                    .frame(width: 28, height: 24).contentShape(Rectangle())
+                            }.buttonStyle(.plain)
+                                .accessibilityLabel("Question \(index + 1) of \(prompts.count)")
+                                .accessibilityAddTraits(page == index ? .isSelected : [])
+                        }
+                    }
+                    .padding(.horizontal, 5)
+                    .background(.regularMaterial, in: Capsule())
+                }
+            }
+            .onChange(of: prompts.map(\.id)) { _, _ in page = min(page, max(0, prompts.count - 1)) }
+            .accessibilityIdentifier("findQuestionCarousel")
         }
+    }
+    private func questionCard(_ prompt: CaptureIntelligenceResult.Prompt, index: Int) -> some View {
+        let question = prompt.question.flatMap { $0.isEmpty ? nil : $0 } ?? prompt.text
+        let tint = FindIntentAppearance.color(index)
+        return Button(action: onOpen) {
+            HStack(spacing: 11) {
+                Image(systemName: FindIntentAppearance.symbol(for: prompt.text, index: index))
+                    .font(.system(size: 18, weight: .semibold)).foregroundStyle(tint)
+                    .frame(width: 36, height: 36).background(tint.opacity(0.12), in: Circle())
+                Text(question).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading).lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: selected.contains(prompt.text) ? "checkmark.circle.fill" : "arrow.up.right")
+                    .font(.caption.bold()).foregroundStyle(selected.contains(prompt.text) ? tint : .secondary)
+            }.padding(14).frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(.systemBackground).opacity(0.97), in: RoundedRectangle(cornerRadius: 21))
+                .overlay { RoundedRectangle(cornerRadius: 21).strokeBorder(Color.primary.opacity(0.08), lineWidth: 1) }
+                .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+        }.buttonStyle(.plain).disabled(busy)
+            .accessibilityLabel(question)
+            .accessibilityHint("Open personalization options in New Insights")
     }
 }
 

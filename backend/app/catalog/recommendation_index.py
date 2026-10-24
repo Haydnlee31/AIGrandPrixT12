@@ -24,6 +24,10 @@ def category_product_ids(db, anchors):
     expressions = []
     for anchor in anchors:
         quoted = '"' + anchor.replace('"', '""') + '"*'
+        if anchor == "phone":
+            # Match the same phone synonyms accepted by the category gate.
+            # FTS prefixes cannot find "phone" inside "smartphones".
+            quoted = '("phone"* OR "smartphone"* OR "mobilephone"*)'
         if anchor in {"watch", "phone"}:
             quoted += ' NOT ("case"* OR "strap"* OR "band"* OR "box"* OR "accessory"* OR "holder"* OR "stand"*)'
         expressions.append("(" + quoted + ")")

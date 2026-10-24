@@ -39,7 +39,7 @@ struct ShareCaptureView: View {
     @State private var intelligenceSourceContext = ""
     @State private var intelligenceLoading = false
     @State private var intelligenceFailed = false
-    @State private var intelligenceRequestID = UUID()
+    @State private var intelligenceLifecycle = ShareIntelligenceLifecycle()
     @State private var intelligenceRetryID = UUID()
     @State private var hasRequestedIntelligence = false
     @FocusState private var noteFocused: Bool
@@ -53,11 +53,18 @@ struct ShareCaptureView: View {
     }
     // Editing a note must not trigger another request or replace the user's words.
     private var intelligenceContext: String {
-        ([titleWasEdited ? draft.title : sourceTitle, draft.url ?? "", draft.text, String(loading), String(saved), intelligenceRetryID.uuidString]
+        ([titleWasEdited ? draft.title : sourceTitle, draft.url ?? "", draft.text, intelligenceRetryID.uuidString]
             + draft.attachments.map { $0.id.uuidString }).joined(separator: "\u{1F}")
     }
+    private var intelligenceRequest: ShareIntelligenceRequest {
+        ShareIntelligenceRequest(context: intelligenceContext,
+            ready: !loading && !saved && !completed && hasContent && CaptureIntelligence.isConfigured)
+    }
     var body: some View {
-        NavigationStack {
+        // Capture the rendered request by value. An old import task must not read
+        // newer @State and claim ownership of the first fully imported source.
+        let request = intelligenceRequest
+        return NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     if saved {
@@ -154,7 +161,7 @@ struct ShareCaptureView: View {
                 }
             }
             .task { await loadItems() }
-            .task(id: intelligenceContext) { await loadIntelligence() }
+            .task(id: request) { await loadIntelligence(request) }
             .task(id: saved) {
                 guard saved else { return }
                 do { try await Task.sleep(for: .milliseconds(850)); completeShare() }
@@ -299,18 +306,18 @@ struct ShareCaptureView: View {
         }
     }
 
-    @MainActor private func loadIntelligence() async {
-        let requestID = UUID()
-        let context = intelligenceContext
-        intelligenceRequestID = requestID
+    @MainActor private func loadIntelligence(_ request: ShareIntelligenceRequest) async {
+        // SwiftUI may enter an already-canceled task after import updates. Reject
+        // it before clearing suggestions, changing the spinner, or taking a token.
+        guard let requestID = intelligenceLifecycle.begin(request, current: intelligenceRequest,
+                                                          cancelled: Task.isCancelled) else { return }
+        let context = request.context
         intelligence = nil
         intelligenceSourceContext = ""
         intelligenceFailed = false
-        intelligenceLoading = false
-        guard !loading, !saved, hasContent, CaptureIntelligence.isConfigured else { return }
         intelligenceLoading = true
         defer {
-            if intelligenceRequestID == requestID { intelligenceLoading = false }
+            if intelligenceLifecycle.finish(requestID) { intelligenceLoading = false }
         }
         do {
             // The first imported source starts immediately. Only subsequent edits
@@ -319,14 +326,16 @@ struct ShareCaptureView: View {
             hasRequestedIntelligence = true
             if needsDebounce { try await Task.sleep(for: .milliseconds(250)) }
             try Task.checkCancellation()
+            guard intelligenceLifecycle.accepts(requestID, request: request, current: intelligenceRequest,
+                                                 cancelled: Task.isCancelled) else { return }
             let snapshot = draft
             let image = snapshot.attachments.first { UTType($0.typeIdentifier)?.conforms(to: .image) == true }?.data
             let result = try await CaptureIntelligence.analyze(
                 url: snapshot.url, title: titleWasEdited ? snapshot.title : sourceTitle, text: snapshot.text, note: snapshot.note,
                 imageData: image, preferCapturedContent: true
             )
-            guard !Task.isCancelled, intelligenceRequestID == requestID,
-                  intelligenceContext == context, !saved else { return }
+            guard intelligenceLifecycle.accepts(requestID, request: request, current: intelligenceRequest,
+                                                 cancelled: Task.isCancelled) else { return }
             intelligence = result
             intelligenceSourceContext = context
             if !saving, !titleWasEdited, let name = result.productName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
@@ -335,8 +344,8 @@ struct ShareCaptureView: View {
         } catch is CancellationError {
             // A changed product cancels old suggestions, without affecting local saving.
         } catch {
-            guard !Task.isCancelled, intelligenceRequestID == requestID,
-                  intelligenceContext == context, !saved else { return }
+            guard intelligenceLifecycle.accepts(requestID, request: request, current: intelligenceRequest,
+                                                 cancelled: Task.isCancelled) else { return }
             intelligenceFailed = true
         }
     }
@@ -458,6 +467,7 @@ struct ShareCaptureView: View {
         } catch { message = error.localizedDescription }
     }
 }
+
 private enum ShareReadError: Error, LocalizedError {
     case unsupported, unreadable
     var errorDescription: String? {

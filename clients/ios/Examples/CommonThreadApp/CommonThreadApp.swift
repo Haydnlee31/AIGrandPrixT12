@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import CommonThreadKit
 
 private enum LibraryInteractionError: LocalizedError {
@@ -6,22 +7,89 @@ private enum LibraryInteractionError: LocalizedError {
     var errorDescription: String? { "Your library is updating. Try removing this find again in a moment." }
 }
 
-@main
+@main @MainActor
 struct CommonThreadApp: App {
-    @AppStorage("finds.appearance") private var appearance = AppAppearance.system.rawValue
+    @State private var appearance: AppAppearanceState
+    init() {
+        var initial: AppAppearance?
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "-finds.appearance"), arguments.indices.contains(index + 1) {
+            initial = AppAppearance(rawValue: arguments[index + 1])
+        }
+        #endif
+        _appearance = State(initialValue: AppAppearanceState(initial: initial) { value in
+            SharedAppearance.set(value.rawValue)
+            AppearanceWindows.apply(value.interfaceStyle)
+        })
+    }
     var body: some Scene {
         WindowGroup {
-            FindsAppRoot()
-                .preferredColorScheme((AppAppearance(rawValue: appearance) ?? .system).colorScheme)
-                .task { SharedAppearance.set(appearance) }
-                .onChange(of: appearance) { _, value in SharedAppearance.set(value) }
+            FindsAppearanceRoot().environment(appearance)
+        }
+    }
+}
+
+private struct FindsAppearanceRoot: View {
+    @Environment(AppAppearanceState.self) private var appearance
+    @Environment(\.scenePhase) private var scenePhase
+    var body: some View {
+        FindsAppRoot()
+            .preferredColorScheme(appearance.selection.colorScheme)
+            .background(WindowAppearance(appearance: appearance.selection))
+            .onAppear { appearance.applyToCurrentPresentation() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { appearance.applyToCurrentPresentation() }
+            }
+    }
+}
+
+@MainActor private enum AppearanceWindows {
+    static func apply(_ style: UIUserInterfaceStyle) {
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            for window in scene.windows { apply(style, to: window) }
+        }
+    }
+    static func apply(_ style: UIUserInterfaceStyle, to window: UIWindow) {
+        if window.overrideUserInterfaceStyle != style { window.overrideUserInterfaceStyle = style }
+        if let root = window.rootViewController { apply(style, to: root) }
+    }
+    private static func apply(_ style: UIUserInterfaceStyle, to controller: UIViewController) {
+        if controller.overrideUserInterfaceStyle != style {
+            controller.overrideUserInterfaceStyle = style
+            controller.setNeedsStatusBarAppearanceUpdate()
+        }
+        for child in controller.children { apply(style, to: child) }
+        if let presented = controller.presentedViewController { apply(style, to: presented) }
+    }
+}
+
+/// Reapplies the single selected mode when SwiftUI attaches a new host window.
+private struct WindowAppearance: UIViewRepresentable {
+    let appearance: AppAppearance
+    func makeUIView(context: Context) -> AppearanceView {
+        let view = AppearanceView()
+        view.isUserInteractionEnabled = false
+        view.apply(appearance)
+        return view
+    }
+    func updateUIView(_ uiView: AppearanceView, context: Context) { uiView.apply(appearance) }
+    final class AppearanceView: UIView {
+        private var style: UIUserInterfaceStyle = .unspecified
+        func apply(_ appearance: AppAppearance) {
+            style = appearance.interfaceStyle
+            if let window { AppearanceWindows.apply(style, to: window) }
+        }
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if let window { AppearanceWindows.apply(style, to: window) }
         }
     }
 }
 
 @MainActor
 struct MymahFindsView: View {
-    private enum Tab: Hashable { case library, explore, profile }
+    private enum Tab: Hashable { case library, explore, radar, profile }
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var selectedTab: Tab = .library
@@ -43,6 +111,7 @@ struct MymahFindsView: View {
     @AppStorage("finds.library.grid") private var showsGrid = true
     @AppStorage("finds.library.sort") private var sortValue = LibrarySort.newest.rawValue
     @AppStorage("finds.library.scope") private var scopeValue = LibraryScope.library.rawValue
+    @AppStorage("finds.library.format") private var formatValue = LibraryFormat.all.rawValue
     @State private var metadata: [String: LocalFindMetadata] = [:]
     @State private var localStorageBytes = 0
     @State private var remoteSearchItems: [SavedItem] = []
@@ -60,6 +129,7 @@ struct MymahFindsView: View {
     private var query: String { searchText.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var sources: [String] { Array(Set((items + remoteSearchItems).map(\.source))).sorted() }
     private var scope: LibraryScope { connection == nil ? LibraryScope(rawValue: scopeValue) ?? .library : .library }
+    private var format: LibraryFormat { LibraryFormat(rawValue: formatValue) ?? .all }
     private var visibleItems: [SavedItem] {
         let base = connection != nil && !query.isEmpty ? remoteSearchItems : items
         let filtered = base.filter { item in
@@ -67,7 +137,16 @@ struct MymahFindsView: View {
             let scopeMatches = connection != nil || (scope == .archived ? flags.isArchived : !flags.isArchived && (scope != .favorites || flags.isFavorite))
             let textMatches = connection != nil || query.isEmpty || [item.title, item.note, item.selectedText, item.originalUrl, item.source, flags.selectedIntents.joined(separator: " "), flags.analysis?.searchableText ?? ""]
                 .contains { $0.localizedStandardContains(query) }
-            return scopeMatches && textMatches && (selectedSource == nil || item.source == selectedSource)
+            let formatMatches: Bool
+            switch format {
+            case .all: formatMatches = true
+            case .images: formatMatches = item.hasImage || flags.attachments.contains(where: \.isImage)
+            case .links: formatMatches = !item.originalUrl.isEmpty
+            case .voice: formatMatches = flags.hasVoiceNote == true || flags.attachments.contains(where: \.isAudio)
+            case .files: formatMatches = flags.attachments.contains { !$0.isImage && !$0.isAudio }
+            case .text: formatMatches = !item.selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            return scopeMatches && textMatches && formatMatches && (selectedSource == nil || item.source == selectedSource)
         }
         return filtered.sorted { first, second in
             let firstPinned = metadata[first.id]?.pinned ?? false
@@ -93,12 +172,14 @@ struct MymahFindsView: View {
         TabView(selection: $selectedTab) {
             library.tabItem { Label("Library", systemImage: "square.grid.2x2") }.tag(Tab.library)
             ExploreScreen(connection: connection, libraryRevision: exploreRevision, onLocalChange: { Task { await refresh() } }).id(accountGeneration).tabItem { Label("Explore", systemImage: "sparkles") }.tag(Tab.explore)
+            RadarScreen(libraryRevision: exploreRevision, onChanged: { Task { await refresh() } }).id(accountGeneration)
+                .tabItem { Label("Radar", systemImage: "dot.radiowaves.left.and.right") }.tag(Tab.radar)
             profile.tabItem { Label("Profile", systemImage: "person.crop.circle") }.tag(Tab.profile)
         }
         .tint(NativeTheme.accent)
         .sheet(isPresented: $showingCapture, onDismiss: { Task { await refresh() } }) {
             CaptureForm(connection: connection) {
-                selectedSource = nil; scopeValue = LibraryScope.library.rawValue; searchText = ""; selectedTab = .library
+                selectedSource = nil; scopeValue = LibraryScope.library.rawValue; formatValue = LibraryFormat.all.rawValue; searchText = ""; selectedTab = .library
                 Task { await refresh() }
             }
         }
@@ -132,6 +213,7 @@ struct MymahFindsView: View {
             if arguments.contains("-showSavedPhoto") || arguments.contains("-showRefinement") { linkedFind = items.first { $0.hasImage && $0.client != "sample" } }
             if arguments.contains("-showSavedLink") { linkedFind = items.first { !$0.originalUrl.isEmpty && $0.client != "sample" } }
             if arguments.contains("-showProfile") { selectedTab = .profile }
+            if arguments.contains("-showRadar") { selectedTab = .radar }
             if arguments.contains("-showCapture") || arguments.contains("-demoWatchDraft") { showingCapture = true }
             #endif
         }
@@ -160,12 +242,13 @@ struct MymahFindsView: View {
                         LibraryEmptyState(symbol: "bookmark.fill", title: "Your first find.", detail: "Add a photo, link or note.")
                         NativePrimaryButton(title: "Save your first find") { showingCapture = true }
                     } else {
+                        formatFilters
                         if scope != .library || selectedSource != nil {
                             HStack {
                                 Label(selectedSource?.capitalized ?? scope.title, systemImage: scope.symbol)
                                     .font(.subheadline.weight(.semibold)).foregroundStyle(.blue)
                                 Spacer()
-                                Button("Clear") { scopeValue = LibraryScope.library.rawValue; selectedSource = nil }
+                                Button("Clear") { scopeValue = LibraryScope.library.rawValue; selectedSource = nil; formatValue = LibraryFormat.all.rawValue }
                                     .font(.subheadline)
                             }
                         }
@@ -191,6 +274,28 @@ struct MymahFindsView: View {
                 if !query.isEmpty { await searchLibrary(debounce: false) }
             }
         }.id(accountGeneration)
+    }
+
+    private var formatFilters: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 9) {
+                ForEach(LibraryFormat.allCases) { option in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) { formatValue = option.rawValue }
+                        FindsHaptics.selection()
+                    } label: {
+                        Label(option.title, systemImage: option.symbol)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(format == option ? option.color : Color.secondary)
+                            .padding(.horizontal, 14).frame(minHeight: 42)
+                            .background(format == option ? option.color.opacity(0.12) : NativeTheme.surface, in: Capsule())
+                            .overlay { Capsule().strokeBorder(format == option ? option.color.opacity(0.25) : .clear, lineWidth: 1) }
+                    }.buttonStyle(.plain)
+                        .accessibilityAddTraits(format == option ? .isSelected : [])
+                        .accessibilityIdentifier("libraryFormat_\(option.rawValue)")
+                }
+            }
+        }.scrollIndicators(.hidden)
     }
 
     private var libraryOptions: some View {
@@ -231,8 +336,11 @@ struct MymahFindsView: View {
             LibraryEmptyState(symbol: scope == .favorites ? "heart" : scope == .archived ? "archivebox" : "text.magnifyingglass",
                               title: scope == .favorites && query.isEmpty ? "Your favorites,\nall together." : scope == .archived && query.isEmpty ? "A little room\nfor later." : "No matches yet.",
                               detail: scope == .favorites && query.isEmpty ? "Open a find or touch and hold a card to add it to Favorites." : scope == .archived && query.isEmpty ? "Archive a find to keep it without showing it in your main library." : "Try another word, or clear your filters to see more finds.")
-            if !query.isEmpty || selectedSource != nil {
-                Button("Clear search and filters") { searchText = ""; selectedSource = nil; FindsHaptics.selection() }
+            if !query.isEmpty || selectedSource != nil || format != .all || scope != .library {
+                Button("Clear search and filters") {
+                    searchText = ""; selectedSource = nil; formatValue = LibraryFormat.all.rawValue
+                    scopeValue = LibraryScope.library.rawValue; FindsHaptics.selection()
+                }
             }
         } else {
             savedItems(visibleItems, grid: showsGrid && !typeSize.isAccessibilitySize)

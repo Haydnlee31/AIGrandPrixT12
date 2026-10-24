@@ -247,6 +247,10 @@ def _reason_text(term, *, confirmed=False, kind="attribute_match"):
 
 def _fields(record):
     fields = _catalog_fields(record)
+    # Keep exact source wording for evidence, but align category matching with
+    # the existing phone gate and its FTS aliases. No unrelated noun expansion.
+    fields = [(name, value, {"phone" if token in {"smartphone", "mobilephone"} else token for token in tokens})
+              if name == "category" else (name, value, tokens) for name, value, tokens in fields]
     # ABO keeps some factual attributes in localized {value: ...} arrays. Read
     # only these bounded source values, preserving their original wording.
     for name in ("color", "material", "style", "finish_type", "item_shape", "display_type"):
@@ -265,7 +269,14 @@ def _matches_query(query, fields):
     return not query or all(_match(token, fields, prefix=True) for token in _tokens(query))
 
 
-def _category_compatible(profile, record):
+def _requires_mobile_phone(find):
+    analysis = find.analysis
+    context = " ".join([find.title, *find.intents,
+        analysis.product_name or "" if analysis else "", *(analysis.category_path if analysis else [])])
+    return bool(re.search(r"\b(?:smart[\s-]?phones?|iphones?\d*|mobile(?:[\s-]?phones?)?|cell(?:ular)?[\s-]?phones?|android)\b", context, re.IGNORECASE))
+
+
+def _category_compatible(profile, record, *, requires_mobile_phone=False):
     """A contextual mention of a watch/phone cannot turn furniture into one."""
     wanted = profile.anchor[0].value
     category = {_NOUNS.get(word, word) for word in _tokens(record.get("category") or "")}
@@ -281,6 +292,12 @@ def _category_compatible(profile, record):
             return False
         if wanted == "phone" and set(_tokens(title)).intersection(accessories):
             return False
+        if wanted == "phone" and requires_mobile_phone:
+            # A PHONE category also includes DECT sets and answering machines.
+            # Their available photos must never make them smartphone matches.
+            product_kind = title + " " + (record.get("category") or "")
+            if re.search(r"\b(?:dect|land[\s-]?lines?|corded|cordless|answering[\s-]*machines?|(?:home|office|desktop)[\s-]+(?:tele)?phones?)\b", product_kind, re.IGNORECASE):
+                return False
     if category - _GENERIC and wanted not in category:
         return False
     return True
@@ -349,6 +366,7 @@ def recommend(factory, request: RecommendationRequest, now=None, *, catalog_snap
     profiles = [(find, profile) for find, profile in profiles if profile is not None]
     preferences = {find.id: _intent_terms(find) for find, _ in profiles}
     contexts = {find.id: _preference_context(find, preferences[find.id][0]) for find, _ in profiles}
+    mobile_phone_required = {find.id: _requires_mobile_phone(find) for find, _ in profiles}
     _, catalog_count, configured = catalog_snapshot or _catalog_snapshot(factory)
     with factory() as db:
         if not configured:
@@ -378,7 +396,7 @@ def recommend(factory, request: RecommendationRequest, now=None, *, catalog_snap
                 continue
             matches = []
             for find, profile in profiles:
-                if not _category_compatible(profile, record):
+                if not _category_compatible(profile, record, requires_mobile_phone=mobile_phone_required[find.id]):
                     continue
                 terms, excluded = preferences[find.id]
                 if any(_match(word, fields) for word in excluded):
@@ -458,6 +476,11 @@ def recommend(factory, request: RecommendationRequest, now=None, *, catalog_snap
                     break
                 if len(result["items"]) >= request.limit:
                     break
+        # Presentation order only: keep every relevance-qualified selection and
+        # each saved find's representation, while showing actual source photos
+        # before records whose dataset never supplied one. Never substitute an
+        # accessory or an unrelated pictured product for an imageless match.
+        result["items"].sort(key=lambda item: item.image_url is None)
         return RecommendationResult(status="ready" if result["items"] else "no_matches", **result)
 
 

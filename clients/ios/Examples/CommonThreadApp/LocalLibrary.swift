@@ -1,5 +1,6 @@
 import Foundation
 import CommonThreadKit
+import UniformTypeIdentifiers
 
 struct LocalAttachment: Codable, Identifiable, Sendable {
     let id: UUID
@@ -8,6 +9,12 @@ struct LocalAttachment: Codable, Identifiable, Sendable {
     let relativePath: String
     let byteCount: Int
     var isImage: Bool { ["public.jpeg", "public.png", "org.webmproject.webp", "public.heic", "public.image"].contains(typeIdentifier) }
+    var isAudio: Bool {
+        if let type = UTType(typeIdentifier) ?? UTType(mimeType: typeIdentifier), type.conforms(to: .audio) { return true }
+        let ext = (filename as NSString).pathExtension.lowercased()
+        if let type = UTType(filenameExtension: ext), type.conforms(to: .audio) { return true }
+        return ["m4a", "aac", "mp3", "wav", "aif", "aiff", "caf", "flac", "ogg", "oga", "opus", "amr"].contains(ext)
+    }
 }
 struct LocalFindMetadata: Codable, Sendable {
     var isFavorite = false
@@ -19,6 +26,7 @@ struct LocalFindMetadata: Codable, Sendable {
     var intents: [String]? = nil
     var analysis: CaptureIntelligenceResult? = nil
     var userEditedTitle: Bool? = nil
+    var hasVoiceNote: Bool? = nil
     var selectedIntents: [String] {
         if let intents { return intents }
         let legacy = intent?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -114,7 +122,7 @@ actor LocalLibrary {
                         attachments: [LocalCaptureAttachment] = [], id: String = UUID().uuidString,
                         deduplicateLink: Bool = true, capturedAt: Date = Date(),
                         intents: [String]? = nil, analysis: CaptureIntelligenceResult? = nil,
-                        userEditedTitle: Bool? = nil) throws -> CaptureReceipt {
+                        userEditedTitle: Bool? = nil, hasVoiceNote: Bool = false) throws -> CaptureReceipt {
         let link = url?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, title.count <= 300,
               note.count <= 2000, text.count <= 12000 else { throw LocalError.invalidContent }
@@ -145,7 +153,8 @@ actor LocalLibrary {
             }
             document.items.insert(item, at: 0)
             document.metadata[id] = LocalFindMetadata(attachments: stored, intent: cleanedIntents?.first,
-                intents: cleanedIntents, analysis: analysis, userEditedTitle: userEditedTitle)
+                intents: cleanedIntents, analysis: analysis, userEditedTitle: userEditedTitle,
+                hasVoiceNote: hasVoiceNote ? true : nil)
             try persist(document)
         } catch {
             for attachment in stored { try? FileManager.default.removeItem(at: attachmentURL(attachment)) }
@@ -154,7 +163,7 @@ actor LocalLibrary {
         return try Self.receipt(id: id, duplicate: false)
     }
 
-    func update(_ id: String, title: String, note: String, text: String) throws {
+    func update(_ id: String, title: String, note: String, text: String, hasVoiceNote: Bool = false) throws {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, title.count <= 300, note.count <= 2000, text.count <= 12000 else { throw LocalError.invalidContent }
         var document = try document()
         guard let index = document.items.firstIndex(where: { $0.id == id }) else { throw LocalError.missingItem }
@@ -164,6 +173,7 @@ actor LocalLibrary {
         value["revision"] = document.items[index].revision + 1
         document.items[index] = try JSONDecoder().decode(SavedItem.self, from: JSONSerialization.data(withJSONObject: value))
         document.metadata[id, default: LocalFindMetadata()].analysis = nil
+        if hasVoiceNote { document.metadata[id, default: LocalFindMetadata()].hasVoiceNote = true }
         try persist(document)
     }
     func setAnalysis(_ id: String, _ analysis: CaptureIntelligenceResult) throws {
@@ -189,12 +199,13 @@ actor LocalLibrary {
     func setIntent(_ id: String, _ text: String?) throws {
         try setIntents(id, text.map { [$0] } ?? [])
     }
-    func setIntents(_ id: String, _ values: [String]) throws {
+    func setIntents(_ id: String, _ values: [String], hasVoiceNote: Bool = false) throws {
         let values = try Self.validatedIntents(values)
         var document = try document()
         guard let index = document.items.firstIndex(where: { $0.id == id }) else { throw LocalError.missingItem }
         document.metadata[id, default: LocalFindMetadata()].intents = values
         document.metadata[id, default: LocalFindMetadata()].intent = values.first
+        if hasVoiceNote { document.metadata[id, default: LocalFindMetadata()].hasVoiceNote = true }
         document.items[index] = try Self.revised(document.items[index])
         try persist(document)
     }

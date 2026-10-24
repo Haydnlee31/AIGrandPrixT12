@@ -35,6 +35,7 @@ struct FindImage: View {
         .task(id: "\(identity)|\(attempt)") { await load() }
     }
     @MainActor private func load() async {
+        guard !Task.isCancelled else { return }
         let currentID = UUID(); requestID = currentID
         let requestedIdentity = identity
         image = nil; imageIdentity = nil; errorMessage = nil; errorIdentity = nil
@@ -108,13 +109,9 @@ struct EditFindSheet: View {
     let item: SavedItem
     let onSaved: () -> Void
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.scenePhase) private var scenePhase
     @State private var title: String
     @State private var note: String
     @State private var text: String
-    @State private var recorder = VoiceNoteRecorder()
-    @State private var voiceTask: Task<Void, Never>?
-    @State private var startingVoice = false
     @State private var saving = false
     @State private var errorMessage: String?
     init(item: SavedItem, onSaved: @escaping () -> Void) {
@@ -127,25 +124,6 @@ struct EditFindSheet: View {
                 Section("Your find") { TextField("Title", text: $title) }
                 Section {
                     TextField("Why did it catch your eye?", text: $note, axis: .vertical).lineLimit(4...10)
-                        .disabled(recorder.isRecording || startingVoice || recorder.isTranscribing)
-                    Button {
-                        if startingVoice { cancelVoice() }
-                        else if recorder.isRecording { recorder.stop() }
-                        else {
-                            startingVoice = true; errorMessage = nil
-                            voiceTask = Task { @MainActor in
-                                defer { startingVoice = false }
-                                do { try await recorder.start { words in
-                                    note = [note.trimmingCharacters(in: .whitespacesAndNewlines), words].filter { !$0.isEmpty }.joined(separator: " ")
-                                } }
-                                catch is CancellationError {} catch { errorMessage = error.localizedDescription }
-                            }
-                        }
-                    } label: {
-                        Label(recorder.isRecording ? "Stop & transcribe" : startingVoice ? "Starting…" : "Add a voice note",
-                              systemImage: recorder.isRecording ? "stop.circle.fill" : "mic.fill")
-                    }.disabled(recorder.isTranscribing).accessibilityIdentifier("editVoiceNote")
-                    VoiceDictationStatus(recorder: recorder)
                 } header: { Text("The feeling behind it") }
                 Section("Saved text") { TextField("Add a little more context", text: $text, axis: .vertical).lineLimit(3...10) }
                 if let message = errorMessage { Section { Text(message).foregroundStyle(.red) } }
@@ -162,11 +140,9 @@ struct EditFindSheet: View {
                                 FindsHaptics.success(); onSaved(); dismiss()
                             } catch { errorMessage = error.localizedDescription; saving = false }
                         }
-                    }.bold().disabled(saving || startingVoice || recorder.isRecording || recorder.isTranscribing || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || title.count > 300 || note.count > 2000 || text.count > 12000)
+                    }.bold().disabled(saving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || title.count > 300 || note.count > 2000 || text.count > 12000)
                 }
             }
-        }.onDisappear { cancelVoice() }.interactiveDismissDisabled(saving)
-            .onChange(of: scenePhase) { _, phase in if phase == .background { cancelVoice() } }
+        }.interactiveDismissDisabled(saving)
     }
-    private func cancelVoice() { voiceTask?.cancel(); voiceTask = nil; startingVoice = false; recorder.cancel() }
 }

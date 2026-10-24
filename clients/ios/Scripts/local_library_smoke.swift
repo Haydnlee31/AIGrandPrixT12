@@ -55,6 +55,8 @@ struct LocalLibrarySmoke {
         try check(migratedItems.map(\.id) == [receipt.id] && migratedIntents == ["I like the small dial"], "known samples removed and legacy user intention survives migration")
         let legacyPin = try await migrated.metadata()[receipt.id]?.pinned
         try check(legacyPin == false, "older metadata without pin field remains readable and unpinned")
+        let legacyVoice = try await migrated.metadata()[receipt.id]?.hasVoiceNote
+        try check(legacyVoice == nil, "older notes are readable without being relabeled as voice")
         let migratedFile = try JSONSerialization.jsonObject(with: Data(contentsOf: migrationFile)) as! [String: Any]
         try check(migratedFile["version"] as? Int == 3, "migration is persisted")
         var matchingID = originalObject; matchingID["id"] = "sample-reading"
@@ -64,6 +66,54 @@ struct LocalLibrarySmoke {
         let legacyItems = try await LocalLibrary(fileURL: legacyFile).collection()
         try check(legacyItems.count == 2, "matching ID with real client and other sample IDs are preserved")
         print("PASS bounded sample migration and backward-compatible intention decoding")
+
+        let voiceFile = directory.appendingPathComponent("voice-library.json")
+        let voiceLibrary = LocalLibrary(fileURL: voiceFile)
+        let voiceSave = try await voiceLibrary.captureContent(title: "Spoken idea", text: "A desk idea",
+            note: "Warm light for my desk", hasVoiceNote: true)
+        let voiceReload = LocalLibrary(fileURL: voiceFile)
+        let voiceMetadata = try await voiceReload.metadata()[voiceSave.id]
+        let voiceItem = try await voiceReload.collection().first { $0.id == voiceSave.id }
+        try check(voiceMetadata?.hasVoiceNote == true && voiceItem?.note == "Warm light for my desk", "voice provenance and transcript survive reopening together")
+        try await voiceReload.update(voiceSave.id, title: "Spoken idea", note: "Edited by typing", text: "A desk idea")
+        try await voiceReload.setIntents(voiceSave.id, ["A typed preference"])
+        let retainedVoice = try await LocalLibrary(fileURL: voiceFile).metadata()[voiceSave.id]?.hasVoiceNote
+        try check(retainedVoice == true, "ordinary edits never erase existing voice provenance")
+
+        let typedSave = try await voiceLibrary.captureContent(title: "Typed idea", text: "A plain typed note", note: "My voice transcript")
+        let typedMetadata = try await voiceReload.metadata()[typedSave.id]
+        try check(typedMetadata?.hasVoiceNote == nil, "note wording never implies that voice was used")
+        try await voiceReload.update(typedSave.id, title: "Typed idea", note: "New dictated note", text: "A plain typed note", hasVoiceNote: true)
+        let promotedVoice = try await LocalLibrary(fileURL: voiceFile).metadata()[typedSave.id]?.hasVoiceNote
+        try check(promotedVoice == true, "explicit dictation during editing persists voice provenance")
+
+        let intentSave = try await voiceLibrary.captureContent(title: "Preference", text: "An existing typed find")
+        try await voiceReload.setIntents(intentSave.id, ["A spoken preference"], hasVoiceNote: true)
+        let intentMetadata = try await LocalLibrary(fileURL: voiceFile).metadata()[intentSave.id]
+        try check(intentMetadata?.hasVoiceNote == true && intentMetadata?.selectedIntents == ["A spoken preference"], "spoken intention and provenance persist in the same write")
+        try await voiceReload.setIntents(intentSave.id, [])
+        let clearedIntentMetadata = try await LocalLibrary(fileURL: voiceFile).metadata()[intentSave.id]
+        try check(clearedIntentMetadata?.hasVoiceNote == true && clearedIntentMetadata?.selectedIntents == [], "clearing intentions retains voice provenance")
+        let untaggedSave = try await voiceLibrary.captureContent(title: "Untouched", text: "Keep this typed")
+        let beforeInvalidVoice = try Data(contentsOf: voiceFile)
+        do {
+            try await voiceReload.update(untaggedSave.id, title: "", note: "", text: "", hasVoiceNote: true)
+            throw SmokeFailure.assertion("invalid voice edit accepted")
+        } catch LocalLibrary.LocalError.invalidContent {}
+        do {
+            try await voiceReload.setIntents(untaggedSave.id, [String(repeating: "x", count: 501)], hasVoiceNote: true)
+            throw SmokeFailure.assertion("invalid voice intention accepted")
+        } catch LocalLibrary.LocalError.invalidIntents {}
+        let afterInvalidVoice = try Data(contentsOf: voiceFile)
+        try check(beforeInvalidVoice == afterInvalidVoice, "failed voice edits cannot partially tag a typed find")
+        func audioAttachment(_ filename: String, _ type: String) -> LocalAttachment {
+            LocalAttachment(id: UUID(), filename: filename, typeIdentifier: type, relativePath: "Attachments/fixture", byteCount: 1)
+        }
+        try check(audioAttachment("recording", "public.mp3").isAudio, "audio UTI is recognized without extension")
+        try check(audioAttachment("recording", "audio/mp4").isAudio, "audio MIME is recognized without extension")
+        try check(audioAttachment("Recording.M4A", "public.data").isAudio && audioAttachment("recording.opus", "public.data").isAudio, "generic imported audio recognizes uppercase and additional audio extensions")
+        try check(!audioAttachment("movie.mp4", "public.mpeg-4").isAudio && !audioAttachment("photo.png", "public.png").isAudio && !audioAttachment("note.txt", "public.plain-text").isAudio, "video photo and plain text are not audio")
+        print("PASS voice provenance capture/edit/intention persistence, legacy decoding, atomic validation and audio format classification")
 
         let beforeInvalid = try Data(contentsOf: file)
         do {

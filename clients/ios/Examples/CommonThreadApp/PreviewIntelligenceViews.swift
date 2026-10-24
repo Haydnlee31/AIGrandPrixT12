@@ -50,7 +50,7 @@ struct LocalIntelligencePreview: View {
                         }.buttonStyle(.plain).disabled(busy)
                     }
                     Button { editor = IntentEdit(original: nil, initial: "") } label: {
-                        Label("Add your own · type or speak", systemImage: "plus.bubble")
+                        Label("Add your own", systemImage: "plus.bubble")
                             .font(.subheadline.weight(.semibold)).foregroundStyle(.purple)
                             .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 10)
                     }.buttonStyle(.plain).disabled(busy)
@@ -186,33 +186,22 @@ private struct LocalIntentEditor: View {
     let initial: String
     let save: (String) async -> Bool
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.scenePhase) private var scenePhase
     @State private var text = ""
-    @State private var recorder = VoiceNoteRecorder()
-    @State private var voiceTask: Task<Void, Never>?
-    @State private var startingVoice = false
     @State private var busy = false
     @State private var errorMessage: String?
     var body: some View {
         NavigationStack {
             Form {
                 Section("What do you like about this find?") {
-                    TextEditor(text: $text).frame(minHeight: 130).disabled(recorder.isRecording || startingVoice || recorder.isTranscribing)
+                    TextEditor(text: $text).frame(minHeight: 130)
                     Text("\(text.count)/500").font(.caption).foregroundStyle(.secondary)
-                    Button {
-                        if startingVoice { cancelVoice() }
-                        else if recorder.isRecording { recorder.stop() }
-                        else { startVoice() }
-                    } label: { Label(recorder.isRecording ? "Stop & transcribe" : startingVoice ? "Starting microphone…" : "Say it out loud", systemImage: recorder.isRecording ? "stop.circle.fill" : "mic.fill") }
-                        .disabled(recorder.isTranscribing)
-                    VoiceDictationStatus(recorder: recorder)
                 }
                 Section { Text("This detail helps shape Explore. You can edit or remove it whenever you like.").font(.footnote).foregroundStyle(.secondary) }
                 if let errorMessage { Text(errorMessage).foregroundStyle(.red).font(.footnote) }
             }
             .navigationTitle("What caught your eye?").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { cancelVoice(); dismiss() }.disabled(busy) }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(busy) }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save detail") {
                         busy = true
@@ -221,21 +210,10 @@ private struct LocalIntentEditor: View {
                             else { errorMessage = "Couldn’t save your detail. Please try again." }
                             busy = false
                         }
-                    }.bold().disabled(busy || startingVoice || recorder.isRecording || recorder.isTranscribing || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text.count > 500)
+                    }.bold().disabled(busy || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text.count > 500)
                 }
             }
             .task { text = initial }
         }.presentationDetents([.medium, .large]).interactiveDismissDisabled(busy)
-            .onDisappear { cancelVoice() }
-            .onChange(of: scenePhase) { _, phase in if phase == .background { cancelVoice() } }
     }
-    private func startVoice() {
-        startingVoice = true; errorMessage = nil
-        voiceTask = Task { @MainActor in
-            defer { startingVoice = false }
-            do { try await recorder.start { transcript in text = [text.trimmingCharacters(in: .whitespacesAndNewlines), transcript].filter { !$0.isEmpty }.joined(separator: " ") } }
-            catch is CancellationError {} catch { errorMessage = error.localizedDescription }
-        }
-    }
-    private func cancelVoice() { voiceTask?.cancel(); voiceTask = nil; startingVoice = false; recorder.cancel() }
 }

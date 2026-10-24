@@ -90,3 +90,17 @@ An empty or pending Library may not produce personalized candidates. Design expl
 Profile remains account and app settings. Add no AI-key fields, invented Dots connection, or model controls. Product screens use **Mynah Finds**. Keep operational metadata behind the UI while retaining honest catalog attribution and historical-data disclosures.
 
 The teammate's acceptance run should cover: image-only and link-plus-image capture; a recognizable watch versus an unreadable brand; multi-object images; pending and failed analysis; editing an annotation; search by a detected style/category; a cited Explore recommendation; no matching catalog records; missing price/merchant/URL; deletion withdrawing recommendations; account switching; offline outbox recovery; and native accessibility. Run on an actual device before relying on Share Extension permissions and memory limits; simulator compilation alone does not prove these interactions.
+
+
+## Native Radar and format filters
+
+`RadarScreen(libraryRevision:onChanged:)` is wired as the Radar tab. `RadarStore` saves reviewed needs locally in Application Support/MymahFinds/intent-radar.json. It has no scheduler or notification delivery; daily/weekly preferences are inactive until a backend service implements them. Current Check now uses the existing authenticated recommendations service and cited local sources. Merchant prices, same-variant delivered-price comparisons, warranties/reviews and notifications require real supporting provider data before their UI can make claims. Existing shared-backend price targets remain separate.
+
+Library filters are presentation-only. `LocalFindMetadata.hasVoiceNote` is optional for legacy compatibility. Explicit successful transcription marks new capture/edit/intent writes; typed notes and old notes are never reclassified heuristically. Audio files are recognized separately by UTI/MIME/extension.
+
+
+### Current appearance and voice boundary
+
+The native app now owns one observable `AppAppearanceState`; Profile selects it directly, and it updates persisted choice, shared-extension appearance and SwiftUI/UIKit presentation. `AppAppearance` resides beside this state, with platform mappings in `Preferences.swift`.
+
+At Aditya's request, native microphone recording and its API client were removed after physical-device failure. Keep typed notes, iOS keyboard dictation, imported audio attachments and legacy `hasVoiceNote` metadata. The independent relay dictation endpoint remains available for other clients, but the iOS UI no longer calls it. Do not advertise custom voice recording as a native feature.

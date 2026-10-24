@@ -75,3 +75,16 @@ With a configured development service, run image-only capture, unreadable brand,
 - Local disk smoke checks passed for save/reopen, duplicate note preservation, invalid input atomicity, photo/file/text bytes, edits, favorites/archive, idempotent import, removal and empty-library persistence.
 - Ten SDK tests passed. Native Swift SDK also passed real HTTP checks against a temporary migrated loopback backend with isolated fixture accounts; no live AI provider or deployed cloud database was used.
 - Share-sheet favorites/order are owned by iOS. Users pin Mynah under Share > More > Edit; code cannot force first position.
+
+
+## Latest native follow-up (25 October 2026)
+
+This section supersedes earlier descriptions of the microphone, Explore tab labels and appearance verification above.
+
+- Library has persisted All, Images, Links, Voice, Files and Text format filters, combined with search, collection/source filters and pinned-first ordering. A find can match multiple formats. Voice includes audio attachments and previously recorded dictation provenance; older typed notes are never relabeled as voice.
+- Explore's secondary segment is **Insights**. Floating question cards use horizontal paging and visible page dots. Catalog photos use bounded/coalesced downloading, decoding, cache and retry; missing source images are disclosed.
+- Radar is a fourth native tab. It derives intentions from saves, lets the user edit the brief, shows catalog matches with saved-find evidence and explicitly creates local product/brand/category/need watches. Watches can be edited, paused, removed and checked manually. There is no connected background monitor, automatic price history, notification delivery or current-offer guarantee.
+- First-opening share suggestions and return to the originating app are user-confirmed. A lifecycle gate prevents canceled/not-ready tasks from invalidating a ready request; 14 focused checks pass.
+- The custom microphone is removed at the user's request after physical-device failure. Typed notes and iPhone keyboard dictation remain available. Existing audio attachments and historical voice-note metadata are preserved. The relay dictation endpoint remains available to other clients; no native microphone UI calls it.
+- A shared appearance state replaces independent preference observers after device testing showed a persisted selection without a visible mode change. On the final installed build, Aditya confirmed that Dark and Light both switch the app immediately.
+- Recommendation/index checks pass 57 tests. The restarted relay returned 24 actual catalog matches for the seven-save snapshot with zero incorrect landline matches for smartphone saves.

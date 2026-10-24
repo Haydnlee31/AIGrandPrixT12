@@ -35,7 +35,7 @@ struct LocalRecommendation: Decodable, Identifiable {
 /// to the configured relay to retrieve real, attributed catalog records.
 struct LocalExploreScreen: View {
     enum Segment: String, CaseIterable, Identifiable {
-        case explore = "Explore", yours = "Your finds"
+        case explore = "Explore", yours = "Insights"
         var id: String { rawValue }
     }
     let query: String
@@ -224,22 +224,12 @@ struct LocalExploreScreen: View {
     }
 }
 
-private struct CatalogImage: View {
-    let url: String?
-    var body: some View {
-        AsyncImage(url: url.flatMap(URL.init(string:))) { phase in
-            if url.flatMap(URL.init(string:)) == nil { Image(systemName: "bag").font(.largeTitle).foregroundStyle(.purple) }
-            else if let image = phase.image { image.resizable().scaledToFit().padding(12) }
-            else if phase.error != nil { Image(systemName: "photo").font(.largeTitle).foregroundStyle(.secondary) }
-            else { ProgressView().tint(.purple) }
-        }.frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.white)
-    }
-}
 private struct LocalRecommendationCard: View {
     let item: LocalRecommendation
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
-            CatalogImage(url: item.imageURL).frame(height: 190).clipShape(RoundedRectangle(cornerRadius: 23))
+            CatalogProductImage(url: item.imageURL.flatMap(URL.init(string:)), height: 190, fit: true)
+                .clipShape(RoundedRectangle(cornerRadius: 23))
             Text(item.title).font(.subheadline.bold()).foregroundStyle(.primary).lineLimit(3).multilineTextAlignment(.leading)
             if let reason = item.reasons.first {
                 Label(reason.text, systemImage: "sparkles").font(.caption.weight(.medium)).foregroundStyle(.purple)
@@ -257,7 +247,8 @@ private struct LocalRecommendationDetail: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
-                CatalogImage(url: item.imageURL).frame(height: 330).clipShape(RoundedRectangle(cornerRadius: 28))
+                CatalogProductImage(url: item.imageURL.flatMap(URL.init(string:)), height: 330, fit: true)
+                    .clipShape(RoundedRectangle(cornerRadius: 28))
                 Text(item.title).font(.title.bold())
                 IntelligenceCard(title: "Why this fits", symbol: "sparkles") {
                     ForEach(Array(item.reasons.prefix(2).enumerated()), id: \.offset) { index, reason in

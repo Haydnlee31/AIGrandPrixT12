@@ -8,7 +8,7 @@ struct ProfileSettingsSections: View {
     let localOnly: Bool
     let favoriteCount: Int
     let archivedCount: Int
-    @AppStorage("finds.appearance") private var appearance = AppAppearance.system.rawValue
+    @Environment(AppAppearanceState.self) private var appearance
     @AppStorage("finds.haptics") private var haptics = true
     @AppStorage("finds.library.grid") private var showsGrid = true
     @AppStorage("finds.library.sort") private var sort = LibrarySort.newest.rawValue
@@ -21,10 +21,14 @@ struct ProfileSettingsSections: View {
             }
         }
         Section("Preferences") {
-            Picker(selection: $appearance) {
-                ForEach(AppAppearance.allCases) { Text($0.title).tag($0.rawValue) }
-            } label: { Label { Text("Appearance") } icon: { Image(systemName: "circle.lefthalf.filled").foregroundStyle(.indigo) } }
-            .accessibilityIdentifier("appearancePicker")
+            VStack(alignment: .leading, spacing: 12) {
+                Label { Text("Appearance") } icon: { Image(systemName: "circle.lefthalf.filled").foregroundStyle(.indigo) }
+                Picker("Appearance", selection: Binding(get: { appearance.selection }, set: { value in
+                    appearance.select(value); FindsHaptics.selection()
+                })) {
+                    ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
+                }.pickerStyle(.segmented).accessibilityIdentifier("appearancePicker")
+            }.padding(.vertical, 4)
             Toggle(isOn: $haptics) { Label { Text("Haptics") } icon: { Image(systemName: "hand.tap.fill").foregroundStyle(.orange) } }
                 .accessibilityIdentifier("hapticsToggle")
             Picker(selection: $showsGrid) {
@@ -53,7 +57,6 @@ struct ProfileSettingsSections: View {
         Section {
             LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
         }
-        .onChange(of: appearance) { _, _ in FindsHaptics.selection() }
         .onChange(of: haptics) { _, enabled in if enabled { FindsHaptics.selection() } }
     }
 }
@@ -66,7 +69,7 @@ private struct ShareGuideView: View {
                 guideRow(1, "Open something you love", "A page in Safari, an Instagram post, or a photo in your library.", symbol: "safari")
                 guideRow(2, "Open the share sheet", "In Safari or Photos, tap Share. In Instagram, tap the paper plane and then Share to…", symbol: "square.and.arrow.up")
                 guideRow(3, "Put Mynah Finds first", "Swipe to the end of the app row and tap More, then Edit. Tap the plus beside Mynah Finds to add it to Favorites. Drag its reorder handle to the top, then tap Done.", symbol: "bookmark")
-                guideRow(4, "Keep the why, then carry on", "Add a note or use your iPhone keyboard’s dictation button. Save returns you to the app you were using. In Mynah, the voice-note button transcribes with OpenAI.", symbol: "text.bubble")
+                guideRow(4, "Keep the why, then carry on", "Add a note or use your iPhone keyboard’s dictation button. Review the words, then save and return to the app you were using.", symbol: "text.bubble")
             }
             Section {
                 Text("Apps choose what they share. An Instagram post may share a link rather than its photo. You can also add a screenshot from Photos inside Mynah Finds.")
@@ -95,7 +98,7 @@ private struct FindsPrivacyView: View {
                 Text("Local finds, photos, files and notes are stored by the app on this device. A separate shared library does not automatically import them. When shopping intelligence is connected, the selected photo and product context are sent to OpenAI to create suggestions and analysis. Disconnect intelligence in Profile to stop this processing.")
             }
             Section("Photos & voice") {
-                Text("Choose individual photos or files to share with the app. Voice notes in Mynah use the microphone and send up to one minute of audio to OpenAI through your configured AI connection. The relay doesn’t save audio or transcripts. Temporary recordings are removed after capture; retry audio stays in memory until success or dismissal. Review the editable text before saving. Share sheets use the iPhone keyboard’s own dictation.")
+                Text("Choose individual photos or files to share with the app. To speak a note, use your iPhone keyboard’s dictation button and review the text before saving. Dictation is managed by iOS and follows your iPhone’s keyboard and privacy settings.")
                 Link(destination: URL(string: UIApplication.openSettingsURLString)!) {
                     Label("Open iPhone permissions", systemImage: "gearshape")
                 }
