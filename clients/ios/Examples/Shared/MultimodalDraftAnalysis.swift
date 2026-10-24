@@ -25,8 +25,10 @@ enum MultimodalDraftAnalysis {
         }
     }
     static func analyze(origin: URL, token: String, title: String, text: String,
-                        note: String, url: String?, images: [Data], audio: Audio? = nil) async throws -> CaptureIntelligenceResult {
-        let client = try CommonThreadClient(baseURL: origin) { token }
+                        note: String, url: String?, images: [Data], audio: Audio? = nil, reviewedTranscript: String? = nil, client suppliedClient: CommonThreadClient? = nil) async throws -> CaptureIntelligenceResult {
+        let client: CommonThreadClient
+        if let suppliedClient { client = suppliedClient }
+        else { client = try CommonThreadClient(baseURL: origin) { token } }
         guard try await client.multimodalCapabilities().enabled else { throw Failure.disabled }
         var capture = try await client.createMultimodalCapture(
             .init(title: title, text: text, note: note, url: url,
@@ -50,13 +52,20 @@ enum MultimodalDraftAnalysis {
             capture = try await client.uploadMultimodalAsset(to: capture.id,
                 request: .init(revision: capture.revision, mediaType: audio.mediaType, data: audio.data), key: MutationKey())
         }
+        if let reviewedTranscript, let asset = capture.assets.first(where: { $0.kind == "audio" }) {
+            capture = try await client.updateMultimodalTranscript(asset.id, in: capture.id,
+                edit: .init(revision: capture.revision, transcript: reviewedTranscript), key: MutationKey())
+        }
         capture = try await client.analyzeMultimodalCapture(capture.id, revision: capture.revision, key: MutationKey())
         let ready = try await client.waitForMultimodalCapture(capture.id, expectedRevision: capture.revision, timeout: 110)
         try Task.checkCancellation()
         guard let preview = ready.result?.preview else { throw MultimodalClientError.invalidResponse }
-        return CaptureIntelligenceResult(productName: preview.productName, categoryPath: preview.categoryPath,
+        var result = CaptureIntelligenceResult(productName: preview.productName, categoryPath: preview.categoryPath,
             brand: preview.brand, style: preview.style, summary: preview.summary, uncertainties: preview.uncertainties,
             prompts: preview.prompts.map { .init(id: $0.id, text: $0.text, question: $0.question) },
             evidence: preview.evidence, analyzedAt: preview.analyzedAt ?? Date().timeIntervalSince1970, schemaVersion: 2)
+        result.productAnalysis = ready.result?.analysis
+        result.transcript = ready.assets.first(where: { $0.kind == "audio" })?.transcript
+        return result
     }
 }

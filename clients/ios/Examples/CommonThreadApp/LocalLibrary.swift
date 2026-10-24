@@ -11,6 +11,7 @@ struct LocalAttachment: Codable, Identifiable, Sendable {
     let byteCount: Int
     var isImage: Bool { ["public.jpeg", "public.png", "org.webmproject.webp", "public.heic", "public.image"].contains(typeIdentifier) }
     var isAudio: Bool {
+        if ["public.audio", "com.apple.m4a-audio", "com.microsoft.waveform-audio", "public.wav", "public.mp3", "public.aac-audio"].contains(typeIdentifier) { return true }
         if let type = UTType(typeIdentifier) ?? UTType(mimeType: typeIdentifier), type.conforms(to: .audio) { return true }
         let ext = (filename as NSString).pathExtension.lowercased()
         if let type = UTType(filenameExtension: ext), type.conforms(to: .audio) { return true }
@@ -28,6 +29,7 @@ struct LocalFindMetadata: Codable, Sendable {
     var analysis: CaptureIntelligenceResult? = nil
     var userEditedTitle: Bool? = nil
     var hasVoiceNote: Bool? = nil
+    var reviewedTranscript: String? = nil
     // Read-only provenance for an exact-duplicate group. Original rows stay on disk.
     var sourceItems: [SavedItem]? = nil
     var sourceAnalyses: [CaptureIntelligenceResult]? = nil
@@ -37,7 +39,7 @@ struct LocalFindMetadata: Codable, Sendable {
         return legacy.isEmpty ? [] : [legacy]
     }
 }
-struct LocalCaptureAttachment: Sendable {
+struct LocalCaptureAttachment: Codable, Sendable {
     let filename: String
     let typeIdentifier: String
     let data: Data
@@ -53,6 +55,7 @@ private struct LocalFindGroupEdits: Codable {
     var isPinned: Bool? = nil
     var isArchived: Bool? = nil
     var hasVoiceNote: Bool? = nil
+    var reviewedTranscript: String? = nil
     var revision = 0
 }
 private struct LocalLibraryDocument: Codable {
@@ -168,6 +171,7 @@ actor LocalLibrary {
                 metadata.isPinned = edits?.isPinned ?? sourceMetadata.contains(where: \.pinned)
                 metadata.isArchived = edits?.isArchived ?? sourceMetadata.allSatisfy(\.isArchived)
                 metadata.hasVoiceNote = edits?.hasVoiceNote == true || sourceMetadata.contains(where: { $0.hasVoiceNote == true }) ? true : nil
+                metadata.reviewedTranscript = edits?.reviewedTranscript ?? sourceMetadata.compactMap(\.reviewedTranscript).last
                 metadata.userEditedTitle = edits?.title != nil || customSource != nil
                 metadata.analysis = edits?.analysisInvalidated == true ? nil : analyses.first
                 var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(first)) as! [String: Any]
@@ -361,6 +365,26 @@ actor LocalLibrary {
         document.metadata[id, default: LocalFindMetadata()].analysis = analysis
         try persist(document)
     }
+    /// Corrections are user-owned context, separate from AI output and raw audio.
+    func setReviewedTranscript(_ id: String, _ transcript: String) throws {
+        guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              transcript.count <= 8000 else { throw LocalError.invalidContent }
+        var document = try document()
+        let group = try group(id, in: document)
+        guard group.metadata.attachments.contains(where: \.isAudio) else { throw LocalError.invalidContent }
+        if group.members.count > 1 || document.groupEdits?[group.id] != nil {
+            saveGroupEdit(group.id, in: &document) { edit in
+                edit.reviewedTranscript = transcript; edit.analysis = nil; edit.analysisInvalidated = true
+            }
+        } else {
+            document.metadata[id, default: LocalFindMetadata()].reviewedTranscript = transcript
+            document.metadata[id, default: LocalFindMetadata()].analysis = nil
+            guard let index = document.items.firstIndex(where: { $0.id == id }) else { throw LocalError.missingItem }
+            document.items[index] = try Self.revised(document.items[index])
+        }
+        try persist(document)
+    }
+
     func setIntent(_ id: String, _ text: String?) throws {
         try setIntents(id, text.map { [$0] } ?? [])
     }

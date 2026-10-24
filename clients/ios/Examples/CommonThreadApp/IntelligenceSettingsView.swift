@@ -63,7 +63,7 @@ struct IntelligenceSettingsView: View {
             // A new origin must be explicitly paired with its token; never forward an old credential elsewhere.
             guard !supplied.isEmpty || old?.baseURL == url else { throw CaptureIntelligence.Failure.configuration }
             try CaptureIntelligence.configure(.init(baseURL: url, accessToken: supplied.isEmpty ? old?.accessToken ?? "" : supplied,
-                multimodalURL: old?.multimodalURL, multimodalToken: old?.multimodalToken))
+                multimodalURL: old?.baseURL == url ? old?.multimodalURL : nil, multimodalToken: old?.baseURL == url ? old?.multimodalToken : nil))
             token = ""; configured = true; status = "Connection saved securely."
         } catch { status = error.localizedDescription }
     }

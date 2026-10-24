@@ -38,6 +38,24 @@ class Capture(Contract):
     note: str = Field(default="", max_length=2000)
     image_data_url: str | None = Field(default=None, max_length=MAX_IMAGE_DATA_URL_LENGTH,
         description="Base64 JPEG, PNG or WebP, up to 4 MiB decoded. Server strips metadata and resizes. Never a remote image URL.")
+    image_data: str | None = Field(default=None, max_length=MAX_IMAGE_DATA_URL_LENGTH,
+        description="Legacy Chrome alias for image_data_url. Both names use the same bounded normalization.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def legacy_image_alias(cls, value):
+        if isinstance(value, dict):
+            value = dict(value)
+            if value.get("url") == "":
+                value["url"] = None
+            legacy = value.get("image_data")
+            if legacy is not None:
+                if value.get("image_data_url") is not None and value["image_data_url"] != legacy:
+                    raise ValueError("Provide one image, using either image_data_url or image_data")
+                value["image_data_url"] = legacy
+                # Persist and fingerprint only the canonical, normalized bytes.
+                value.pop("image_data", None)
+        return value
 
     @field_validator("url")
     @classmethod

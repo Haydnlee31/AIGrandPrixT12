@@ -41,6 +41,8 @@
 	<string>Take a photo to save something that caught your eye.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your chosen server to sync your saved content.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Record a voice note to describe what you like about a saved find.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

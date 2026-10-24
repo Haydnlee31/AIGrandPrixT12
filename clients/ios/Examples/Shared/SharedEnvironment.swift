@@ -21,6 +21,8 @@ enum SetupError: Error, LocalizedError {
 struct SharedEnvironment: Codable {
     let baseURL: URL
     let accountId: String
+    var loginSubject: String? = nil
+    var email: String? = nil
     static var group: String { Bundle.main.object(forInfoDictionaryKey: "CommonThreadAppGroup") as? String ?? "" }
     static var keychainGroup: String { Bundle.main.object(forInfoDictionaryKey: "CommonThreadKeychainGroup") as? String ?? "" }
     /// An absent App Group is an explicit local-build choice. A configured but
@@ -92,9 +94,40 @@ struct SharedEnvironment: Codable {
         // Pending drafts remain account-scoped for recovery. A production account-deletion flow must erase them.
     }
     func client() throws -> CommonThreadClient {
-        try CommonThreadClient(baseURL: baseURL) { try self.token() }
+        try CommonThreadClient(baseURL: baseURL) { try await self.accessToken() }
+    }
+    func accessToken() async throws -> String {
+        if loginSubject == nil { return try token() }
+        return try await SharedLoginTokens.shared.token(for: self)
     }
     func verify(_ client: CommonThreadClient) async throws {
         guard try await client.account().userId == accountId else { throw SetupError.accountChanged }
+    }
+}
+
+/// Coalesce refreshes across screens. Re-read Keychain before using the cache,
+/// and never restore a credential after another task signed the account out.
+private actor SharedLoginTokens {
+    static let shared = SharedLoginTokens()
+    private var cached: [String:(credential: String, token: String, expires: Date)] = [:]
+    private var flights: [String:Task<String,Error>] = [:]
+    func token(for environment: SharedEnvironment) async throws -> String {
+        let key = environment.baseURL.absoluteString + "|" + environment.accountId
+        let stored = try environment.token()
+        if let value = cached[key], value.credential == stored, value.expires.timeIntervalSinceNow > 60 { return value.token }
+        if let task = flights[key] { return try await task.value }
+        let task = Task { () throws -> String in
+            let credential = try JSONDecoder().decode(LoginCredential.self, from: Data(stored.utf8))
+            guard credential.subject == environment.loginSubject else { throw SetupError.accountChanged }
+            let result = try await NeonSessionClient(baseURL: environment.baseURL).token(for: credential)
+            guard try environment.token() == stored else { throw SetupError.accountChanged }
+            let updated = String(decoding: try JSONEncoder().encode(result.credential), as: UTF8.self)
+            try environment.store(token: updated)
+            self.cached[key] = (updated, result.token, result.expires)
+            return result.token
+        }
+        flights[key] = task
+        defer { flights[key] = nil }
+        return try await task.value
     }
 }

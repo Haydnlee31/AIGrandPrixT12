@@ -569,6 +569,7 @@ def test_explicit_publish_preserves_analysis_search_citations_and_annotation_onl
     assert receipt["status"] == "ready" and receipt["duplicate"] is False
     saved = client.get(f"/v1/saves/{save_id}").json()
     assert saved["analysis"] == capture["result"]["analysis"]
+    assert saved["features"]["multimodal_preview"] == capture["result"]["preview"]
     assert saved["has_image"] and saved["analysis_status"] == "ready"
     assert client.get("/v1/library/search", params={"q": "rectangular digital"}).json()["items"][0]["id"] == save_id
     assert client.get("/v1/library/search", params={"q": "leather Dad"}).json()["items"][0]["id"] == save_id

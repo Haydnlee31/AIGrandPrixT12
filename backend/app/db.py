@@ -42,6 +42,14 @@ class SavedItem(Base):
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class SavedMedia(Base):
+    """Retained for upgrades from the earlier Chrome branch; new saves use normalized media."""
+    __tablename__ = "saved_media"
+    item_id: Mapped[str] = mapped_column(ForeignKey("saved_items.id"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String, index=True)
+    image_data: Mapped[str] = mapped_column(String)
+
+
 class MultimodalCapture(Base):
     __tablename__ = "multimodal_captures"
     id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
@@ -259,8 +267,16 @@ class CatalogOffer(Base):
     expires_at: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)
 
 
-def make_database(url=None):
+def database_url(url=None):
     url = url or os.getenv("DATABASE_URL", "sqlite:///./prototype.db")
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
+def make_database(url=None):
+    url = database_url(url)
     engine = create_engine(url, connect_args={"check_same_thread": False, "timeout": 20} if url.startswith("sqlite") else {}, pool_pre_ping=True)
     if url.startswith("sqlite"):
         @event.listens_for(engine, "connect")

@@ -1,0 +1,105 @@
+<div id="mynah-purchase-flow" class="viz-dotted-background">
+  <div class="mf-window">
+    <header class="mf-header"><span class="mf-brand">mynah finds ✳</span><span class="mf-demo">Interactive concept · fictional products & prices</span></header>
+    <nav class="mf-steps" aria-label="Shopping journey"></nav>
+    <main class="mf-content"></main>
+    <footer class="mf-footer"><span class="mf-status" aria-live="polite"></span><button type="button" class="mf-back cursor-interaction">Back</button></footer>
+  </div>
+</div>
+<style>
+  #mynah-purchase-flow { --mf-bg:light-dark(#faf8f2,#24231f);--mf-panel:light-dark(#ffffff,#302e29);--mf-text:light-dark(#302f27,#f3efe6);--mf-muted:light-dark(#69655c,#c1bbb0);--mf-line:light-dark(#ddd8ca,#545047);--mf-purple:light-dark(#69519a,#b6a0e1);--mf-on:light-dark(#ffffff,#262031);--mf-soft:light-dark(#eee8f6,#3d334c);--mf-field:light-dark(#eeeade,#3c392f);--mf-green:light-dark(#4f6446,#a4c196);font:15px/1.45 system-ui,sans-serif;color:var(--mf-text);padding:12px;border-radius:18px;}
+  #mynah-purchase-flow *{box-sizing:border-box;}
+  #mynah-purchase-flow .mf-window{max-width:700px;margin:auto;background:var(--mf-bg);border:1px solid var(--mf-line);border-radius:16px;overflow:hidden;}
+  #mynah-purchase-flow .mf-header{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:20px 24px;flex-wrap:wrap;padding-right:90px;border-bottom:1px solid var(--mf-line);}
+  #mynah-purchase-flow .mf-brand{font:600 21px/1.2 Georgia,serif;letter-spacing:-.7px;}
+  #mynah-purchase-flow .mf-demo{font-size:11px;color:var(--mf-muted);max-width:180px;}
+  #mynah-purchase-flow .mf-steps{display:flex;gap:7px;padding:14px 24px 0;flex-wrap:wrap;}
+  #mynah-purchase-flow .mf-step{font-size:12px;color:var(--mf-muted);padding:4px 8px;border-radius:5px;}
+  #mynah-purchase-flow .mf-step[aria-current="step"]{background:var(--mf-soft);color:var(--mf-text);font-weight:600;}
+  #mynah-purchase-flow .mf-content{padding:22px 24px 18px;}
+  #mynah-purchase-flow h2{font:500 27px/1.2 Georgia,serif;margin:0 0 8px;letter-spacing:-.5px;}
+  #mynah-purchase-flow p{margin:6px 0 14px;}
+  #mynah-purchase-flow .mf-muted{color:var(--mf-muted);font-size:13px;}
+  #mynah-purchase-flow button,#mynah-purchase-flow select{font:inherit;min-height:42px;border:1px solid var(--mf-line);background:var(--mf-panel);color:var(--mf-text);border-radius:9px;padding:9px 13px;}
+  #mynah-purchase-flow button:disabled{opacity:.5;}
+  #mynah-purchase-flow button[aria-pressed="true"],#mynah-purchase-flow .mf-primary{background:var(--mf-purple);color:var(--mf-on);border-color:transparent;}
+  #mynah-purchase-flow .mf-primary{display:block;width:100%;margin-top:18px;font-weight:600;}
+  #mynah-purchase-flow .mf-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  #mynah-purchase-flow .mf-reel{position:relative;background:var(--mf-field);border-radius:12px;padding:20px;max-width:300px;margin:18px auto;text-align:center;}
+  #mynah-purchase-flow .mf-reel small{display:block;color:var(--mf-muted);margin-bottom:8px;font-size:12px;}
+  #mynah-purchase-flow .mf-tag{font-size:12px;color:var(--mf-muted);display:block;margin-bottom:10px;}
+  #mynah-purchase-flow .mf-visual{display:grid;place-items:center;min-height:160px;background:var(--mf-field);border-radius:9px;margin-bottom:12px;}
+  #mynah-purchase-flow .mf-jacket{position:relative;width:148px;height:132px;clip-path:polygon(26% 0,40% 0,50% 10%,60% 0,74% 0,100% 30%,89% 73%,75% 60%,75% 100%,25% 100%,25% 60%,11% 73%,0 30%);background:light-dark(#68754d,#93a276);border:0;}
+  #mynah-purchase-flow .mf-jacket.long{height:155px;width:138px;}
+  #mynah-purchase-flow .mf-jacket.stone{background:light-dark(#aa9c80,#c9bd9f);}
+  #mynah-purchase-flow .mf-jacket:before{content:"";position:absolute;left:49%;top:12%;height:88%;width:2px;background:light-dark(#35412c,#596446);}
+  #mynah-purchase-flow .mf-jacket:after{content:"";position:absolute;top:49%;left:28%;width:22px;height:23px;border:1px solid light-dark(#35412c,#596446);box-shadow:43px 0 0 -1px light-dark(#68754d,#93a276);}
+  #mynah-purchase-flow .mf-pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0;}
+  #mynah-purchase-flow .mf-product{min-width:0;}
+  #mynah-purchase-flow .mf-product strong{display:block;font-weight:600;}
+  #mynah-purchase-flow .mf-product p{font-size:13px;}
+  #mynah-purchase-flow .mf-price{font-variant-numeric:tabular-nums;font-size:19px;margin:5px 0;}
+  #mynah-purchase-flow .mf-controls{border-top:1px solid var(--mf-line);padding-top:14px;}
+  #mynah-purchase-flow .mf-label{display:block;font-size:13px;font-weight:600;margin:12px 0 8px;}
+  #mynah-purchase-flow .mf-tradeoff{border-left:3px solid var(--mf-purple);padding:8px 12px;margin:14px 0 0;background:var(--mf-soft);font-size:13px;}
+  #mynah-purchase-flow details{font-size:13px;margin-top:10px;}
+  #mynah-purchase-flow summary{color:var(--mf-purple);padding:7px 0;}
+  #mynah-purchase-flow .mf-evidence{margin:4px 0 12px;padding-left:18px;color:var(--mf-muted);}
+  #mynah-purchase-flow .mf-evidence li{margin:5px 0;}
+  #mynah-purchase-flow .mf-facts{display:grid;grid-template-columns:1fr 1fr;gap:0;margin:14px 0;}
+  #mynah-purchase-flow .mf-facts dt,#mynah-purchase-flow .mf-facts dd{margin:0;padding:9px 0;border-bottom:1px solid var(--mf-line);font-size:13px;}
+  #mynah-purchase-flow .mf-facts dd{text-align:right;}
+  #mynah-purchase-flow .mf-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 24px;border-top:1px solid var(--mf-line);}
+  #mynah-purchase-flow .mf-status{font-size:12px;color:var(--mf-muted);}
+  #mynah-purchase-flow .mf-back{min-height:36px;font-size:12px;}
+  #mynah-purchase-flow .mf-empty{display:flex;align-items:center;justify-content:center;min-height:160px;padding:14px;background:var(--mf-soft);border-radius:9px;margin-bottom:12px;font-size:14px;}
+  @media(max-width:420px){#mynah-purchase-flow{padding:4px;}#mynah-purchase-flow .mf-header{padding:16px;padding-right:70px;}#mynah-purchase-flow .mf-content{padding:20px 16px;}#mynah-purchase-flow .mf-steps{padding:12px 16px 0;}#mynah-purchase-flow .mf-pair{gap:10px;}#mynah-purchase-flow .mf-jacket{width:105px;height:110px;}#mynah-purchase-flow .mf-jacket.long{width:98px;height:130px;}#mynah-purchase-flow .mf-visual{min-height:145px;}#mynah-purchase-flow .mf-footer{padding:12px 16px;}#mynah-purchase-flow h2{font-size:24px;}}
+</style>
+<script>
+(() => {
+  const root = document.getElementById('mynah-purchase-flow');
+  const content = root.querySelector('.mf-content');
+  const nav = root.querySelector('.mf-steps');
+  const status = root.querySelector('.mf-status');
+  const back = root.querySelector('.mf-back');
+  const defaults = {stage:0,budget:100,shape:true,colour:false,easy:false,size:''};
+  const clean = raw => ({stage:Number.isInteger(raw?.stage)&&raw.stage>=0&&raw.stage<=5?raw.stage:0,budget:[60,100,160].includes(raw?.budget)?raw.budget:100,shape:typeof raw?.shape==='boolean'?raw.shape:true,colour:raw?.colour===true,easy:raw?.easy===true,size:['S','M','L'].includes(raw?.size)?raw.size:''});
+  let state = clean(window.openai?.widgetState?.privateContent);
+  const items = [
+    {id:'tailored',name:'Structured cropped jacket',price:149,cropped:true,olive:true,wash:false,fabric:'Wool blend',care:'Dry clean',note:'Sharper structure; needs dry cleaning.'},
+    {id:'cotton',name:'Cropped cotton jacket',price:79,cropped:true,olive:true,wash:true,fabric:'Cotton twill',care:'Machine wash cold',note:'Keeps the cropped shape and olive colour; softer structure.'},
+    {id:'stone',name:'Stone cropped overshirt',price:59,cropped:true,olive:false,wash:true,fabric:'Cotton',care:'Machine wash cold',note:'Keeps the cropped shape; the colour changes to stone.'},
+    {id:'relaxed',name:'Olive relaxed overshirt',price:49,cropped:false,olive:true,wash:true,fabric:'Cotton blend',care:'Machine wash cold',note:'Keeps the olive colour; the hem is longer and the fit looser.'}
+  ];
+  function choose(){
+    const options=items.filter(p=>p.price<=state.budget&&(!state.shape||p.cropped)&&(!state.colour||p.olive)&&(!state.easy||p.wash));
+    options.sort((a,b)=>score(b)-score(a));
+    return options[0]||null;
+  }
+  function score(p){return (p.cropped?10:0)+(p.olive?8:0)+(p.id==='tailored'?4:0)+(state.easy&&p.wash?5:0);}
+  function save(){if(window.openai?.setWidgetState)window.openai.setWidgetState({modelContent:{concept:'Mynah Finds: edit one purchase from a saved reel',budget:state.budget,keepCroppedShape:state.shape,keepOliveColour:state.colour,machineWash:state.easy,selectedDemoProduct:choose()?.name||null,stage:state.stage},privateContent:state}).catch(()=>{});}
+  function garment(p){return `<div class="mf-visual" role="img" aria-label="Schematic ${p?.olive===false?'stone':'olive'} ${p?.cropped===false?'long':'cropped'} jacket"><div class="mf-jacket ${p?.olive===false?'stone':''} ${p?.cropped===false?'long':''}"></div></div>`;}
+  function button(label,action,extra=''){return `<button type="button" class="cursor-interaction ${extra}" data-action="${action}">${label}</button>`;}
+  function evidence(p){return `<details><summary class="cursor-interaction">What supports this match?</summary><ul class="mf-evidence"><li>Reel frame: olive colour and cropped outline are visual observations. The original brand is unknown.</li><li>Demo merchant listing: ${p.fabric}; ${p.care.toLowerCase()}; S$${p.price}.</li><li>Similar style only. We cannot establish that this is the creator’s jacket.</li></ul></details>`;}
+  function render(){
+    const titles=['Save','Return','Make it yours','Check','Purchase'];
+    nav.innerHTML=titles.map((t,i)=>`<span class="mf-step" ${Math.min(state.stage,4)===i?'aria-current="step"':''}>${i+1} ${t}</span>`).join('');
+    const p=choose();
+    back.hidden=state.stage===0;
+    status.textContent=['No typing needed.','Original link and frame retained.','Changes apply to this purchase only.','Product facts shown here are demo data.','Simulated merchant checkout.','Demo complete. No order was placed.'][state.stage];
+    if(state.stage===0){content.innerHTML=`<h2>That jacket caught your eye.</h2><p class="mf-muted">You are watching an outfit reel.</p><div class="mf-reel"><small>Illustrative reel · 0:08</small>${garment({olive:true,cropped:true})}<strong>Olive jacket, everyday outfit</strong></div>${button('Save to Mynah Finds','next','mf-primary')}`;}
+    else if(state.stage===1){content.innerHTML=`<h2>Saved. Keep scrolling.</h2><p class="mf-muted">No form to fill in. Your reel is waiting when you want to act on it.</p><div class="mf-reel"><small>Your saved reel</small>${garment({olive:true,cropped:true})}<strong>Outfit inspiration</strong></div>${button('Later: open this save in Mynah','next','mf-primary')}`;}
+    else if(state.stage===2){
+      content.innerHTML=`<h2>Make this jacket work for you.</h2><p class="mf-muted">One purchase you can keep changing.</p><div class="mf-pair"><div class="mf-product"><span class="mf-tag">FROM YOUR REEL</span>${garment({olive:true,cropped:true})}<strong>The look you saved</strong><p>Original item unidentified.</p></div><div class="mf-product"><span class="mf-tag">YOUR CURRENT VERSION</span>${p?`${garment(p)}<strong>${p.name}</strong><div class="mf-price">S$${p.price}</div><span class="mf-tag">Similar style · demo item</span>`:'<div class="mf-empty">No demo item meets all your choices.</div><strong>Choose what can give.</strong>'}</div></div><div class="mf-controls"><span class="mf-label">Keep these details</span><div class="mf-row"><button type="button" class="cursor-interaction" data-action="shape" aria-pressed="${state.shape}">Cropped shape</button><button type="button" class="cursor-interaction" data-action="colour" aria-pressed="${state.colour}">Olive colour</button></div><span class="mf-label">Item budget</span><div class="mf-row">${[60,100,160].map(n=>`<button type="button" class="cursor-interaction" data-action="budget" data-value="${n}" aria-pressed="${state.budget===n}">Up to S$${n}</button>`).join('')}</div><span class="mf-label">Care</span><button type="button" class="cursor-interaction" data-action="easy" aria-pressed="${state.easy}">Machine washable only</button></div><div class="mf-tradeoff" aria-live="polite">${p?p.note:'Cropped + olive is unavailable under S$60 in this demo. Unlock a detail or increase your budget.'}</div>${p?evidence(p):''}<button type="button" class="mf-primary cursor-interaction" data-action="next" ${p?'':'disabled'}>Check this version</button>`;
+    }
+    else if(state.stage===3&&p){content.innerHTML=`<h2>Does this work in real life?</h2><div class="mf-pair"><div>${garment(p)}</div><div><span class="mf-tag">YOUR CHOSEN VERSION</span><strong>${p.name}</strong><div class="mf-price">S$${p.price}</div><p class="mf-muted">${p.note}</p></div></div><dl class="mf-facts"><dt>Material</dt><dd>${p.fabric}</dd><dt>Care</dt><dd>${p.care}</dd><dt>Delivery fee</dt><dd>S$4</dd><dt>Delivery estimate</dt><dd>3–5 days</dd><dt>Returns</dt><dd>14 days · unworn</dd></dl><label class="mf-label" for="mf-jacket-size">Choose your size</label><select id="mf-jacket-size"><option value="">Select size</option>${['S','M','L'].map(s=>`<option ${state.size===s?'selected':''}>${s}</option>`).join('')}</select><details><summary class="cursor-interaction">Demo merchant size chart</summary><p class="mf-muted">Garment chest circumference: S 100 cm · M 106 cm · L 112 cm. Compare with a jacket you own. A photo cannot guarantee fit.</p></details>${evidence(p)}<button type="button" class="mf-primary cursor-interaction" data-action="next" ${state.size?'':'disabled'}>Continue to merchant · S$${p.price+4} total</button>`;}
+    else if(state.stage===4&&p){content.innerHTML=`<h2>Ready to buy.</h2><span class="mf-tag">SIMULATED MERCHANT CHECKOUT</span><div class="mf-pair"><div>${garment(p)}</div><div><strong>${p.name}</strong><p>Size ${state.size}</p><p class="mf-muted">Similar style to your saved reel.</p></div></div><dl class="mf-facts"><dt>Item</dt><dd>S$${p.price}</dd><dt>Delivery</dt><dd>S$4</dd><dt>Total</dt><dd>S$${p.price+4}</dd></dl><p class="mf-muted">In the real app, the merchant confirms price, availability, delivery and payment before you place the order.</p>${button('Simulate placing order','next','mf-primary')}`;}
+    else if(state.stage===5){content.innerHTML=`<h2>From saved reel to chosen jacket.</h2><p>Demo purchase complete.</p><div class="mf-reel">${garment(p)}<strong>${p?.name||'Your jacket'}</strong><p>Size ${state.size} · S$${(p?.price||0)+4} including delivery</p></div><p class="mf-muted">No real purchase was made. No browsing history was accessed.</p>`;}
+  }
+  root.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b||b.disabled)return;const a=b.dataset.action;if(a==='next')state.stage=Math.min(5,state.stage+1);else if(a==='budget')state.budget=Number(b.dataset.value);else if(['shape','colour','easy'].includes(a))state[a]=!state[a];render();save();});
+  back.addEventListener('click',()=>{state.stage=Math.max(0,state.stage-1);render();save();});
+  root.addEventListener('change',e=>{if(e.target.id==='mf-jacket-size'){state.size=e.target.value;render();save();}});
+  window.addEventListener('openai:set_globals',e=>{const incoming=e.detail?.globals?.widgetState;if(incoming){state=clean(incoming.privateContent);render();}});
+  render();
+})();
+</script>

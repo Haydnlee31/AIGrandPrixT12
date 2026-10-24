@@ -1,0 +1,31 @@
+name: Combined app validation
+on:
+  push:
+    branches: [codex/combined-multimodal-app]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: combined-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build app and Share Extension
+        run: sh clients/ios/Scripts/build-simulator.sh
+      - name: Swift SDK tests
+        run: swift test --package-path clients/ios
+      - name: Launch installed simulator app
+        run: python3 scripts/smoke_simulator.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-simulator-validation
+          path: dist/simulator-validation
+          if-no-files-found: ignore

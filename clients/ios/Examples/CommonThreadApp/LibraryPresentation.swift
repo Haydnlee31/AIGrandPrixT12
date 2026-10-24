@@ -111,6 +111,7 @@ struct SavedContentView: View {
     var onChanged: () -> Void = {}
     @State private var metadata = LocalFindMetadata()
     @State private var showingEditor = false
+    @State private var showingTranscript = false
     @State private var showingAttachments = false
     @State private var websiteHasImage = false
     @State private var questionFocusToken: UUID?
@@ -176,6 +177,15 @@ struct SavedContentView: View {
                     questionFocusToken: questionFocusToken, onChanged: intelligenceChanged)
                     // Stable identity keeps active editors alive while metadata refreshes.
                     .id(displayed.id)
+                if localOnly, metadata.attachments.contains(where: \.isAudio) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label("Voice note", systemImage: "waveform").font(.headline)
+                        if let transcript = metadata.reviewedTranscript ?? metadata.analysis?.transcript {
+                            Text(transcript).textSelection(.enabled)
+                            Button("Review transcript") { showingTranscript = true }.font(.subheadline.bold())
+                        } else { Text("Your recording is saved. Its transcript appears after analysis.").font(.subheadline).foregroundStyle(.secondary) }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
                 if !displayed.note.isEmpty { contentSection((metadata.sourceItems?.count ?? 1) > 1 ? "Your notes" : "Your note", text: displayed.note, symbol: "quote.bubble.fill") }
                 if let productURL = PriceMoney.exactURL(displayed.originalUrl) {
                     LivePricePanel(url: productURL, title: displayed.title)
@@ -247,6 +257,14 @@ struct SavedContentView: View {
                 refinement = IntentRefinementContext(analysis: analysis, selectedIntent: intent, existingIntents: metadata.selectedIntents)
             }
             #endif
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .localAnalysisChanged)) { _ in
+            if localOnly { Task { await reloadLocal() } }
+        }
+        .sheet(isPresented: $showingTranscript) {
+            VoiceTranscriptEditor(itemID: displayed.id, initial: metadata.reviewedTranscript ?? metadata.analysis?.transcript ?? "") {
+                intelligenceChanged(); LocalAnalysisCoordinator.shared.resume()
+            }
         }
         .sheet(isPresented: $showingEditor) { EditFindSheet(item: displayed) { onChanged(); Task { await reloadLocal() } } }
         .sheet(isPresented: $showingAttachments) {
@@ -367,5 +385,39 @@ struct SavedContentView: View {
         let key = deleteKey ?? MutationKey(); deleteKey = key
         do { try await onDelete(item.id, key); dismiss() }
         catch { errorMessage = error.localizedDescription; deletionFailed = true }
+    }
+}
+
+private struct VoiceTranscriptEditor: View {
+    let itemID: String
+    let initial: String
+    let onSaved: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @State private var busy = false
+    @State private var error: String?
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("What you said") { TextEditor(text: $text).frame(minHeight: 180) }
+                Section { Text("Your correction replaces the transcript used for suggestions and recommendations. The original recording stays in your find.").font(.footnote) }
+                if let error { Text(error).foregroundStyle(.red) }
+            }
+            .navigationTitle("Review transcript").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(busy) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        busy = true
+                        Task {
+                            do {
+                                try await LocalLibrary.shared.setReviewedTranscript(itemID, text.trimmingCharacters(in: .whitespacesAndNewlines))
+                                onSaved(); dismiss()
+                            } catch { self.error = error.localizedDescription; busy = false }
+                        }
+                    }.disabled(busy || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text.count > 8000)
+                }
+            }.task { text = initial }.interactiveDismissDisabled(busy)
+        }
     }
 }

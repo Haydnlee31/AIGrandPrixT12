@@ -34,6 +34,18 @@ class Identity(Response):
     inference_provider: str
 
 
+class LoginConfig(Response):
+    enabled: bool
+    provider: str | None
+    auth_url: str | None
+
+
+class SyncState(Response):
+    user_id: str
+    revision: int
+    poll_interval_ms: int = 15000
+
+
 class CaptureCapabilities(Response):
     clients: list[str]
     content_types: list[str]
@@ -71,6 +83,7 @@ class SuggestionView(Response):
     status: Literal["proposed"]
     intent: Literal["buy_intent", "track_discount", "remind_later", "save_inspiration", "compare_options"] | None = None
     requires_confirmation: bool = True
+    next_step: str = ""
 
 
 class EventView(Response):
@@ -105,6 +118,10 @@ class SavedItemView(Response):
 class CollectionPage(Response):
     items: list[SavedItemView]
     next_offset: int | None
+
+
+class SavedMediaView(Response):
+    image_data: str
 
 
 class LibrarySearchPage(CollectionPage):

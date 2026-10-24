@@ -272,6 +272,32 @@ struct LocalLibrarySmoke {
         if CommandLine.arguments.count > 1 {
             try await checkSnapshot(URL(fileURLWithPath: CommandLine.arguments[1]), directory: directory)
         }
+        let voiceStore = LocalLibrary(fileURL: directory.appendingPathComponent("voice-review/library.json"))
+        let voiceFind = try await voiceStore.captureContent(title: "Voice watch", text: "A vintage watch", attachments: [
+            .init(filename: "note.m4a", typeIdentifier: "com.apple.m4a-audio", data: Data([1, 2, 3]))])
+        let originalInput = try await voiceStore.analysisInput(voiceFind.id)!
+        var voiceAnalysis = analysis; voiceAnalysis.transcript = "A gift for my dad"
+        let applied = try await voiceStore.setAnalysis(voiceAnalysis, matching: originalInput)
+        try check(applied, "matching saved inputs accept an analysis")
+        try check(voiceAnalysis.searchableText.contains("gift for my dad"), "voice text joins local search")
+        let beforeCorrection = try await voiceStore.analysisInput(voiceFind.id)!
+        try await voiceStore.setReviewedTranscript(voiceFind.id, "A gift for my mum")
+        let afterCorrection = try await voiceStore.metadata()[voiceFind.id]!
+        try check(afterCorrection.analysis == nil && afterCorrection.reviewedTranscript == "A gift for my mum", "correction invalidates stale AI while preserving user context")
+        let staleAccepted = try await voiceStore.setAnalysis(voiceAnalysis, matching: beforeCorrection)
+        try check(!staleAccepted, "late inference cannot overwrite a corrected transcript")
+        let reopenedVoice = LocalLibrary(fileURL: directory.appendingPathComponent("voice-review/library.json"))
+        let restoredVoice = try await reopenedVoice.metadata()[voiceFind.id]!
+        try check(restoredVoice.reviewedTranscript == "A gift for my mum" && restoredVoice.attachments.count == 1, "correction and source audio survive restart")
+        let beforeIntents = try await voiceStore.analysisInput(voiceFind.id)!
+        try await voiceStore.setIntents(voiceFind.id, ["Prefer a fabric strap"])
+        let staleIntentAccepted = try await voiceStore.setAnalysis(voiceAnalysis, matching: beforeIntents)
+        try check(!staleIntentAccepted, "late inference cannot overwrite newly confirmed preferences")
+        let beforeDelete = try await voiceStore.analysisInput(voiceFind.id)!
+        try await voiceStore.delete(voiceFind.id)
+        let deletedAccepted = try await voiceStore.setAnalysis(voiceAnalysis, matching: beforeDelete)
+        try check(!deletedAccepted, "late inference cannot recreate a deleted find")
+        print("PASS voice transcript review, restart, search and stale edit/deletion protection")
         print("All frontend local library checks passed without a backend.")
     }
 

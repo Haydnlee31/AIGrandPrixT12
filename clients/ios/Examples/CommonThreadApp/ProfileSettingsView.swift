@@ -98,7 +98,7 @@ private struct FindsPrivacyView: View {
                 Text("Local finds, photos, files and notes are stored by the app on this device. A separate shared library does not automatically import them. When shopping intelligence is connected, the selected photo and product context are sent to OpenAI to create suggestions and analysis. Disconnect intelligence in Profile to stop this processing.")
             }
             Section("Photos & voice") {
-                Text("Choose individual photos or files to share with the app. To speak a note, use your iPhone keyboard’s dictation button and review the text before saving. Dictation is managed by iOS and follows your iPhone’s keyboard and privacy settings.")
+                Text("Choose individual photos or files to share with the app. Record a voice note in Save a find, then review or correct its transcript. Selected recordings are sent to the configured service for transcription and analysis. You can also use your iPhone keyboard’s dictation.")
                 Link(destination: URL(string: UIApplication.openSettingsURLString)!) {
                     Label("Open iPhone permissions", systemImage: "gearshape")
                 }

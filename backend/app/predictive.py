@@ -376,6 +376,9 @@ class AstraAnnotationProvider:
 def get_annotation_provider():
     """Select once at startup; credentials and provider settings stay server-side."""
     selection = os.getenv("ANNOTATION_PROVIDER", "auto").strip().lower()
+    # Earlier Chrome deployments used these names. Keep one current provider
+    # implementation when upgrading the combined application.
+    selection = {"demo": "fallback", "openai": "astra"}.get(selection, selection)
     if selection not in {"auto", "astra", "fallback"}:
         raise ProviderError("annotation_provider_invalid", False)
     key = (os.getenv("ASTRA_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()

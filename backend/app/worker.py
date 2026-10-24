@@ -178,10 +178,9 @@ def publish_annotation(db, item, annotation, model_version):
     item.features = annotation["features"]
     item.status = "ready"
     update_search_document(db, item)
-    if isinstance(item.features.get("analysis"), dict):
-        state = db.get(UserState, item.user_id)
-        if state:
-            state.version += 1
+    state = db.get(UserState, item.user_id)
+    if state:
+        state.version += 1
 
 
 def process_job(db, job, annotation=None, model_version=None):
@@ -220,14 +219,14 @@ def process_job(db, job, annotation=None, model_version=None):
         raise ValueError("unknown_job_kind")
 
 
-def run_once(factory, provider=None, multimodal=None):
+def run_once(factory, provider=None, multimodal=None, *, job_id=None):
     from .multimodal import MultimodalService
     owned_provider = provider is None
     provider = provider if provider is not None else get_annotation_provider()
     owned_multimodal = multimodal is None
     multimodal = multimodal if multimodal is not None else MultimodalService(factory)
     try:
-        return _run_once(factory, provider, multimodal)
+        return _run_once(factory, provider, multimodal, job_id=job_id)
     finally:
         if owned_provider and hasattr(provider, "close"):
             provider.close()
@@ -235,11 +234,13 @@ def run_once(factory, provider=None, multimodal=None):
             multimodal.close()
 
 
-def _run_once(factory, provider, multimodal=None):
-    from .multimodal import JOB_KINDS, MultimodalService
+def _run_once(factory, provider, multimodal=None, *, job_id=None):
+    from .multimodal import JOB_KINDS, MultimodalService, lock_job_owner
     multimodal = multimodal if multimodal is not None else MultimodalService(factory, enabled=False)
     now = time.time()
     eligible = or_(and_(Job.status == "pending", Job.due_at <= now), and_(Job.status == "running", Job.lease_until <= now))
+    if job_id is not None:
+        eligible = and_(eligible, Job.id == job_id)
     token = uuid.uuid4().hex
     with transaction(factory) as db:
         query = select(Job.id).where(eligible)
@@ -257,6 +258,7 @@ def _run_once(factory, provider, multimodal=None):
         return True
     try:
         with transaction(factory) as db:
+            lock_job_owner(db, candidate)
             job = leased_job(db, candidate, token)
             if not job:
                 return True
@@ -298,10 +300,8 @@ def _run_once(factory, provider, multimodal=None):
             annotation["features"]["context_evidence_ids"] = list(dict.fromkeys([entry[0] for entry in preferences] + [entry[0] for entry in current_notes]))
 
         with transaction(factory) as db:
-            if contextual:
-                # API mutations take this same lock. Keep preference revocation
-                # and prediction publication ordered on PostgreSQL as on SQLite.
-                db.scalar(select(UserState).where(UserState.user_id == job.user_id).with_for_update())
+            # Match API owner-first lock order even for text-only fallback work.
+            lock_job_owner(db, candidate)
             job = leased_job(db, candidate, token)
             if not job:
                 return True
@@ -318,6 +318,7 @@ def _run_once(factory, provider, multimodal=None):
         # No raw input, URLs, notes or provider response in logs.
         logger.warning("job_failed id=%s error_type=%s", candidate, type(error).__name__)
         with transaction(factory) as db:
+            lock_job_owner(db, candidate)
             job = leased_job(db, candidate, token)
             if job:
                 item = enrichment_item(db, job) if job.kind == "enrich" else None
@@ -333,6 +334,9 @@ def _run_once(factory, provider, multimodal=None):
                 job.lease_until = 0
                 if job.status == "failed" and item:
                     item.status = "enrichment_failed"
+                    state = db.get(UserState, job.user_id)
+                    if state:
+                        state.version += 1
     return True
 
 

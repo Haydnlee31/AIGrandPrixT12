@@ -42,6 +42,7 @@ targets:
         CommonThreadAppGroup: "$(COMMON_THREAD_APP_GROUP)"
         CommonThreadKeychainGroup: "$(COMMON_THREAD_KEYCHAIN_GROUP)"
         NSLocalNetworkUsageDescription: Connect to your chosen server to sync your saved content.
+        NSMicrophoneUsageDescription: Record a voice note to describe what you like about a saved find.
         NSCameraUsageDescription: Take a photo to save something that caught your eye.
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false

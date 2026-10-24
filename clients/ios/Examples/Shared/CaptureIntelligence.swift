@@ -8,11 +8,12 @@ import CommonThreadKit
 
 /// The phone holds only a scoped relay credential. The OpenAI key stays on the server.
 enum CaptureIntelligence {
-    struct Configuration: Codable, Sendable {
+    struct Configuration: Codable, Sendable, Equatable {
         let baseURL: URL
         let accessToken: String
         var multimodalURL: URL? = nil
         var multimodalToken: String? = nil
+        var loginAccountId: String? = nil
         func validated() throws -> Self {
             if let multimodalURL, let multimodalToken {
                 _ = try Configuration(baseURL: multimodalURL, accessToken: multimodalToken).validated()
@@ -45,6 +46,15 @@ enum CaptureIntelligence {
         return [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
                 kSecAttrAccount as String: "connection", kSecAttrAccessGroup as String: group,
                 kSecAttrSynchronizable as String: false]
+    }
+    static func connectAccount(_ environment: SharedEnvironment) throws {
+        try configure(.init(baseURL: environment.baseURL, accessToken: "managed-account-session-credential", loginAccountId: environment.accountId))
+    }
+    private static func accessToken(for configuration: Configuration) async throws -> String {
+        guard let account = configuration.loginAccountId else { return configuration.accessToken }
+        guard let environment = try SharedEnvironment.read(), environment.accountId == account,
+              environment.baseURL == configuration.baseURL else { throw Failure.unauthorized }
+        return try await environment.accessToken()
     }
     static var isConfigured: Bool { (try? configuration()) != nil }
     static func configuration() throws -> Configuration? {
@@ -95,18 +105,19 @@ enum CaptureIntelligence {
     @MainActor private static var analysisCache: [String: CachedAnalysis] = [:]
     @MainActor private static var pageCache: [URL: PageContext] = [:]
 
-    @MainActor static func analyze(url: String?, title: String, text: String, note: String, imageData: Data?, preferCapturedContent: Bool = false, additionalImages: [Data] = [], audio: MultimodalDraftAnalysis.Audio? = nil) async throws -> CaptureIntelligenceResult {
+    @MainActor static func analyze(url: String?, title: String, text: String, note: String, imageData: Data?, preferCapturedContent: Bool = false, additionalImages: [Data] = [], audio: MultimodalDraftAnalysis.Audio? = nil, reviewedTranscript: String? = nil) async throws -> CaptureIntelligenceResult {
         try Task.checkCancellation()
         guard let configuration = try configuration() else { throw Failure.configuration }
+        let serviceToken = try await accessToken(for: configuration)
         // Exact source identity lets repeated view updates reuse a completed request.
         // In-flight work remains caller-owned, so source changes cancel it normally.
         let identity: [String: Any] = ["url": url ?? "", "title": title, "text": text, "note": note,
             "image": imageData.map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() } ?? "",
             "audio": audio.map { SHA256.hash(data: $0.data).map { String(format: "%02x", $0) }.joined() } ?? "",
             "additional_images": additionalImages.map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() },
-            "prefer_captured": preferCapturedContent]
+            "reviewed_transcript": reviewedTranscript ?? "", "prefer_captured": preferCapturedContent]
         let source = try JSONSerialization.data(withJSONObject: identity, options: [.sortedKeys])
-        let namespace = Data((configuration.baseURL.absoluteString + "|" + configuration.accessToken + "|" + (configuration.multimodalURL?.absoluteString ?? "") + "|" + (configuration.multimodalToken ?? "")).utf8)
+        let namespace = Data((configuration.baseURL.absoluteString + "|" + (configuration.loginAccountId ?? configuration.accessToken) + "|" + (configuration.multimodalURL?.absoluteString ?? "") + "|" + (configuration.multimodalToken ?? "")).utf8)
         let cacheKey = SHA256.hash(data: namespace + source).map { String(format: "%02x", $0) }.joined()
         if let cached = analysisCache[cacheKey], Date().timeIntervalSince(cached.savedAt) < 120 { return cached.result }
         var contextTitle = title
@@ -143,7 +154,16 @@ enum CaptureIntelligence {
             payload["image_data_url"] = "data:image/jpeg;base64," + bytes.base64EncodedString()
         }
         let data: Data
-        if let origin = configuration.multimodalURL, let token = configuration.multimodalToken {
+        let multimodalOrigin = configuration.multimodalURL ?? configuration.baseURL
+        let multimodalToken = configuration.multimodalToken ?? serviceToken
+        let multimodalClient = try CommonThreadClient(baseURL: multimodalOrigin) { multimodalToken }
+        let multimodalAvailable: Bool
+        do { multimodalAvailable = try await multimodalClient.multimodalCapabilities().enabled }
+        catch let error as APIError where error.status == 404 && configuration.multimodalURL == nil {
+            multimodalAvailable = false // Retain an explicitly configured older relay.
+        }
+        if multimodalAvailable {
+            let origin = multimodalOrigin, token = multimodalToken
             let images = [contextImage].compactMap { $0 } + additionalImages
             guard images.count <= 4 else { throw MultimodalDraftAnalysis.Failure.tooManyImages }
             let prepared = try images.map { image -> Data in
@@ -152,9 +172,12 @@ enum CaptureIntelligence {
             }
             let value = try await MultimodalDraftAnalysis.analyze(origin: origin, token: token,
                 title: String(contextTitle.prefix(300)), text: String(contextText.prefix(12_000)),
-                note: String(note.prefix(2_000)), url: url, images: prepared, audio: audio)
+                note: String(note.prefix(2_000)), url: url, images: prepared, audio: audio, reviewedTranscript: reviewedTranscript)
             data = try JSONEncoder().encode(value)
         } else {
+            // The old preview endpoint cannot accept voice or additional photos.
+            // Never silently discard those inputs when only the relay is configured.
+            guard audio == nil, additionalImages.isEmpty else { throw MultimodalDraftAnalysis.Failure.disabled }
             data = try await post(path: "v1/capture-preview", body: JSONSerialization.data(withJSONObject: payload))
         }
         do {
@@ -288,7 +311,7 @@ enum CaptureIntelligence {
               let config = try configuration() else { throw Failure.configuration }
         var request = URLRequest(url: config.baseURL.appendingPathComponent(path))
         request.httpMethod = "POST"; request.timeoutInterval = 50
-        request.setValue("Bearer " + config.accessToken, forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer " + (try await accessToken(for: config)), forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         let settings = URLSessionConfiguration.ephemeral

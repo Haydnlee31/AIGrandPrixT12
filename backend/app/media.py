@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import os
 from io import BytesIO
 import warnings
 
@@ -15,6 +16,11 @@ MAX_IMAGE_PIXELS = 16_000_000
 OUTPUT_IMAGE_DIMENSION = 1600
 MAX_IMAGE_DATA_URL_LENGTH = len("data:image/jpeg;base64,") + 4 * ((MAX_IMAGE_BYTES + 2) // 3)
 _FORMATS = {"image/jpeg": "JPEG", "image/png": "PNG", "image/webp": "WEBP"}
+
+
+def deployment_asset_bytes():
+    """Leave enough base64/JSON headroom for the deployment's request limit."""
+    return min(MAX_IMAGE_BYTES, max(64 * 1024, int(os.getenv("CAPTURE_IMAGE_BYTES", str(MAX_IMAGE_BYTES)))))
 
 
 class _ImageInputError(ValueError):
@@ -38,8 +44,8 @@ def validate_image_data_url(value: str) -> str:
         raw = base64.b64decode(encoded, validate=True)
     except (ValueError, binascii.Error):
         raise ValueError("Image base64 is invalid") from None
-    if not raw or len(raw) > MAX_IMAGE_BYTES:
-        raise ValueError("Image must contain at most 4 MiB")
+    if not raw or len(raw) > deployment_asset_bytes():
+        raise ValueError(f"Image must contain at most {deployment_asset_bytes() / (1024 * 1024):g} MiB")
 
     try:
         with warnings.catch_warnings():
@@ -75,7 +81,7 @@ def validate_image_data_url(value: str) -> str:
         buffer = BytesIO()
         clean.save(buffer, format=output_format, **({"quality": 85} if output_format == "JPEG" else {}))
         normalized = buffer.getvalue()
-        if len(normalized) <= MAX_IMAGE_BYTES:
+        if len(normalized) <= deployment_asset_bytes():
             break
         # Paletted or heavily optimized inputs can grow when converted to RGB.
         clean = clean.resize((max(1, clean.width * 4 // 5), max(1, clean.height * 4 // 5)), Image.Resampling.LANCZOS)

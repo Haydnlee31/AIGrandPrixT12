@@ -255,7 +255,7 @@ def test_openapi_defines_outputs_bearer_auth_and_required_mutation_keys(client):
     response = client.get("/openapi.json", headers={"Authorization": ""})
     assert response.status_code == 200
     document = response.json()
-    scheme = document["components"]["securitySchemes"]["DevelopmentBearer"]
+    scheme = document["components"]["securitySchemes"]["Bearer"]
     assert scheme["type"] == "http" and scheme["scheme"] == "bearer"
     assert not document["paths"]["/health"]["get"].get("security")
 
@@ -263,8 +263,10 @@ def test_openapi_defines_outputs_bearer_auth_and_required_mutation_keys(client):
         for method, operation in methods.items():
             if method not in {"get", "post", "patch", "delete"}:
                 continue
-            if path.startswith("/v1/"):
-                assert {"DevelopmentBearer": []} in operation["security"], (path, method)
+            if path == "/v1/auth/config":
+                assert not operation.get("security")
+            elif path.startswith("/v1/"):
+                assert {"Bearer": []} in operation["security"], (path, method)
             success = [value for code, value in operation["responses"].items() if code.startswith("2")]
             assert success, (path, method)
             for result in success:

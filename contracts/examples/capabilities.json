@@ -37,6 +37,7 @@
     "price_simulation": true,
     "demo_reset": true,
     "image_upload": true,
+    "multimodal_ai": false,
     "live_price_monitoring": false,
     "push_notifications": false,
     "merchant_handoff": false,

@@ -1,0 +1,40 @@
+{
+  "id": "602fade30db7407d8b530711a9f18bd2",
+  "original_url": "",
+  "canonical_url": "image:fb95a615e63a5fc8716bc68a0dcc2ea107e411099cf719fd76ab5f89848854cf",
+  "title": "Image contract fixture",
+  "source": "web",
+  "client": "ios_share_extension",
+  "selected_text": "",
+  "note": "",
+  "captured_at": 1792884427.947864,
+  "status": "ready",
+  "features": {
+    "desk_related": false,
+    "provenance": "captured title and selected text",
+    "data_mode": "demo_rules",
+    "suggestion_order": [
+      "inspiration_only"
+    ]
+  },
+  "revision": 1,
+  "suggestions": [
+    {
+      "id": "ef95c375a8d453ca8560c475f5f2b46e",
+      "item_id": "602fade30db7407d8b530711a9f18bd2",
+      "kind": "stage",
+      "text": "Just inspiration, not shopping",
+      "claim": "inspiration_only",
+      "model_version": "demo-rules-v1",
+      "status": "proposed",
+      "intent": null,
+      "requires_confirmation": true,
+      "next_step": "Your preference is saved. Purchases, reminders and monitoring require separate actions."
+    }
+  ],
+  "responses": [],
+  "has_image": true,
+  "image_path": "/v1/saves/602fade30db7407d8b530711a9f18bd2/image",
+  "analysis": null,
+  "analysis_status": "unavailable"
+}

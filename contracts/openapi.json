@@ -248,6 +248,19 @@
             "title": "Client",
             "type": "string"
           },
+          "image_data": {
+            "anyOf": [
+              {
+                "maxLength": 5592431,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Legacy Chrome alias for image_data_url. Both names use the same bounded normalization.",
+            "title": "Image Data"
+          },
           "image_data_url": {
             "anyOf": [
               {
@@ -1737,6 +1750,43 @@
         "title": "LibrarySearchPage",
         "type": "object"
       },
+      "LoginConfig": {
+        "properties": {
+          "auth_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth Url"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          }
+        },
+        "required": [
+          "enabled",
+          "provider",
+          "auth_url"
+        ],
+        "title": "LoginConfig",
+        "type": "object"
+      },
       "MerchantFact": {
         "additionalProperties": false,
         "properties": {
@@ -3104,6 +3154,19 @@
         "title": "SavedItemView",
         "type": "object"
       },
+      "SavedMediaView": {
+        "properties": {
+          "image_data": {
+            "title": "Image Data",
+            "type": "string"
+          }
+        },
+        "required": [
+          "image_data"
+        ],
+        "title": "SavedMediaView",
+        "type": "object"
+      },
       "SimulatedPrice": {
         "additionalProperties": false,
         "properties": {
@@ -3184,6 +3247,11 @@
             "title": "Model Version",
             "type": "string"
           },
+          "next_step": {
+            "default": "",
+            "title": "Next Step",
+            "type": "string"
+          },
           "requires_confirmation": {
             "default": true,
             "title": "Requires Confirmation",
@@ -3209,6 +3277,29 @@
           "status"
         ],
         "title": "SuggestionView",
+        "type": "object"
+      },
+      "SyncState": {
+        "properties": {
+          "poll_interval_ms": {
+            "default": 15000,
+            "title": "Poll Interval Ms",
+            "type": "integer"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "revision"
+        ],
+        "title": "SyncState",
         "type": "object"
       },
       "TraceView": {
@@ -3388,8 +3479,8 @@
       }
     },
     "securitySchemes": {
-      "DevelopmentBearer": {
-        "description": "Use a configured development token, e.g. demo-alex locally. Production identity is a separate backend integration.",
+      "Bearer": {
+        "description": "Verified Neon session token, or a configured legacy library key.",
         "scheme": "bearer",
         "type": "http"
       }
@@ -3513,6 +3604,117 @@
         ]
       }
     },
+    "/v1/auth/config": {
+      "get": {
+        "operationId": "auth_config_v1_auth_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Auth Config",
+        "tags": [
+          "System"
+        ]
+      }
+    },
     "/v1/capabilities": {
       "get": {
         "operationId": "capabilities_v1_capabilities_get",
@@ -3620,7 +3822,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Capabilities",
@@ -3736,7 +3938,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Catalog",
@@ -3874,7 +4076,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Collection",
@@ -4002,7 +4204,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Commerce Dataset Export",
@@ -4139,7 +4341,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Commerce Item",
@@ -4320,7 +4522,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Commerce Search",
@@ -4436,7 +4638,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Commerce Sources",
@@ -4565,7 +4767,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Reset",
@@ -4703,7 +4905,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Sessions",
@@ -4840,7 +5042,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Start Discovery",
@@ -4967,7 +5169,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Get Session",
@@ -5115,7 +5317,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Session Event",
@@ -5285,7 +5487,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Explore",
@@ -5401,7 +5603,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Hypotheses",
@@ -5549,7 +5751,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Feedback",
@@ -5676,7 +5878,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Job Status",
@@ -5847,7 +6049,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Library Search",
@@ -5963,7 +6165,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Me",
@@ -6079,7 +6281,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Capabilities",
@@ -6218,7 +6420,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Create",
@@ -6356,7 +6558,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Remove",
@@ -6481,7 +6683,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Get Capture",
@@ -6627,7 +6829,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Edit",
@@ -6775,7 +6977,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Analyze",
@@ -6923,7 +7125,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Upload",
@@ -7080,7 +7282,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Remove Asset",
@@ -7233,7 +7435,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Download",
@@ -7388,7 +7590,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Edit Transcript",
@@ -7536,7 +7738,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Publish",
@@ -7674,7 +7876,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Notifications",
@@ -7813,7 +8015,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Capture",
@@ -7951,7 +8153,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Remove Save",
@@ -8076,7 +8278,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Get Save",
@@ -8214,7 +8416,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Analyze Save",
@@ -8348,10 +8550,138 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Get Save Image",
+        "tags": [
+          "Capture"
+        ]
+      }
+    },
+    "/v1/saves/{item_id}/media": {
+      "get": {
+        "description": "Legacy Chrome JSON view of the same normalized, owner-scoped image.",
+        "operationId": "get_save_media_v1_saves__item_id__media_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedMediaView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "summary": "Get Save Media",
         "tags": [
           "Capture"
         ]
@@ -8496,12 +8826,267 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Respond",
         "tags": [
           "Capture"
+        ]
+      }
+    },
+    "/v1/saves/{item_id}/retry": {
+      "post": {
+        "description": "Compatibility alias; reanalysis uses the same quotas and invalidation.",
+        "operationId": "retry_save_v1_saves__item_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required for every mutation. Persist before sending; reuse the key and identical body after an uncertain result. Missing/empty keys return 400.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptureResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "summary": "Retry Save",
+        "tags": [
+          "Capture"
+        ]
+      }
+    },
+    "/v1/sync": {
+      "get": {
+        "operationId": "sync_state_v1_sync_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "summary": "Sync State",
+        "tags": [
+          "System"
         ]
       }
     },
@@ -8612,7 +9197,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Trace",
@@ -8750,7 +9335,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Watches",
@@ -8887,7 +9472,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Create Watch",
@@ -9014,7 +9599,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Get Watch",
@@ -9160,7 +9745,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Update Watch",
@@ -9308,7 +9893,7 @@
         },
         "security": [
           {
-            "DevelopmentBearer": []
+            "Bearer": []
           }
         ],
         "summary": "Simulate Price",

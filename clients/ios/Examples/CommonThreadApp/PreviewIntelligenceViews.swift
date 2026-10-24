@@ -23,7 +23,7 @@ struct LocalIntelligencePreview: View {
     private var choices: [String] { analysis?.prompts.map(\.text) ?? [] }
     // Pins and selected details refresh metadata without canceling product analysis.
     private var analysisTaskID: [String] {
-        [item.id, item.originalUrl, item.title, item.selectedText, item.note, item.client ?? "", analysisRetryID.uuidString]
+        [item.id, item.originalUrl, item.title, item.selectedText, item.note, item.client ?? "", String(item.revision), analysisRetryID.uuidString]
     }
 
     var body: some View {
@@ -36,6 +36,22 @@ struct LocalIntelligencePreview: View {
                     evidence: analysis.evidence + sourceAnalyses.flatMap(\.evidence),
                     uncertainties: analysis.uncertainties + sourceAnalyses.flatMap(\.uncertainties),
                     additionalSummaries: sourceAnalyses.map(\.summary))
+                if let products = analysis.productAnalysis?.products, !products.isEmpty {
+                    DisclosureGroup("Product details") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            ForEach(Array(products.enumerated()), id: \.offset) { _, product in
+                                VStack(alignment: .leading, spacing: 7) {
+                                    Text(product.productType).font(.headline)
+                                    Text(product.categoryPath.joined(separator: " › ")).font(.caption).foregroundStyle(.secondary)
+                                    if let brand = product.brand { Text("Brand: " + brand.value).font(.subheadline) }
+                                    ForEach(Array(product.attributes.enumerated()), id: \.offset) { _, attribute in
+                                        Text(attribute.name.capitalized + ": " + attribute.value).font(.subheadline)
+                                    }
+                                }.frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }.padding(.top, 12)
+                    }.font(.subheadline.weight(.semibold))
+                }
                 if sourceCount > 1 {
                     Label("Combined from \(sourceCount) saves", systemImage: "square.on.square")
                         .font(.caption.weight(.medium)).foregroundStyle(.secondary)
@@ -119,7 +135,6 @@ struct LocalIntelligencePreview: View {
     @MainActor private func analyzeFind() async {
         guard !Task.isCancelled else { return }
         let requestID = UUID()
-        let input = SavedAnalysisInput(item)
         analysisRequestID = requestID; analyzing = false; analysisError = nil
         defer {
             if analysisRequestID == requestID { analyzing = false; analysisRequestID = nil }
@@ -132,16 +147,7 @@ struct LocalIntelligencePreview: View {
             readMetadata(metadata)
             guard metadata?.analysis?.schemaVersion != 2 else { return }
             analyzing = true
-            var images: [Data] = []
-            for attachment in metadata?.attachments.filter(\.isImage) ?? [] {
-                images.append(try await LocalLibrary.shared.attachmentData(attachment))
-            }
-            try Task.checkCancellation()
-            let result = try await CaptureIntelligence.analyze(url: item.originalUrl.isEmpty ? nil : item.originalUrl,
-                title: item.title, text: item.selectedText, note: item.note, imageData: images.first, additionalImages: Array(images.dropFirst()))
-            try Task.checkCancellation()
-            guard analysisRequestID == requestID else { return }
-            guard try await LocalLibrary.shared.setAnalysis(result, matching: input) else { return }
+            let result = try await LocalAnalysisCoordinator.shared.analyze(item.id)
             try Task.checkCancellation()
             guard analysisRequestID == requestID else { return }
             analysis = result; onChanged()
@@ -169,28 +175,6 @@ struct LocalIntelligencePreview: View {
             intents = unique; onChanged(); FindsHaptics.selection()
             return true
         } catch { errorMessage = error.localizedDescription; return false }
-    }
-}
-
-fileprivate struct SavedAnalysisInput: Equatable, Sendable {
-    let id: String
-    let url: String
-    let title: String
-    let text: String
-    let note: String
-    init(_ item: SavedItem) {
-        id = item.id; url = item.originalUrl; title = item.title; text = item.selectedText; note = item.note
-    }
-}
-
-fileprivate extension LocalLibrary {
-    /// Check the source and commit on the same actor turn so an edited find
-    /// cannot receive a late analysis produced from its previous content.
-    func setAnalysis(_ analysis: CaptureIntelligenceResult, matching input: SavedAnalysisInput) throws -> Bool {
-        try Task.checkCancellation()
-        guard let current = try item(input.id), SavedAnalysisInput(current) == input else { return false }
-        try setAnalysis(input.id, analysis)
-        return true
     }
 }
 

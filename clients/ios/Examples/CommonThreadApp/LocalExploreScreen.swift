@@ -171,10 +171,14 @@ struct LocalExploreScreen: View {
             // Duplicate saves keep their complete notes locally; transport respects
             // the shared recommendation contract instead of rejecting a large group.
             var value: [String: Any] = ["id": find.id, "title": find.title,
-                "note": String(find.note.prefix(2_000)), "text": String(find.selectedText.prefix(12_000)),
+                "note": String([find.note, context.reviewedTranscript ?? context.analysis?.transcript ?? ""].filter { !$0.isEmpty }.joined(separator: "\n").prefix(2_000)), "text": String(find.selectedText.prefix(12_000)),
                 "intents": Array(context.selectedIntents.prefix(8))]
             if !find.originalUrl.isEmpty { value["original_url"] = String(find.originalUrl.prefix(4_000)) }
-            if let analysis = context.analysis { value["analysis"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(analysis)) }
+            if let analysis = context.analysis {
+                var projection = try JSONSerialization.jsonObject(with: JSONEncoder().encode(analysis)) as! [String: Any]
+                projection.removeValue(forKey: "product_analysis"); projection.removeValue(forKey: "transcript")
+                value["analysis"] = projection
+            }
             return value
         }
         return try JSONSerialization.data(withJSONObject: ["finds": input, "query": String(query.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100)), "limit": 24], options: [.sortedKeys])
@@ -213,14 +217,8 @@ struct LocalExploreScreen: View {
             for find in missing {
                 try Task.checkCancellation(); analyzing = true
                 do {
-                    var images: [Data] = []
-                    for image in metadata[find.id]?.attachments.filter(\.isImage) ?? [] {
-                        images.append(try await LocalLibrary.shared.attachmentData(image))
-                    }
-                    let result = try await CaptureIntelligence.analyze(url: find.originalUrl.isEmpty ? nil : find.originalUrl,
-                        title: find.title, text: find.selectedText, note: find.note, imageData: images.first, additionalImages: Array(images.dropFirst()))
-                    try Task.checkCancellation()
-                    try await LocalLibrary.shared.setAnalysis(find.id, result); changed = true
+                    _ = try await LocalAnalysisCoordinator.shared.analyze(find.id)
+                    try Task.checkCancellation(); changed = true
                 } catch is CancellationError { throw CancellationError() }
                 catch { if page?.items.isEmpty != false { errorMessage = error.localizedDescription } }
             }

@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy import delete, func, select, update
 
 from .db import Evidence, Job, MultimodalAsset, MultimodalCapture, Mutation, SavedItem, UserEvent, UserState
-from .media import validate_image_data_url
+from .media import validate_image_data_url, deployment_asset_bytes
 from .predictive import ACTION_TEXT, ProviderError
 from .understanding import ProductAnalysis
 from . import library
@@ -242,8 +242,9 @@ def reserve_analysis(db, user_id, APIError):
 def annotation_from_result(result, model_version, *, image_present=False):
     """Publish the rich analysis through the existing Library/Explore contract.
 
-    Native product-specific choices stay in preview. Shared intent choices keep
-    their stable action identities and annotation-only semantics.
+    Product-specific preview choices are shared with the Library so all clients
+    can ask the same contextual questions. Stable action identities remain
+    annotation-only suggestions; preview answers are explicit free-text edits.
     """
     from .worker import validate_annotation
     parsed = MultimodalResult.model_validate(result)
@@ -255,6 +256,7 @@ def annotation_from_result(result, model_version, *, image_present=False):
         "visual_attributes": preview.get("style", []),
         "image_analyzed": image_present,
         "data_mode": "astra", "analysis": analysis,
+        "multimodal_preview": preview,
         "source_assets": parsed.source_assets,
         "provenance": "captured content and explicit voice/text notes",
         "suggestion_order": ["save_inspiration", "compare_options", "buy_intent"],
@@ -399,7 +401,7 @@ def register_multimodal(app, service, *, user, database, mutate, state_for, APIE
 
     @app.get("/v1/multimodal/capabilities", response_model=MultimodalCapabilities, tags=["Multimodal"])
     def capabilities(user_id=Depends(user)):
-        return MultimodalCapabilities(enabled=service.enabled)
+        return MultimodalCapabilities(enabled=service.enabled, max_asset_bytes=deployment_asset_bytes())
 
     @app.post("/v1/multimodal/captures", response_model=MultimodalView, status_code=201, tags=["Multimodal"])
     def create(body: MultimodalCreate, user_id=Depends(user), db=Depends(database), key: str = Header(default="", alias="Idempotency-Key")):
@@ -442,8 +444,8 @@ def register_multimodal(app, service, *, user, database, mutate, state_for, APIE
             editable(capture, body.revision)
             try:
                 raw = base64.b64decode(body.data_base64, validate=True)
-                if not 0 < len(raw) <= MAX_ASSET_BYTES:
-                    raise ValueError("Use an attachment of at most 4 MiB")
+                if not 0 < len(raw) <= deployment_asset_bytes():
+                    raise ValueError("Attachment exceeds this server's upload limit")
                 mime = body.media_type
                 kind = "image" if mime.startswith("image/") else "audio"
                 if kind == "image":
@@ -453,7 +455,7 @@ def register_multimodal(app, service, *, user, database, mutate, state_for, APIE
                 else:
                     mime = validate_audio(raw, mime)
             except (ValueError, binascii.Error):
-                raise APIError(422, "invalid_asset", "Use a valid JPEG, PNG, WebP, or an AAC M4A/PCM WAV voice note of at most 60 seconds and 4 MiB.") from None
+                raise APIError(422, "invalid_asset", f"Use a valid JPEG, PNG, WebP, or an AAC M4A/PCM WAV voice note of at most 60 seconds and {deployment_asset_bytes()} bytes.") from None
             content_hash = hashlib.sha256(mime.encode() + b"\0" + raw).hexdigest()
             assets = assets_for(db, capture)
             if any(a.content_hash == content_hash for a in assets):

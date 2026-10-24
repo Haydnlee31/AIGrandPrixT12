@@ -1,5 +1,5 @@
 {
-  "id": "a8bf8c3f87934d178aa3df9334557cd0",
+  "id": "054929fced84455095fe7f2a0ab8e1db",
   "original_url": "https://example.org/desk",
   "canonical_url": "https://example.org/desk",
   "title": "Warm desk lighting",
@@ -7,7 +7,7 @@
   "client": "ios_share_extension",
   "selected_text": "",
   "note": "Warm lighting for my small desk",
-  "captured_at": 1792865905.3487842,
+  "captured_at": 1792884427.86415,
   "status": "ready",
   "features": {
     "desk_related": true,
@@ -23,59 +23,63 @@
   "revision": 1,
   "suggestions": [
     {
-      "id": "beade279505a56d2b9242f8dc484e1fa",
-      "item_id": "a8bf8c3f87934d178aa3df9334557cd0",
+      "id": "5c6240ba15465a05b56bf973d1fbb19c",
+      "item_id": "054929fced84455095fe7f2a0ab8e1db",
       "kind": "attraction",
       "text": "I like the warm lighting",
       "claim": "warm_lighting",
       "model_version": "demo-rules-v1",
       "status": "proposed",
       "intent": null,
-      "requires_confirmation": true
+      "requires_confirmation": true,
+      "next_step": "Your preference is saved. Purchases, reminders and monitoring require separate actions."
     },
     {
-      "id": "f0d15a61e09753baa1b755d420a19757",
-      "item_id": "a8bf8c3f87934d178aa3df9334557cd0",
+      "id": "7986d3d42ed854fcb3c7ff7e10bf3b35",
+      "item_id": "054929fced84455095fe7f2a0ab8e1db",
       "kind": "constraint",
       "text": "This could fit my small desk",
       "claim": "compact_space",
       "model_version": "demo-rules-v1",
       "status": "proposed",
       "intent": null,
-      "requires_confirmation": true
+      "requires_confirmation": true,
+      "next_step": "Your preference is saved. Purchases, reminders and monitoring require separate actions."
     },
     {
-      "id": "2d580576200e5083a5414da6a3cd2f2c",
-      "item_id": "a8bf8c3f87934d178aa3df9334557cd0",
+      "id": "0f8dd4bc476356d2852e76476280c43a",
+      "item_id": "054929fced84455095fe7f2a0ab8e1db",
       "kind": "attraction",
       "text": "I want less clutter",
       "claim": "low_clutter",
       "model_version": "demo-rules-v1",
       "status": "proposed",
       "intent": null,
-      "requires_confirmation": true
+      "requires_confirmation": true,
+      "next_step": "Your preference is saved. Purchases, reminders and monitoring require separate actions."
     },
     {
-      "id": "d069c457876d54368e4c210f3115aac3",
-      "item_id": "a8bf8c3f87934d178aa3df9334557cd0",
+      "id": "6c6ceeefe9365bbaa8b971c4fe01b247",
+      "item_id": "054929fced84455095fe7f2a0ab8e1db",
       "kind": "stage",
       "text": "Just inspiration, not shopping",
       "claim": "inspiration_only",
       "model_version": "demo-rules-v1",
       "status": "proposed",
       "intent": null,
-      "requires_confirmation": true
+      "requires_confirmation": true,
+      "next_step": "Your preference is saved. Purchases, reminders and monitoring require separate actions."
     }
   ],
   "responses": [
     {
-      "id": "b68a354bf6004910bfe349ba37641bae",
-      "item_id": "a8bf8c3f87934d178aa3df9334557cd0",
+      "id": "0440aa2eefdc4144bb9d2075483855e2",
+      "item_id": "054929fced84455095fe7f2a0ab8e1db",
       "event_type": "capture_note",
       "payload": {
         "text": "Warm lighting for my small desk"
       },
-      "occurred_at": 1792865905.349686
+      "occurred_at": 1792884427.864886
     }
   ],
   "has_image": false,

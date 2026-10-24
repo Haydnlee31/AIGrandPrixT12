@@ -93,10 +93,14 @@ struct MymahFindsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var selectedTab: Tab = .library
-    @State private var apiURL = ""
+    @State private var apiURL = "https://mynah-finds.vercel.app"
+    @State private var showingLogin = false
+    @State private var accountConnection: SharedEnvironment?
+    @AppStorage("finds.library.sharedDestination") private var sharedDestination = false
     @State private var token = ""
     @State private var items: [SavedItem] = []
     @State private var pendingSaves: [PendingCapture] = []
+    @State private var pendingMultimodal: [PendingSharedMultimodal] = []
     @State private var pendingErrors: [String: String] = [:]
     @State private var nextOffset: Int?
     @State private var connection: SharedEnvironment?
@@ -121,6 +125,7 @@ struct MymahFindsView: View {
     @State private var searchError: String?
     @State private var searchRequestID = UUID()
     @State private var discardingDraft: PendingCapture?
+    @State private var discardingMultimodal: PendingSharedMultimodal?
 
     private var selectedSource: String? {
         get { selectedSourceValue.isEmpty ? nil : selectedSourceValue }
@@ -135,7 +140,7 @@ struct MymahFindsView: View {
         let filtered = base.filter { item in
             let flags = metadata[item.id] ?? LocalFindMetadata()
             let scopeMatches = connection != nil || (scope == .archived ? flags.isArchived : !flags.isArchived && (scope != .favorites || flags.isFavorite))
-            let textMatches = connection != nil || query.isEmpty || [item.title, item.note, item.selectedText, item.originalUrl, item.source, flags.selectedIntents.joined(separator: " "), flags.analysis?.searchableText ?? ""]
+            let textMatches = connection != nil || query.isEmpty || [item.title, item.note, item.selectedText, item.originalUrl, item.source, flags.selectedIntents.joined(separator: " "), flags.analysis?.searchableText ?? "", flags.reviewedTranscript ?? ""]
                 .contains { $0.localizedStandardContains(query) }
             let formatMatches: Bool
             switch format {
@@ -197,6 +202,12 @@ struct MymahFindsView: View {
             Button("Discard pending save", role: .destructive) { Task { await discard(draft) } }
             Button("Cancel", role: .cancel) { discardingDraft = nil }
         } message: { _ in Text("This removes the request from this device. It does not remove a link that has already reached your library.") }
+        .confirmationDialog("Cancel this pending shared save?", isPresented: Binding(
+            get: { discardingMultimodal != nil }, set: { if !$0 { discardingMultimodal = nil } }
+        ), titleVisibility: .visible, presenting: discardingMultimodal) { draft in
+            Button("Cancel sharing", role: .destructive) { Task { await discardMultimodal(draft) } }
+            Button("Keep pending", role: .cancel) { discardingMultimodal = nil }
+        } message: { _ in Text("Your recovery copy stays on this iPhone. A save that already reached the shared Library will remain there.") }
         .task {
             #if DEBUG
             do { try CaptureIntelligence.importDevelopmentConfiguration() }
@@ -210,9 +221,11 @@ struct MymahFindsView: View {
             }
             #endif
             if let saved = try? SharedEnvironment.read() {
-                connection = saved; apiURL = saved.baseURL.absoluteString
+                accountConnection = saved; connection = saved.loginSubject == nil || sharedDestination ? saved : nil; apiURL = saved.baseURL.absoluteString
+                if saved.loginSubject != nil { try? CaptureIntelligence.connectAccount(saved) }
             }
             await refresh()
+            if connection != nil && !pendingMultimodal.isEmpty { await sync(retryFailed: false) }
             #if DEBUG
             // Deterministic visual acceptance on a connected physical iPhone.
             let arguments = ProcessInfo.processInfo.arguments
@@ -235,11 +248,17 @@ struct MymahFindsView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .localAnalysisChanged)) { _ in
+            if connection == nil { Task { await refresh() } }
+        }
         .task(id: searchIdentity) { await searchLibrary() }
         .onChange(of: selectedTab) { _, _ in FindsHaptics.selection(); Task { await refresh() } }
         .onChange(of: scenePhase) { _, phase in
             // Foreground reads never silently replay a permanently rejected capture.
-            if phase == .active && !busy { Task { await refresh() } }
+            if phase == .active && !busy {
+                LocalAnalysisCoordinator.shared.resume(retryFailures: true)
+                Task { await refresh(); if connection != nil && !pendingMultimodal.isEmpty { await sync(retryFailed: false) } }
+            }
         }
     }
 
@@ -411,14 +430,22 @@ struct MymahFindsView: View {
                         }
                     }.padding(.vertical, 8)
                 }
-                if let connection {
-                    Section("Your library") {
-                        LabeledContent("Account", value: connection.accountId)
-                        LabeledContent("Connection", value: connection.baseURL.host ?? connection.baseURL.absoluteString)
+                if let signedIn = accountConnection ?? connection {
+                    Section("Your account") {
+                        LabeledContent("Account", value: signedIn.email ?? signedIn.accountId)
+                        LabeledContent("Connection", value: signedIn.baseURL.host ?? signedIn.baseURL.absoluteString)
+                        Toggle("Show shared Library", isOn: Binding(get: { connection != nil }, set: { selected in
+                            sharedDestination = selected; connection = selected ? signedIn : nil; accountGeneration = UUID()
+                            items = []; metadata = [:]; remoteSearchItems = []; searchNextOffset = nil; nextOffset = nil
+                            Task { await refresh() }
+                        })).disabled(busy)
+                        Text("Your iPhone finds stay on this device. Switching views does not move or erase them. Shopping intelligence works in both views.")
+                            .font(.footnote).foregroundStyle(.secondary)
                     }
                 } else {
                     Section {
-                        DisclosureGroup("Connect a shared library") {
+                        Button("Sign in with email") { showingLogin = true }.font(.headline).disabled(busy)
+                        DisclosureGroup("Advanced connection") {
                             TextField("Server address", text: $apiURL).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                                 .accessibilityIdentifier("serverURL")
                             SecureField("Access key", text: $token).textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -452,16 +479,33 @@ struct MymahFindsView: View {
                         Text("These requests have not been confirmed. Sync library retries them with their original notes. Discard a rejected request to save an edited version.")
                     }
                 }
+                if !pendingMultimodal.isEmpty {
+                    Section("Pending photo and voice saves") {
+                        ForEach(pendingMultimodal) { draft in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(draft.request.title).font(.headline)
+                                Text(pendingErrors[draft.id] ?? "Saved on this iPhone. Waiting to finish sharing.").font(.footnote).foregroundStyle(.secondary)
+                                Button("Retry shared save") { Task { await sync() } }.disabled(busy)
+                                Button("Cancel sharing", role: .destructive) { discardingMultimodal = draft }.disabled(busy)
+                            }
+                        }
+                    }
+                }
                 ProfileSettingsSections(items: items, localOnly: connection == nil,
                                         favoriteCount: items.filter { metadata[$0.id]?.isFavorite == true }.count,
                                         archivedCount: items.filter { metadata[$0.id]?.isArchived == true }.count)
-                if connection != nil {
+                if accountConnection != nil || connection != nil {
                     Section {
                         Button("Sign out", role: .destructive) { signOut() }.disabled(busy)
                     } footer: { Text("Pending saves remain on this device for this account. You can discard them above before signing out.") }
                 }
             }
             .scrollContentBackground(.hidden).background(NativeTheme.bg).navigationTitle("Profile")
+            .sheet(isPresented: $showingLogin) {
+                if let url = URL(string: apiURL) {
+                    AccountSignInView(baseURL: url) { credential in try await connectLogin(credential, baseURL: url) }
+                }
+            }
         }.id(accountGeneration)
     }
 
@@ -563,7 +607,7 @@ struct MymahFindsView: View {
             _ = try await client.capabilities()
             let environment = SharedEnvironment(baseURL: url, accountId: account.userId)
             try environment.store(token: suppliedToken); try environment.store()
-            accountGeneration = UUID(); connection = environment; token = ""; apiURL = url.absoluteString
+            accountGeneration = UUID(); accountConnection = environment; connection = environment; token = ""; apiURL = url.absoluteString
             items = []; pendingSaves = []; nextOffset = nil; selectedSource = nil; pendingErrors = [:]
             let generation = accountGeneration
             await loadPending(environment, generation: generation)
@@ -572,6 +616,23 @@ struct MymahFindsView: View {
             items = page.items; nextOffset = page.nextOffset
             status = "Your library is connected."; selectedTab = .library
         } catch { errorMessage = error.localizedDescription; status = "Connection needs attention." }
+    }
+    private func connectLogin(_ credential: LoginCredential, baseURL: URL) async throws {
+        let session = try await NeonSessionClient(baseURL: baseURL).token(for: credential)
+        let client = try CommonThreadClient(baseURL: baseURL) { session.token }
+        let identity = try await client.account()
+        _ = try await client.multimodalCapabilities()
+        let environment = SharedEnvironment(baseURL: baseURL, accountId: identity.userId,
+            loginSubject: credential.subject, email: credential.email)
+        try environment.store(token: String(decoding: JSONEncoder().encode(session.credential), as: UTF8.self))
+        try environment.store()
+        try CaptureIntelligence.connectAccount(environment)
+        accountConnection = environment; connection = sharedDestination ? environment : nil
+        accountGeneration = UUID(); token = ""; items = []; pendingSaves = []; pendingErrors = [:]
+        remoteSearchItems = []; searchNextOffset = nil; nextOffset = nil
+        status = "Signed in. Shopping intelligence is connected."
+        LocalAnalysisCoordinator.shared.resume(retryFailures: true)
+        await refresh()
     }
     private func refresh(offset: Int = 0) async {
         guard !busy else { return }
@@ -587,7 +648,8 @@ struct MymahFindsView: View {
                 let bytes = await LocalLibrary.shared.storageBytes()
                 guard connection == nil, accountGeneration == generation else { return }
                 items = saved; metadata = localMetadata; localStorageBytes = bytes
-                nextOffset = nil; pendingSaves = []; pendingErrors = [:]
+                LocalAnalysisCoordinator.shared.resume()
+                nextOffset = nil; pendingSaves = []; pendingMultimodal = []; pendingErrors = [:]
                 if let selectedSource, !sources.contains(selectedSource) { self.selectedSource = nil }
                 errorMessage = importError
                 status = importError == nil ? "Your finds are saved on this iPhone." : "Your library is open. A pending share needs attention."
@@ -613,7 +675,7 @@ struct MymahFindsView: View {
             errorMessage = error.localizedDescription; status = "Your saved content could not be refreshed."
         }
     }
-    private func sync() async {
+    private func sync(retryFailed: Bool = true) async {
         guard let environment = connection, !busy else { return }
         busy = true; errorMessage = nil; defer { busy = false }
         let generation = accountGeneration
@@ -630,6 +692,18 @@ struct MymahFindsView: View {
                     let receipt = try await client.capture(draft.request, key: draft.key)
                     try await outbox.remove(draft)
                     if receipt.duplicate { duplicates += 1 }
+                    pendingErrors.removeValue(forKey: draft.id)
+                } catch {
+                    failures += 1; pendingErrors[draft.id] = error.localizedDescription
+                    if let apiError = error as? APIError, apiError.status == 401 { break }
+                }
+            }
+            let multimodal = SharedMultimodalOutbox.shared
+            for draft in try await multimodal.pending(accountID: environment.accountId, origin: environment.baseURL) {
+                guard sameAccount(environment, generation: generation) else { return }
+                do {
+                    if retryFailed { try await multimodal.retryAnalysis(draft.id, client: client, accountID: environment.accountId, origin: environment.baseURL) }
+                    _ = try await multimodal.send(draft.id, client: client, accountID: environment.accountId, origin: environment.baseURL)
                     pendingErrors.removeValue(forKey: draft.id)
                 } catch {
                     failures += 1; pendingErrors[draft.id] = error.localizedDescription
@@ -658,10 +732,21 @@ struct MymahFindsView: View {
             let pending = try await SharedEnvironment.outbox().pending(accountId: environment.accountId, baseURL: environment.baseURL)
             guard sameAccount(environment, generation: generation) else { return }
             pendingSaves = pending
+            pendingMultimodal = try await SharedMultimodalOutbox.shared.pending(accountID: environment.accountId, origin: environment.baseURL)
         } catch {
             guard sameAccount(environment, generation: generation) else { return }
             errorMessage = "Pending saves could not be read: \(error.localizedDescription)"
         }
+    }
+    private func discardMultimodal(_ draft: PendingSharedMultimodal) async {
+        guard let environment = connection, !busy else { return }
+        busy = true; defer { busy = false; discardingMultimodal = nil }
+        do {
+            try await SharedMultimodalOutbox.shared.discard(draft.id, client: environment.client(),
+                accountID: environment.accountId, origin: environment.baseURL)
+            pendingErrors.removeValue(forKey: draft.id)
+            await loadPending(environment, generation: accountGeneration)
+        } catch { errorMessage = error.localizedDescription }
     }
     private func discard(_ draft: PendingCapture) async {
         guard let environment = connection, !busy, draft.accountId == environment.accountId, draft.baseURL == environment.baseURL else { return }
@@ -701,9 +786,17 @@ struct MymahFindsView: View {
         }
     }
     private func signOut() {
+        let environment = accountConnection ?? connection
+        if let environment, environment.loginSubject != nil, let stored = try? environment.token(),
+           let credential = try? JSONDecoder().decode(LoginCredential.self, from: Data(stored.utf8)) {
+            Task { try? await NeonSessionClient(baseURL: environment.baseURL).signOut(credential) }
+        }
         do {
-            try connection?.signOut()
-            accountGeneration = UUID(); connection = nil; items = []; pendingSaves = []; pendingErrors = [:]
+            if (try? CaptureIntelligence.configuration())?.loginAccountId == environment?.accountId {
+                try CaptureIntelligence.disconnect()
+            }
+            try environment?.signOut()
+            accountGeneration = UUID(); accountConnection = nil; connection = nil; items = []; pendingSaves = []; pendingMultimodal = []; pendingErrors = [:]
             remoteSearchItems = []; searchNextOffset = nil; searchError = nil
             nextOffset = nil; selectedSource = nil; searchText = ""; token = ""; errorMessage = nil; status = "Opening your local library."
             Task { await refresh() }

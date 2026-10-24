@@ -9,6 +9,9 @@ struct CaptureForm: View {
     let onSave: () -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var voiceRecorder = VoiceNoteRecorder()
+    @State private var transcriptText: String?
+    @State private var reviewedTranscript: String?
     @State private var link = ""
     @State private var title = ""
     @State private var titleWasEdited = false
@@ -31,10 +34,16 @@ struct CaptureForm: View {
     }
     private var effectiveConnection: SharedEnvironment? { localDestination ? nil : connection }
     private var cloudCompatible: Bool {
-        (!cleanedLink.isEmpty || attachments.count == 1) && attachments.count <= 1 && attachments.allSatisfy { $0.value.typeIdentifier == UTType.jpeg.identifier }
+        let images = attachments.filter { $0.value.typeIdentifier == UTType.jpeg.identifier }
+        let audio = attachments.filter { ["m4a", "wav"].contains(($0.value.filename as NSString).pathExtension.lowercased()) }
+        return images.count <= 4 && audio.count <= 1 && images.count + audio.count == attachments.count
+            && attachments.allSatisfy { $0.value.data.count <= 4 * 1024 * 1024 }
+            && attachments.reduce(0, { $0 + $1.value.data.count }) <= 16 * 1024 * 1024
     }
     @State private var saving = false
     @State private var pending: PendingCapture?
+    @State private var pendingMultimodal: PendingSharedMultimodal?
+    @State private var localRecoveryID = UUID().uuidString
     @State private var receipt: CaptureReceipt?
     @State private var message: String?
     @State private var canRetry = true
@@ -53,6 +62,7 @@ struct CaptureForm: View {
         let text: String
         let attachmentIDs: [UUID]
         let note: String
+        let reviewedTranscript: String?
     }
     private struct AnalysisRequest: Equatable {
         let input: AnalysisInput
@@ -82,11 +92,11 @@ struct CaptureForm: View {
             && note.count <= maxNote && savedText.count <= 12000 && !loadingMedia
             && (effectiveConnection == nil || (cloudCompatible && connectedNote.count <= maxNote))
     }
-    private var frozen: Bool { pending != nil || saving || receipt != nil }
-    private var canSave: Bool { !saving && canRetry && receipt == nil && (pending != nil || valid) }
+    private var frozen: Bool { pending != nil || pendingMultimodal != nil || saving || receipt != nil }
+    private var canSave: Bool { !voiceRecorder.isRecording && !saving && canRetry && receipt == nil && (pending != nil || pendingMultimodal != nil || valid) }
     private var currentAnalysisInput: AnalysisInput {
         AnalysisInput(url: cleanedLink, title: titleWasEdited ? title.trimmingCharacters(in: .whitespacesAndNewlines) : "",
-                      text: savedText.trimmingCharacters(in: .whitespacesAndNewlines), attachmentIDs: attachments.map(\.id), note: note)
+                      text: savedText.trimmingCharacters(in: .whitespacesAndNewlines), attachmentIDs: attachments.map(\.id), note: note, reviewedTranscript: reviewedTranscript)
     }
     private var analysisRequest: AnalysisRequest {
         AnalysisRequest(input: currentAnalysisInput,
@@ -135,6 +145,8 @@ struct CaptureForm: View {
             }
         }
         .task(id: analysisRequest) { await analyzeCapture(analysisRequest) }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { voiceRecorder.stop() } }
+        .onDisappear { voiceRecorder.cancel() }
         .onChange(of: currentAnalysisInput) { _, _ in
             analysis = nil; analysisInput = nil; analysisError = nil; analyzing = false
             if !titleWasEdited { title = "" }
@@ -221,7 +233,7 @@ struct CaptureForm: View {
                 if connection != nil {
                     Toggle("Keep on this iPhone", isOn: $localDestination).disabled(frozen)
                     if !localDestination && !cloudCompatible {
-                        Text("The shared library accepts one image and an optional link. Turn on ‘Keep on this iPhone’ for multiple photos, files, or text-only finds.")
+                        Text("Shared finds support up to four photos and one M4A or WAV voice note. Keep other file types on this iPhone.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 }
@@ -237,7 +249,8 @@ struct CaptureForm: View {
                         Spacer()
                         if note.count > maxNote - 200 { Text("\(note.count)/\(maxNote)").foregroundStyle(note.count > maxNote ? .red : .secondary) }
                     }.font(.caption).foregroundStyle(.secondary)
-                    if pending == nil { predictiveNotes.id("capturePredictiveNotes") }
+                    voiceNoteControls
+                    if pending == nil && pendingMultimodal == nil { predictiveNotes.id("capturePredictiveNotes") }
                     if effectiveConnection != nil && connectedNote.count > maxNote {
                         Text("Shorten your note or remove a selection before saving to your shared library.")
                             .font(.caption).foregroundStyle(.red)
@@ -262,7 +275,7 @@ struct CaptureForm: View {
                     FindsHaptics.selection()
                     focused = nil; Task { await save() }
                 } label: {
-                    Text(pending == nil ? "Save find" : canRetry ? "Retry save" : "Reconnect or edit to continue")
+                    Text(pending == nil && pendingMultimodal == nil ? "Save find" : canRetry ? "Retry save" : "Reconnect or edit to continue")
                         .font(.headline.bold())
                         .foregroundStyle(canSave ? Color.black : Color.secondary)
                         .frame(maxWidth: .infinity).padding(.vertical, 19)
@@ -272,9 +285,11 @@ struct CaptureForm: View {
                     .disabled(!canSave)
                     .animation(.easeInOut(duration: 0.18), value: canSave)
                     .accessibilityIdentifier("captureSave")
-                Text(CaptureIntelligence.isConfigured
-                     ? "OpenAI combines your photos and note. Analysis uses temporary server drafts; your library stays on this iPhone. You can save without waiting."
-                     : "Your note stays with your find.")
+                Text(effectiveConnection != nil
+                     ? "Your photos and voice are analyzed together, then saved to your shared Library. A recovery copy stays on this iPhone."
+                     : CaptureIntelligence.isConfigured
+                        ? "Your photos and note are analyzed together. You can save now; insights appear in your Library when ready."
+                        : "Your note stays with your find.")
                     .font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity)
             }.padding(24).frame(maxWidth: 600).frame(maxWidth: .infinity)
           }.scrollDismissesKeyboard(.interactively)
@@ -286,6 +301,36 @@ struct CaptureForm: View {
               }
           }
           #endif
+        }
+    }
+
+    private var voiceNoteControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if voiceRecorder.isRecording {
+                Button { voiceRecorder.stop() } label: {
+                    Label("Stop recording · \(voiceRecorder.elapsed)s / 60s", systemImage: "stop.circle.fill")
+                }.tint(.red).accessibilityIdentifier("captureStopVoice")
+            } else if !attachments.contains(where: { UTType($0.value.typeIdentifier)?.conforms(to: .audio) == true }) {
+                Button {
+                    focused = nil
+                    Task { await voiceRecorder.start { value in
+                        do { try addAttachment(value) } catch { message = error.localizedDescription }
+                    } }
+                } label: { Label("Record a voice note", systemImage: "mic") }
+                    .disabled(frozen || loadingMedia || voiceRecorder.isPreparing).accessibilityIdentifier("captureRecordVoice")
+            }
+            if let error = voiceRecorder.errorMessage { Text(error).font(.caption).foregroundStyle(.secondary) }
+            if transcriptText != nil {
+                Text("Your voice note").font(.subheadline.bold())
+                TextField("Review the transcript", text: Binding(get: { transcriptText ?? "" }, set: { transcriptText = $0 }), axis: .vertical)
+                    .lineLimit(3...8).disabled(frozen).accessibilityIdentifier("captureTranscript")
+                Button("Use corrected transcript") {
+                    reviewedTranscript = transcriptText?.trimmingCharacters(in: .whitespacesAndNewlines)
+                }.disabled(frozen || (transcriptText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+                    || (transcriptText?.count ?? 0) > 8000 || transcriptText == (reviewedTranscript ?? currentAnalysis?.transcript))
+                Text("Corrections update your suggestions. Your recording remains with this find until you remove it.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -378,10 +423,11 @@ struct CaptureForm: View {
             guard recordings.count <= 1 else { throw MultimodalDraftAnalysis.Failure.unsupportedAudio }
             let audio = try recordings.first.map { try MultimodalDraftAnalysis.Audio(data: $0.value.data, filename: $0.value.filename) }
             let result = try await CaptureIntelligence.analyze(url: request.input.url.isEmpty ? nil : request.input.url,
-                title: request.input.title, text: request.input.text, note: request.input.note, imageData: images.first, additionalImages: Array(images.dropFirst()), audio: audio)
+                title: request.input.title, text: request.input.text, note: request.input.note, imageData: images.first, additionalImages: Array(images.dropFirst()), audio: audio, reviewedTranscript: request.input.reviewedTranscript)
             try Task.checkCancellation()
             guard request == analysisRequest, requestID == analysisRequestID else { return }
             analysis = result; analysisInput = request.input
+            if let transcript = result.transcript { transcriptText = transcript }
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-verifyMultimodalDraft") {
                 let report = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("multimodal-device-verification.json")
@@ -425,28 +471,37 @@ struct CaptureForm: View {
                 let saved = try await LocalLibrary.shared.captureContent(url: cleanedLink.isEmpty ? nil : cleanedLink, title: resolvedTitle,
                     text: savedText, note: note, source: captureSource, attachments: attachments.map(\.value),
                     intents: selectedIntents, analysis: analysisToSave, userEditedTitle: titleWasEdited)
+                if let reviewedTranscript { try await LocalLibrary.shared.setReviewedTranscript(saved.id, reviewedTranscript) }
                 receipt = saved
+                LocalAnalysisCoordinator.shared.resume()
                 FindsHaptics.success(); onSave()
                 return
             }
-            let draft = pending ?? PendingCapture(
-                request: CaptureRequest(url: cleanedLink.isEmpty ? nil : cleanedLink, title: resolvedTitle, source: captureSource,
-                    selectedText: savedText, note: connectedNote, client: .iosApp,
-                    imageDataUrl: attachments.first.map { "data:image/jpeg;base64," + $0.value.data.base64EncodedString() }),
-                accountId: connection.accountId, baseURL: connection.baseURL)
-            let outbox = try SharedEnvironment.outbox()
-            try await outbox.enqueue(draft)
-            pending = draft // Only describe an on-device save after durable enqueue succeeds.
+            let outbox = SharedMultimodalOutbox.shared
+            let draft: PendingSharedMultimodal
+            if let existing = pendingMultimodal { draft = existing }
+            else {
+                // Save a recoverable original before any network request.
+                _ = try await LocalLibrary.shared.captureContent(url: cleanedLink.isEmpty ? nil : cleanedLink,
+                    title: resolvedTitle, text: savedText, note: note, source: captureSource, attachments: attachments.map(\.value),
+                    id: localRecoveryID, intents: selectedIntents, analysis: analysisToSave, userEditedTitle: titleWasEdited)
+                let entry = PendingSharedMultimodal(id: UUID().uuidString, accountID: connection.accountId,
+                    origin: connection.baseURL, localID: localRecoveryID,
+                    request: .init(title: resolvedTitle, text: savedText, note: connectedNote,
+                        url: cleanedLink.isEmpty ? nil : cleanedLink, client: .iosApp), attachments: attachments.map(\.value),
+                    reviewedTranscript: reviewedTranscript)
+                try await outbox.enqueue(entry)
+                pendingMultimodal = entry; draft = entry
+            }
             let client = try connection.client()
             try await connection.verify(client)
-            let result = try await client.capture(draft.request, key: draft.key)
-            receipt = result
-            do { try await outbox.remove(draft) }
-            catch { message = "Saved online. A local queue entry will be reconciled on your next sync." }
-            onSave()
+            try await outbox.retryAnalysis(draft.id, client: client, accountID: connection.accountId, origin: connection.baseURL)
+            receipt = try await outbox.send(draft.id, client: client, accountID: connection.accountId, origin: connection.baseURL)
+            pendingMultimodal = nil
+            FindsHaptics.success(); onSave()
         } catch {
             if let api = error as? APIError { canRetry = api.retryable }
-            message = pending == nil ? error.localizedDescription
+            message = pending == nil && pendingMultimodal == nil ? error.localizedDescription
                 : "Pending on this device. \(error.localizedDescription) You can close this sheet and manage it in Profile."
         }
     }
@@ -485,7 +540,10 @@ struct CaptureForm: View {
                         HStack {
                             Text(attachment.value.filename).font(.caption).lineLimit(1)
                             Spacer()
-                            Button("Remove", role: .destructive) { attachments.removeAll { $0.id == attachment.id } }
+                            Button("Remove", role: .destructive) {
+                                attachments.removeAll { $0.id == attachment.id }
+                                if UTType(attachment.value.typeIdentifier)?.conforms(to: .audio) == true { transcriptText = nil; reviewedTranscript = nil }
+                            }
                                 .font(.caption).disabled(frozen)
                         }.frame(width: 276)
                     }
@@ -497,7 +555,6 @@ struct CaptureForm: View {
         guard attachments.count < 10, value.data.count <= 12 * 1024 * 1024,
               attachments.reduce(value.data.count, { $0 + $1.value.data.count }) <= 24 * 1024 * 1024 else { throw LocalLibrary.LocalError.mediaTooLarge }
         attachments.append(DraftAttachment(value: value))
-        if attachments.count > 1 || value.typeIdentifier != UTType.jpeg.identifier { localDestination = true }
     }
     @MainActor private func loadPhotos(_ selection: [PhotosPickerItem]) async {
         guard !selection.isEmpty else { return }
