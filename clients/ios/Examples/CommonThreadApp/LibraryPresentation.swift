@@ -137,7 +137,16 @@ struct SavedContentView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 28)).accessibilityHidden(true)
                         Label("Sample find", systemImage: "bookmark").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
                     } else if item.hasImage {
-                        FindImage(item: item, connection: connection).clipShape(RoundedRectangle(cornerRadius: 28))
+                        FindImage(item: displayed, connection: connection)
+                            .overlay(alignment: .bottom) {
+                                if localOnly, let analysis = metadata.analysis, !analysis.prompts.isEmpty {
+                                    FindIntentOverlay(prompts: analysis.prompts, selected: metadata.selectedIntents,
+                                                      busy: updating || deleting) { value in
+                                        Task { await toggleIntent(value) }
+                                    }.padding(13)
+                                }
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 28))
                     } else {
                         Image(systemName: style.symbol).font(.system(size: 36, weight: .medium)).foregroundStyle(style.color)
                             .frame(width: 86, height: 86).background(style.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 28))
@@ -176,7 +185,8 @@ struct SavedContentView: View {
                     }.buttonStyle(.bordered).disabled(deleting || updating)
                     if !metadata.attachments.isEmpty { AttachmentGallery(attachments: metadata.attachments) }
                 }
-                SavedIntelligenceSection(item: displayed, connection: connection, onChanged: onChanged)
+                SavedIntelligenceSection(item: displayed, connection: connection, onChanged: intelligenceChanged)
+                    .id("\(displayed.id)|\(metadata.analysis?.analyzedAt ?? 0)|\(metadata.selectedIntents.joined(separator: "|"))")
                 if let errorMessage {
                     Text(errorMessage).font(.subheadline).foregroundStyle(.red).accessibilityIdentifier("savedFindError")
                     if deletionFailed {
@@ -208,7 +218,7 @@ struct SavedContentView: View {
             Button("Remove from library", role: .destructive) { Task { await delete() } }
             Button("Keep it", role: .cancel) {}
         } message: { Text(localOnly ? "This removes the find and its note from this iPhone." : "This removes the link and its note from your library on all connected devices.") }
-        .task { await reloadLocal() }
+        .task(id: "\(item.id)|\(item.revision)") { await reloadLocal() }
         .sheet(isPresented: $showingEditor) { EditFindSheet(item: displayed) { onChanged(); Task { await reloadLocal() } } }
         .onChange(of: stillSaved) { _, present in if !present { dismiss() } }
     }
@@ -218,6 +228,25 @@ struct SavedContentView: View {
         do {
             metadata = try await LocalLibrary.shared.metadata()[item.id] ?? LocalFindMetadata()
             latestItem = try await LocalLibrary.shared.collection().first { $0.id == item.id }
+        } catch { errorMessage = error.localizedDescription }
+    }
+    private func intelligenceChanged() {
+        onChanged()
+        Task { await reloadLocal() }
+    }
+    private func toggleIntent(_ value: String) async {
+        guard !updating, !deleting else { return }
+        updating = true; errorMessage = nil; deletionFailed = false
+        defer { updating = false }
+        var values = metadata.selectedIntents
+        if values.contains(value) { values.removeAll { $0 == value } } else { values.append(value) }
+        guard values.count <= 8 else {
+            errorMessage = "You can choose up to 8 details. Remove one to add another."
+            return
+        }
+        do {
+            try await LocalLibrary.shared.setIntents(item.id, values)
+            await reloadLocal(); FindsHaptics.selection(); onChanged()
         } catch { errorMessage = error.localizedDescription }
     }
     private func toggleFavorite() async {

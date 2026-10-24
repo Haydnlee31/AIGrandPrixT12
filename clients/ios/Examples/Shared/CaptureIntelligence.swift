@@ -2,6 +2,7 @@ import Foundation
 import Security
 import UIKit
 import LinkPresentation
+import UniformTypeIdentifiers
 
 /// The phone holds only a scoped relay credential. The OpenAI key stays on the server.
 enum CaptureIntelligence {
@@ -83,11 +84,12 @@ enum CaptureIntelligence {
         }
     }
     @MainActor static func analyze(url: String?, title: String, text: String, note: String, imageData: Data?) async throws -> CaptureIntelligenceResult {
-        guard let config = try configuration() else { throw Failure.configuration }
         var contextTitle = title
-        let contextImage = imageData
-        // LinkPresentation can supply the actual page title when the source permits it.
-        // Obvious local addresses are excluded; no authentication is supplied by the app.
+        var contextImage = imageData
+        var contextText = text
+        // Enrich the model input, independently of the user's editable display title.
+        // Never substitute the site's icon for product imagery. Failed/slow metadata
+        // stays optional and cannot block local saving or keep this request hanging.
         if let raw = url, let page = publicURL(raw), imageData == nil {
             let provider = LPMetadataProvider(); provider.timeout = 6
             do {
@@ -95,13 +97,22 @@ enum CaptureIntelligence {
                     try await provider.startFetchingMetadata(for: page)
                 } onCancel: { provider.cancel() }
                 try Task.checkCancellation()
-                if (title.isEmpty || title == page.host), let fetched = metadata.title {
-                    contextTitle = String(fetched.prefix(300))
+                if let fetched = metadata.title?.trimmingCharacters(in: .whitespacesAndNewlines), !fetched.isEmpty {
+                    if title.isEmpty || title == page.host || ["A new find", "A photo worth saving"].contains(title) {
+                        contextTitle = String(fetched.prefix(300))
+                    }
+                    // Captions such as "Post from …" and custom names must not
+                    // suppress a more informative title supplied by the source page.
+                    contextText = "Source page title: " + String(fetched.prefix(600)) + (text.isEmpty ? "" : "\n" + text)
                 }
+                if let provider = metadata.imageProvider, let bytes = await readMetadataImage(provider) {
+                    contextImage = bytes
+                }
+                try Task.checkCancellation()
             } catch is CancellationError { throw CancellationError() } catch { /* URL-only uncertainty is handled by the model. */ }
         }
         try Task.checkCancellation()
-        var payload: [String: Any] = ["title": String(contextTitle.prefix(300)), "text": String(text.prefix(12_000)), "note": String(note.prefix(2_000))]
+        var payload: [String: Any] = ["title": String(contextTitle.prefix(300)), "text": String(contextText.prefix(12_000)), "note": String(note.prefix(2_000))]
         if let url, !url.isEmpty { payload["url"] = url }
         if let data = contextImage, let image = UIImage(data: data) {
             let scale = min(1, 1024 / max(image.size.width, image.size.height))
@@ -112,31 +123,102 @@ enum CaptureIntelligence {
                 payload["image_data_url"] = "data:image/jpeg;base64," + bytes.base64EncodedString()
             }
         }
-        var request = URLRequest(url: config.baseURL.appendingPathComponent("v1/capture-preview"))
-        request.httpMethod = "POST"; request.timeoutInterval = 55
+        let data = try await post(path: "v1/capture-preview", body: JSONSerialization.data(withJSONObject: payload))
+        do {
+            let value = try JSONDecoder().decode(CaptureIntelligenceResult.self, from: data)
+            guard value.schemaVersion == 2, value.prompts.count <= 3, value.prompts.allSatisfy({ !$0.text.isEmpty && $0.text.count <= 180 }),
+                  Set(value.prompts.map(\.id)).count == value.prompts.count else { throw Failure.unreadable }
+            return value
+        } catch { throw Failure.unreadable }
+    }
+
+    /// NSItemProvider callbacks are not guaranteed to arrive after cancellation.
+    /// One protected continuation is completed by the first callback/timeout/cancel.
+    private final class MetadataImageRead: @unchecked Sendable {
+        private let lock = NSLock()
+        private var completed = false
+        private var continuation: CheckedContinuation<Data?, Never>?
+        private var progress: Progress?
+
+        func install(_ value: CheckedContinuation<Data?, Never>) -> Bool {
+            lock.lock()
+            if completed { lock.unlock(); value.resume(returning: nil); return false }
+            continuation = value; lock.unlock(); return true
+        }
+        func register(_ value: Progress) {
+            lock.lock()
+            let alreadyCompleted = completed
+            if !alreadyCompleted { progress = value }
+            lock.unlock()
+            if alreadyCompleted { value.cancel() }
+        }
+        func finish(_ data: Data?) {
+            lock.lock()
+            guard !completed else { lock.unlock(); return }
+            completed = true
+            let continuation = self.continuation; self.continuation = nil
+            let progress = self.progress; self.progress = nil
+            lock.unlock()
+            progress?.cancel()
+            continuation?.resume(returning: data)
+        }
+    }
+    private static func readMetadataImage(_ provider: NSItemProvider) async -> Data? {
+        guard let type = provider.registeredTypeIdentifiers.first(where: { UTType($0)?.conforms(to: .image) == true }) else { return nil }
+        let read = MetadataImageRead()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard read.install(continuation) else { return }
+                let progress = provider.loadDataRepresentation(forTypeIdentifier: type) { data, _ in
+                    read.finish(data.flatMap { $0.count <= 4 * 1024 * 1024 ? $0 : nil })
+                }
+                read.register(progress)
+                Task {
+                    try? await Task.sleep(for: .seconds(3))
+                    read.finish(nil)
+                }
+            }
+        } onCancel: { read.finish(nil) }
+    }
+
+    /// One bounded retry handles a transient tunnel/mobile connection without
+    /// requiring a second tap. A server cache coalesces repeated analysis inputs.
+    static func post(path: String, body: Data) async throws -> Data {
+        guard ["v1/capture-preview", "v1/recommendations"].contains(path),
+              let config = try configuration() else { throw Failure.configuration }
+        var request = URLRequest(url: config.baseURL.appendingPathComponent(path))
+        request.httpMethod = "POST"; request.timeoutInterval = 50
         request.setValue("Bearer " + config.accessToken, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        request.httpBody = body
         let settings = URLSessionConfiguration.ephemeral
-        settings.timeoutIntervalForRequest = 55; settings.timeoutIntervalForResource = 65
+        settings.timeoutIntervalForRequest = 50; settings.timeoutIntervalForResource = 60
         settings.urlCache = nil; settings.httpCookieStorage = nil
         let session = URLSession(configuration: settings, delegate: NoRedirect(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
-        do {
-            let (data, response) = try await session.data(for: request)
+        for attempt in 0...1 {
             try Task.checkCancellation()
-            guard let http = response as? HTTPURLResponse else { throw Failure.network }
-            if http.statusCode == 401 || http.statusCode == 403 { throw Failure.unauthorized }
-            if http.statusCode == 429 { throw Failure.busy }
-            guard http.statusCode == 200 else { throw Failure.unavailable }
-            guard data.count <= 256_000 else { throw Failure.unreadable }
-            let value = try JSONDecoder().decode(CaptureIntelligenceResult.self, from: data)
-            guard value.prompts.count <= 3, value.prompts.allSatisfy({ !$0.text.isEmpty && $0.text.count <= 180 }),
-                  Set(value.prompts.map(\.id)).count == value.prompts.count else { throw Failure.unreadable }
-            return value
-        } catch is CancellationError { throw CancellationError() }
-        catch let failure as Failure { throw failure }
-        catch { if Task.isCancelled { throw CancellationError() }; throw Failure.network }
+            do {
+                let (data, response) = try await session.data(for: request)
+                try Task.checkCancellation()
+                guard let http = response as? HTTPURLResponse else { throw Failure.network }
+                if http.statusCode == 401 || http.statusCode == 403 { throw Failure.unauthorized }
+                if attempt == 0 && [429, 502, 503, 504].contains(http.statusCode) {
+                    try await Task.sleep(for: .seconds(1)); continue
+                }
+                if http.statusCode == 429 { throw Failure.busy }
+                guard http.statusCode == 200 else { throw Failure.unavailable }
+                guard data.count <= 512_000 else { throw Failure.unreadable }
+                return data
+            } catch is CancellationError { throw CancellationError() }
+            catch let failure as Failure { throw failure }
+            catch {
+                if Task.isCancelled { throw CancellationError() }
+                if attempt == 0 { try await Task.sleep(for: .seconds(1)); continue }
+                throw Failure.network
+            }
+        }
+        throw Failure.network
     }
     private static func publicURL(_ value: String) -> URL? {
         guard let url = URL(string: value), ["https", "http"].contains(url.scheme ?? ""), let host = url.host?.lowercased(),

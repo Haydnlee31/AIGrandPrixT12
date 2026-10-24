@@ -12,6 +12,9 @@ struct LocalShareDraft: Codable, Identifiable, Sendable {
     var text: String
     var note: String
     var attachments: [LocalShareAttachment]
+    var intents: [String]? = nil
+    var analysis: CaptureIntelligenceResult? = nil
+    var userEditedTitle: Bool? = nil
 }
 
 struct LocalShareAttachment: Codable, Identifiable, Sendable {
@@ -101,6 +104,9 @@ enum LocalShareInbox {
         }
         if draft.text.count > 12_000 { return "Shorten the captured text to 12,000 characters (currently \(draft.text.count))." }
         if draft.note.count > 2_000 { return "Shorten your note to 2,000 characters (currently \(draft.note.count))." }
+        if let intents = draft.intents, intents.count > 8 || intents.contains(where: { $0.count > 500 }) || intents.reduce(0, { $0 + $1.count }) > 4000 {
+            return "Choose up to 8 details, with up to 500 characters each."
+        }
         return nil
     }
     static func save(_ draft: LocalShareDraft) throws {

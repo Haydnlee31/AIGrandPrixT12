@@ -12,6 +12,8 @@ xcrun swiftc -swift-version 5 -module-cache-path "$scratch/modules" \
   -I "$scratch" -L "$scratch" -lCommonThreadKit \
   -Xlinker -rpath -Xlinker "$scratch" \
   "$ios_root/Examples/Shared/CaptureIntelligenceModels.swift" \
+  "$ios_root/Examples/Shared/LocalShareInbox.swift" \
+  "$ios_root/Examples/CommonThreadApp/LocalShareImport.swift" \
   "$ios_root/Examples/CommonThreadApp/LocalLibrary.swift" \
   "$ios_root/Scripts/local_library_smoke.swift" -o "$scratch/local-smoke"
 "$scratch/local-smoke"

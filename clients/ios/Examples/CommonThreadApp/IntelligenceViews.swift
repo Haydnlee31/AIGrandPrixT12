@@ -44,7 +44,7 @@ private func isCurrentMerchantOffer(_ product: CatalogRecord) -> Bool {
     return true
 }
 
-private struct IntelligenceCard<Content: View>: View {
+struct IntelligenceCard<Content: View>: View {
     let title: String
     let symbol: String
     @ViewBuilder var content: Content
@@ -163,60 +163,47 @@ struct SavedIntelligenceSection: View {
     }
 
     private var analysisCard: some View {
-        IntelligenceCard(title: "A closer look", symbol: "viewfinder") {
+        IntelligenceCard(title: "Based on your find", symbol: "sparkle.magnifyingglass") {
             if let analysis = current.analysis {
-                Text(analysis.summary).font(.body)
-                ForEach(Array(analysis.products.enumerated()), id: \.offset) { _, product in
-                    Divider()
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(product.productType.capitalized).font(.headline)
-                        if !product.categoryPath.isEmpty {
-                            Text(product.categoryPath.joined(separator: " › ")).font(.caption).foregroundStyle(.secondary)
-                        }
-                        factRow("Brand", fact: product.brand)
-                        factRow("Model", fact: product.model)
-                        ForEach(Array(product.attributes.enumerated()), id: \.offset) { _, attribute in
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("\(attribute.name.capitalized): \(attribute.value)").font(.subheadline)
-                                Text(attribute.certainty == .inferred ? "Interpretation · \(attribute.evidence)" : "From your save · \(attribute.evidence)")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                        if !product.useCases.isEmpty { Text("Ideas: " + product.useCases.joined(separator: ", ")).font(.subheadline).foregroundStyle(.secondary) }
-                    }
-                }
-                if !analysis.intentContext.isEmpty {
-                    DisclosureGroup("Possible context") {
-                        ForEach(analysis.intentContext, id: \.self) { Text($0).font(.subheadline).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 3) }
-                        Text("An interpretation of this save, not a confirmed preference.").font(.caption).foregroundStyle(.secondary)
-                    }
+                Text(analysis.summary).font(.title3.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                ForEach(Array(customerObservations.prefix(3).enumerated()), id: \.offset) { index, observation in
+                    FindInsightRow(text: observation, index: index)
                 }
                 if !analysis.uncertainties.isEmpty {
-                    DisclosureGroup("What’s still uncertain") {
-                        ForEach(analysis.uncertainties, id: \.self) { Text($0).font(.subheadline).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 3) }
-                    }
+                    DisclosureGroup("A few things to check") {
+                        ForEach(analysis.uncertainties, id: \.self) {
+                            Text($0).font(.subheadline).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
+                        }
+                    }.font(.subheadline.weight(.semibold))
                 }
             }
             switch current.analysisStatus {
             case .pending:
-                Label("Your find is saved. Its details are still being understood.", systemImage: "clock").font(.subheadline).foregroundStyle(.secondary)
+                Label("Your find is saved. Taking a closer look…", systemImage: "sparkles").font(.subheadline).foregroundStyle(.secondary)
             case .failed:
-                Label("Your find is saved. Analysis couldn’t finish.", systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(.secondary)
+                Label("Your find is saved. We couldn’t finish looking at it yet.", systemImage: "arrow.clockwise").font(.subheadline).foregroundStyle(.secondary)
             case .unavailable:
-                Text("Your original and note are saved. Analysis isn’t available for this find yet.").font(.subheadline).foregroundStyle(.secondary)
+                Text("Your original and note are here. Add a little context to make this find yours.").font(.subheadline).foregroundStyle(.secondary)
             case .ready: EmptyView()
             }
             if capabilities?.features["product_analysis"] == true {
-                Button(current.analysis == nil ? "Analyze this find" : "Refresh details", systemImage: "arrow.clockwise") { analyze() }.disabled(busy)
+                Button(current.analysis == nil ? "Take a closer look" : "Refresh ideas", systemImage: "arrow.clockwise") { analyze() }.disabled(busy)
             }
         }
     }
 
-    private func factRow(_ title: String, fact: ProductFact?) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("\(title): \(fact?.value ?? "Unknown")").font(.subheadline)
-            if let fact { Text("\(fact.certainty == .inferred ? "Interpretation" : "From your save") · \(fact.evidence)").font(.caption).foregroundStyle(.secondary) }
+    private var customerObservations: [String] {
+        guard let analysis = current.analysis else { return [] }
+        var observations: [String] = []
+        for product in analysis.products {
+            let evidence = product.attributes.map(\.evidence) + [product.brand?.evidence, product.model?.evidence].compactMap { $0 }
+            for text in evidence where !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !observations.contains(text) {
+                observations.append(text)
+            }
         }
+        return observations
     }
 
     @MainActor private func refreshAnalysis(_ api: CommonThreadClient) async {
@@ -303,7 +290,7 @@ struct ExploreScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     if connection == nil {
-                        ExplorePreviewScreen(query: $query, libraryRevision: libraryRevision, onChanged: onLocalChange)
+                        LocalExploreScreen(query: query, libraryRevision: libraryRevision + refreshID.uuidString, onChanged: onLocalChange)
                     } else {
                         Text(query.isEmpty ? "Ideas shaped by what you’ve saved." : "Explore the details that matter to you.").font(.subheadline).foregroundStyle(.secondary)
                         if !results.isEmpty {

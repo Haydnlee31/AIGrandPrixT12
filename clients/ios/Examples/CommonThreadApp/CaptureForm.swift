@@ -11,6 +11,8 @@ struct CaptureForm: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var link = ""
     @State private var title = ""
+    @State private var titleWasEdited = false
+    @State private var selectedIntents: [String] = []
     @State private var note = ""
     @State private var savedText = ""
     @State private var attachments: [DraftAttachment] = []
@@ -63,10 +65,13 @@ struct CaptureForm: View {
     private var resolvedTitle: String {
         let text = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty { return text }
-        if let host = URL(string: cleanedLink)?.host { return host }
-        if let attachment = attachments.first { return (attachment.value.filename as NSString).deletingPathExtension }
+        if !cleanedLink.isEmpty { return "A new find" }
+        if let attachment = attachments.first {
+            return attachment.preview == nil ? (attachment.value.filename as NSString).deletingPathExtension : "A photo worth saving"
+        }
         return String(savedText.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
     }
+    private var connectedNote: String { ([note] + selectedIntents).filter { !$0.isEmpty }.joined(separator: "\n") }
     private var valid: Bool {
         if !cleanedLink.isEmpty {
             guard let url = URL(string: cleanedLink), ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
@@ -75,12 +80,12 @@ struct CaptureForm: View {
         return (!cleanedLink.isEmpty || !attachments.isEmpty || !savedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             && !resolvedTitle.isEmpty && cleanedLink.count <= maxURL && resolvedTitle.count <= maxTitle
             && note.count <= maxNote && savedText.count <= 12000 && !loadingMedia
-            && (effectiveConnection == nil || cloudCompatible)
+            && (effectiveConnection == nil || (cloudCompatible && connectedNote.count <= maxNote))
     }
     private var frozen: Bool { pending != nil || saving || receipt != nil }
     private var canSave: Bool { !saving && canRetry && receipt == nil && (pending != nil || valid) }
     private var currentAnalysisInput: AnalysisInput {
-        AnalysisInput(url: cleanedLink, title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+        AnalysisInput(url: cleanedLink, title: titleWasEdited ? title.trimmingCharacters(in: .whitespacesAndNewlines) : "",
                       text: savedText.trimmingCharacters(in: .whitespacesAndNewlines), attachmentIDs: attachments.map(\.id))
     }
     private var analysisRequest: AnalysisRequest {
@@ -122,6 +127,7 @@ struct CaptureForm: View {
         .task(id: analysisRequest) { await analyzeCapture(analysisRequest) }
         .onChange(of: currentAnalysisInput) { _, _ in
             analysis = nil; analysisInput = nil; analysisError = nil; analyzing = false
+            if !titleWasEdited { title = "" }
         }
         .onDisappear { stopVoice() }
         .onChange(of: scenePhase) { _, phase in if phase != .active { stopVoice() } }
@@ -186,7 +192,7 @@ struct CaptureForm: View {
                         .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .focused($focused, equals: .link).accessibilityIdentifier("captureURL")
                     Divider()
-                    TextField("Give it a title (optional)", text: $title)
+                    TextField("A name for your find", text: Binding(get: { title }, set: { title = $0; titleWasEdited = true }))
                         .focused($focused, equals: .title).accessibilityIdentifier("captureTitle")
                 }.padding(20).background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 24)).disabled(frozen)
                 if connection != nil {
@@ -199,7 +205,7 @@ struct CaptureForm: View {
 
                 VStack(alignment: .leading, spacing: 13) {
                     HStack {
-                        Text("Why are you saving this?").font(.headline.bold())
+                        Text("What caught your eye?").font(.title3.bold())
                         Spacer()
                         Button { toggleVoice() } label: {
                             Image(systemName: recorder.isRecording ? "stop.fill" : "mic.fill")
@@ -210,8 +216,8 @@ struct CaptureForm: View {
                             .accessibilityLabel(recorder.isRecording || startingVoice ? "Stop voice note" : "Record a voice note")
                             .accessibilityIdentifier("captureMicrophone")
                     }
-                    TextField("What caught your eye? Add a note…", text: $note, axis: .vertical)
-                        .lineLimit(4...8).focused($focused, equals: .note)
+                    TextField("The shape, the feeling, something you need…", text: $note, axis: .vertical)
+                        .lineLimit(2...6).focused($focused, equals: .note)
                         .disabled(frozen || recorder.isRecording || startingVoice)
                         .accessibilityIdentifier("captureNote")
                     HStack {
@@ -219,9 +225,12 @@ struct CaptureForm: View {
                         Spacer()
                         if note.count > maxNote - 200 { Text("\(note.count)/\(maxNote)").foregroundStyle(note.count > maxNote ? .red : .secondary) }
                     }.font(.caption).foregroundStyle(.secondary)
+                    if pending == nil { predictiveNotes.id("capturePredictiveNotes") }
+                    if effectiveConnection != nil && connectedNote.count > maxNote {
+                        Text("Shorten your note or remove a selection before saving to your shared library.")
+                            .font(.caption).foregroundStyle(.red)
+                    }
                 }.padding(20).background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 24))
-
-                if pending == nil { predictiveNotes.id("capturePredictiveNotes") }
                 if let text = message ?? recorder.errorMessage {
                     Label(text, systemImage: "info.circle").font(.subheadline).foregroundStyle(.secondary)
                         .accessibilityIdentifier("captureStatus")
@@ -273,50 +282,66 @@ struct CaptureForm: View {
             if analyzing {
                 HStack(spacing: 10) {
                     ProgressView()
-                    Text("Understanding this find…").font(.subheadline).foregroundStyle(.secondary)
+                    Text("Finding what makes this interesting…").font(.subheadline).foregroundStyle(.secondary)
                 }.accessibilityIdentifier("captureAnalysisLoading")
             } else if let analysis = currentAnalysis {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(analysis.productName ?? "About this find", systemImage: "sparkles").font(.subheadline.bold())
-                    if !analysis.categoryPath.isEmpty {
-                        Text(analysis.categoryPath.joined(separator: " › ")).font(.caption).foregroundStyle(.secondary)
+                if !analysis.prompts.isEmpty {
+                    Text("Pick anything that feels right. You can choose more than one.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    ForEach(Array(analysis.prompts.enumerated()), id: \.element.id) { index, prompt in
+                        intentionButton(prompt.text, index: index)
                     }
-                    Text(analysis.summary).font(.subheadline).foregroundStyle(.secondary)
-                    if let uncertainty = analysis.uncertainties.first {
-                        Text(uncertainty).font(.caption).foregroundStyle(.secondary)
-                    }
-                }.accessibilityIdentifier("captureProductContext")
-                if note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !analysis.prompts.isEmpty {
-                    Text("What matters to you?").font(.subheadline.bold())
-                    ForEach(analysis.prompts, id: \.id) { prompt in
-                        Button {
-                            note = prompt.text
-                            focused = .note
-                            FindsHaptics.selection()
-                        } label: {
-                            HStack(spacing: 10) {
-                                Text(prompt.text).font(.subheadline.weight(.medium)).multilineTextAlignment(.leading)
-                                Spacer(minLength: 4)
-                                Image(systemName: "arrow.up.left").font(.caption.bold()).foregroundStyle(.secondary)
-                            }.padding(.horizontal, 16).padding(.vertical, 13)
-                                .background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 16))
-                        }.buttonStyle(.plain).disabled(frozen || recorder.isRecording || startingVoice)
-                    }
+                } else {
+                    Text("Tell us what you like in your own words.").font(.subheadline).foregroundStyle(.secondary)
                 }
             } else if let analysisError {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Suggestions are unavailable. Your find can still be saved.").font(.subheadline).foregroundStyle(.secondary)
+                    Text("Suggestions couldn’t load yet. Your find can still be saved.").font(.subheadline).foregroundStyle(.secondary)
                     Text(analysisError).font(.caption).foregroundStyle(.secondary)
-                    Button("Retry suggestions") { self.analysisError = nil; analysisRetry += 1 }
+                    Button("Try suggestions again") { self.analysisError = nil; analysisRetry += 1 }
                         .font(.subheadline.bold()).disabled(!analysisRequest.ready)
                 }.accessibilityIdentifier("captureAnalysisError")
-            } else if note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(CaptureIntelligence.isConfigured
-                     ? "Add a link, photo, or text for suggestions about this find."
-                     : "Add a note in your own words. Tailored suggestions will appear when AI is connected.")
+            } else if CaptureIntelligence.isConfigured {
+                Text("Add a link, photo, or text to get suggestions for this find.")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
+            // Retain selected answers if the content changes while the user edits.
+            let extraSelections = selectedIntents.filter { selected in
+                !(currentAnalysis?.prompts.contains { $0.text == selected } ?? false)
+            }
+            ForEach(extraSelections, id: \.self) { text in intentionButton(text, index: 0) }
+            if CaptureIntelligence.isConfigured {
+                Text("Your shared content is sent to OpenAI for these suggestions.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func intentionButton(_ text: String, index: Int) -> some View {
+        let selected = selectedIntents.contains(text)
+        let color: Color = [.blue, .purple, .orange][index % 3]
+        let symbol = ["sparkles", "heart.fill", "slider.horizontal.3"][index % 3]
+        return Button {
+            toggleIntention(text)
+        } label: {
+            HStack(spacing: 13) {
+                Image(systemName: symbol).font(.title3.weight(.semibold)).foregroundStyle(color)
+                    .frame(width: 44, height: 44).background(color.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
+                Text(text).font(.body.weight(.semibold)).multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: selected ? "checkmark.circle.fill" : "plus.circle")
+                    .font(.title3.weight(.semibold)).foregroundStyle(selected ? color : .secondary)
+            }.padding(14).background(color.opacity(selected ? 0.11 : 0.035), in: RoundedRectangle(cornerRadius: 20))
+                .overlay { RoundedRectangle(cornerRadius: 20).strokeBorder(color.opacity(selected ? 0.7 : 0.13), lineWidth: 1) }
+        }.buttonStyle(.plain).disabled(frozen || recorder.isRecording || startingVoice)
+            .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func toggleIntention(_ text: String) {
+        if selectedIntents.contains(text) { selectedIntents.removeAll { $0 == text } }
+        else if selectedIntents.count < 8 { selectedIntents.append(text) }
+        else { message = "You can keep up to eight reasons. Deselect one to add another." }
+        FindsHaptics.selection()
     }
 
     @MainActor private func analyzeCapture(_ request: AnalysisRequest) async {
@@ -328,18 +353,21 @@ struct CaptureForm: View {
             return
         }
         if currentAnalysis != nil { return }
-        analysis = nil; analysisInput = nil; analysisError = nil
+        analysis = nil; analysisInput = nil; analysisError = nil; analyzing = true
         do {
-            try await Task.sleep(for: .seconds(1))
+            try await Task.sleep(for: .milliseconds(350))
             try Task.checkCancellation()
             guard request == analysisRequest, requestID == analysisRequestID else { return }
             analyzing = true
             let imageData = attachments.first { UTType($0.value.typeIdentifier)?.conforms(to: .image) == true }?.value.data
             let result = try await CaptureIntelligence.analyze(url: request.input.url.isEmpty ? nil : request.input.url,
-                title: resolvedTitle, text: request.input.text, note: note, imageData: imageData)
+                title: request.input.title, text: request.input.text, note: note, imageData: imageData)
             try Task.checkCancellation()
             guard request == analysisRequest, requestID == analysisRequestID else { return }
             analysis = result; analysisInput = request.input
+            if !titleWasEdited, let name = result.productName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+                title = String(name.prefix(maxTitle))
+            }
         } catch {
             guard requestID == analysisRequestID else { return }
             analysis = nil; analysisInput = nil
@@ -385,18 +413,15 @@ struct CaptureForm: View {
         do {
             guard let connection = effectiveConnection else {
                 let saved = try await LocalLibrary.shared.captureContent(url: cleanedLink.isEmpty ? nil : cleanedLink, title: resolvedTitle,
-                    text: savedText, note: note, source: captureSource, attachments: attachments.map(\.value))
+                    text: savedText, note: note, source: captureSource, attachments: attachments.map(\.value),
+                    intents: selectedIntents, analysis: analysisToSave, userEditedTitle: titleWasEdited)
                 receipt = saved
-                if !saved.duplicate, let analysisToSave {
-                    do { try await LocalLibrary.shared.setAnalysis(saved.id, analysisToSave) }
-                    catch { message = "Your find is saved. Its AI context could not be stored; your original content and note are safe." }
-                }
                 FindsHaptics.success(); onSave()
                 return
             }
             let draft = pending ?? PendingCapture(
                 request: CaptureRequest(url: cleanedLink.isEmpty ? nil : cleanedLink, title: resolvedTitle, source: captureSource,
-                    selectedText: savedText, note: note, client: .iosApp,
+                    selectedText: savedText, note: connectedNote, client: .iosApp,
                     imageDataUrl: attachments.first.map { "data:image/jpeg;base64," + $0.value.data.base64EncodedString() }),
                 accountId: connection.accountId, baseURL: connection.baseURL)
             let outbox = try SharedEnvironment.outbox()
@@ -417,16 +442,36 @@ struct CaptureForm: View {
     }
     private var attachmentPreviews: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: 14) {
                 ForEach(attachments) { attachment in
                     VStack(alignment: .leading, spacing: 8) {
                         Group {
                             if let preview = attachment.preview { Image(uiImage: preview).resizable().scaledToFill() }
                             else { Image(systemName: "doc.fill").font(.largeTitle).frame(maxWidth: .infinity, maxHeight: .infinity).background(NativeTheme.surface) }
-                        }.frame(width: 120, height: 140).clipShape(RoundedRectangle(cornerRadius: 18))
-                        Text(attachment.value.filename).font(.caption).lineLimit(1).frame(width: 120)
-                        Button("Remove", role: .destructive) { attachments.removeAll { $0.id == attachment.id } }
-                            .font(.caption).disabled(frozen)
+                        }.frame(width: 276, height: 270).clipped()
+                            .overlay(alignment: .bottomLeading) {
+                                if attachment.preview != nil, let prompt = currentAnalysis?.prompts.first {
+                                    Button { toggleIntention(prompt.text) } label: {
+                                        HStack(alignment: .top, spacing: 10) {
+                                            Image(systemName: "sparkles").foregroundStyle(.yellow)
+                                            VStack(alignment: .leading, spacing: 5) {
+                                                Text(prompt.question ?? "What stands out to you?").font(.headline.bold())
+                                                Text(prompt.text).font(.subheadline.weight(.medium)).foregroundStyle(.white.opacity(0.85))
+                                            }.multilineTextAlignment(.leading).frame(maxWidth: .infinity, alignment: .leading)
+                                            Image(systemName: selectedIntents.contains(prompt.text) ? "checkmark.circle.fill" : "plus.circle")
+                                        }.foregroundStyle(.white).padding(14)
+                                            .background(.black.opacity(0.64), in: RoundedRectangle(cornerRadius: 18))
+                                    }.buttonStyle(.plain).padding(12).disabled(frozen)
+                                        .accessibilityHint("Selects: " + prompt.text)
+                                }
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 24))
+                        HStack {
+                            Text(attachment.value.filename).font(.caption).lineLimit(1)
+                            Spacer()
+                            Button("Remove", role: .destructive) { attachments.removeAll { $0.id == attachment.id } }
+                                .font(.caption).disabled(frozen)
+                        }.frame(width: 276)
                     }
                 }
             }

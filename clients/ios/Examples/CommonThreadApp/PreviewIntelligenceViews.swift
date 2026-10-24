@@ -23,120 +23,116 @@ private struct PreviewSection<Content: View>: View {
     }
 }
 
-/// Real local intent editing plus explicitly authored examples of the future AI presentation.
-/// Nothing in this view claims the user's image was analyzed.
+/// Product understanding stays behind the scenes. The customer sees useful observations
+/// and can choose several reasons for saving a find, each independently editable.
 struct LocalIntelligencePreview: View {
     let item: SavedItem
     var onChanged: () -> Void = {}
-    @State private var intent: String?
+    @State private var intents: [String] = []
     @State private var busy = false
     @State private var errorMessage: String?
-    @State private var acknowledgment: String?
-    @State private var showingEditor = false
-    @State private var showingExample = false
+    @State private var editor: IntentEdit?
     @State private var analysis: CaptureIntelligenceResult?
     @State private var analyzing = false
     @State private var analysisError: String?
     private var choices: [String] { analysis?.prompts.map(\.text) ?? [] }
+    private var customIntents: [String] { intents.filter { !choices.contains($0) } }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 22) {
             PreviewSection(title: "What caught your eye?", symbol: "sparkles") {
-                Text(choices.isEmpty ? "Tell us what draws you to this find." : "Suggestions from your find. Choose one, or tell us in your own words.").font(.subheadline).foregroundStyle(.secondary)
-                if analyzing { ProgressView("Looking at your find…").font(.subheadline) }
-                HStack(spacing: 12) {
-                    Label(item.hasImage ? "Photo saved" : "Original saved", systemImage: item.hasImage ? "photo" : "bookmark")
-                    if !item.note.isEmpty { Label("Your note", systemImage: "quote.bubble") }
-                }.font(.caption).foregroundStyle(.secondary)
-                ForEach(choices, id: \.self) { choice in
-                    Button { Task { await saveIntent(choice) } } label: {
-                        HStack {
-                            Image(systemName: intent == choice ? "checkmark.circle.fill" : "plus.circle")
-                            Text(choice).font(.subheadline.weight(.semibold))
-                            Spacer()
-                        }.padding(14).foregroundStyle(intent == choice ? Color.blue : Color.primary)
-                            .background(NativeTheme.bg, in: RoundedRectangle(cornerRadius: 16))
-                    }.buttonStyle(.plain).disabled(busy)
-                }
-                if let intent, !choices.contains(intent) {
-                    Label(intent, systemImage: "checkmark.circle.fill").font(.subheadline).foregroundStyle(.blue)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                HStack {
-                    Button(intent == nil ? "Add your own · type or speak" : "Edit your intention", systemImage: "mic") { showingEditor = true }
-                    Spacer()
-                    Menu {
-                        Button("Clear choice") { Task { await saveIntent(nil, message: "Choice cleared") } }
-                        Button("Skip for now") { acknowledgment = "Skipped for now" }
-                        if intent != nil { Button("Remove intention", role: .destructive) { Task { await saveIntent(nil, message: "Intention removed") } } }
-                    } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("Intention options")
-                }.font(.subheadline).disabled(busy)
-                Text(analysis == nil ? "Your intention stays with this find." : "Generated with OpenAI from the saved context. Your choice remains editable.").font(.caption).foregroundStyle(.secondary)
-                if let analysisError {
-                    Text(analysisError).font(.caption).foregroundStyle(.secondary)
-                    Button("Try suggestions again") { Task { await analyzeFind() } }.disabled(analyzing)
-                }
-                if let acknowledgment { Label(acknowledgment, systemImage: "checkmark.circle").font(.caption).foregroundStyle(.green) }
-                if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.red) }
-            }
-
-            PreviewSection(title: "Understand this find", symbol: "viewfinder") {
-                if let analysis {
-                    Label("Analyzed with OpenAI", systemImage: "sparkles").font(.caption.bold()).foregroundStyle(.blue)
-                    Text(analysis.productName ?? "More context needed").font(.headline.bold())
-                    Text(analysis.summary).font(.subheadline).foregroundStyle(.secondary)
-                    LabeledContent("Category", value: analysis.categoryPath.isEmpty ? "Unknown" : analysis.categoryPath.joined(separator: " › "))
-                    LabeledContent("Brand", value: analysis.brand ?? "Unknown")
-                    LabeledContent("Style", value: analysis.style.isEmpty ? "Unknown" : analysis.style.joined(separator: " · "))
-                    if !analysis.evidence.isEmpty {
-                        Text("Based on your find").font(.subheadline.bold())
-                        ForEach(analysis.evidence, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
+                Text("The look? A little detail? Something you need? Pick everything that feels right.")
+                    .font(.body).foregroundStyle(.secondary)
+                if analyzing { ProgressView("Finding ideas from your save…").font(.subheadline) }
+                ForEach(Array(choices.enumerated()), id: \.element) { index, choice in
+                    HStack(alignment: .center, spacing: 4) {
+                        Button { Task { await toggleIntent(choice) } } label: {
+                            FindIntentRow(text: choice, index: index, selected: intents.contains(choice))
+                        }.buttonStyle(.plain).disabled(busy)
+                        intentMenu(choice, selected: intents.contains(choice))
                     }
-                    ForEach(analysis.uncertainties, id: \.self) { Label($0, systemImage: "questionmark.circle").font(.caption).foregroundStyle(.secondary) }
-                } else {
-                HStack {
-                    Label(analyzing ? "Analyzing your find" : "Not analyzed yet", systemImage: "clock").font(.subheadline.weight(.semibold))
-                    Spacer()
                 }
-                Text("Your original, photos and notes are safe here. Product recognition becomes available when analysis is connected.").font(.subheadline).foregroundStyle(.secondary)
-                LabeledContent("Product & category", value: "Not identified")
-                LabeledContent("Brand & model", value: "Unknown")
-                LabeledContent("Style & details", value: "Not analyzed")
-                Button { withAnimation(.easeInOut(duration: 0.2)) { showingExample.toggle() } } label: {
-                    HStack { Text(showingExample ? "Hide example breakdown" : "See an example breakdown"); Spacer(); Image(systemName: showingExample ? "chevron.up" : "chevron.down") }
-                }.font(.subheadline.weight(.semibold))
-                if showingExample { WatchAnalysisExample() }
+                ForEach(Array(customIntents.enumerated()), id: \.element) { index, choice in
+                    HStack(alignment: .center, spacing: 4) {
+                        Button { editor = IntentEdit(original: choice, initial: choice) } label: {
+                            FindIntentRow(text: choice, index: index + choices.count, selected: true)
+                        }.buttonStyle(.plain).disabled(busy)
+                        intentMenu(choice, selected: true)
+                    }
                 }
+                Button { editor = IntentEdit(original: nil, initial: "") } label: {
+                    HStack(spacing: 13) {
+                        Image(systemName: "mic.fill").font(.title3).foregroundStyle(.purple)
+                            .frame(width: 46, height: 46).background(Color.purple.opacity(0.1), in: RoundedRectangle(cornerRadius: 15))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Tell us in your own words").font(.body.weight(.semibold))
+                            Text("Type or speak · choose up to 8 details").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "plus").font(.body.bold()).foregroundStyle(.purple)
+                    }.padding(14).background(NativeTheme.bg, in: RoundedRectangle(cornerRadius: 19))
+                }.buttonStyle(.plain).disabled(busy)
+                if !intents.isEmpty {
+                    Label("\(intents.count) \(intents.count == 1 ? "detail" : "details") shaping your Explore", systemImage: "checkmark.circle.fill")
+                        .font(.subheadline.weight(.medium)).foregroundStyle(.green)
+                }
+                if let analysisError {
+                    Text(analysisError).font(.subheadline).foregroundStyle(.secondary)
+                    Button("Try suggestions again", systemImage: "arrow.clockwise") { Task { await analyzeFind() } }.disabled(analyzing)
+                }
+                if let errorMessage { Text(errorMessage).font(.subheadline).foregroundStyle(.red) }
             }
 
-            PreviewSection(title: "Made personal by you", symbol: "person.crop.circle.badge.checkmark") {
-                if let intent {
-                    Text(intent).font(.headline)
-                    Text("Your chosen intention. You can search for it in Library.").font(.subheadline).foregroundStyle(.secondary)
+            PreviewSection(title: "Based on your find", symbol: "sparkle.magnifyingglass") {
+                if let analysis {
+                    Text(analysis.summary).font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                    ForEach(Array(analysis.evidence.prefix(3).enumerated()), id: \.offset) { index, evidence in
+                        FindInsightRow(text: evidence, index: index)
+                    }
+                    if !analysis.uncertainties.isEmpty {
+                        DisclosureGroup("A few things to check") {
+                            VStack(alignment: .leading, spacing: 12) {
+                                ForEach(analysis.uncertainties, id: \.self) { uncertainty in
+                                    Label(uncertainty, systemImage: "questionmark.circle")
+                                        .font(.subheadline).foregroundStyle(.secondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }.padding(.top, 10)
+                        }.font(.subheadline.weight(.semibold))
+                    }
                 } else {
-                    Text("A feeling, a constraint, a little context.").font(.headline)
-                    Text("Try “I like this shape, but it needs to fit a small desk.” Nothing is assumed until you tell us.").font(.subheadline).foregroundStyle(.secondary)
-                }
-                if !item.note.isEmpty {
-                    Text("Your note").font(.caption.bold()).foregroundStyle(.secondary)
-                    Text(item.note).font(.subheadline).textSelection(.enabled)
+                    FindInsightRow(text: analyzing ? "Taking a closer look at what you saved." : "Your find is here. Add a little context to make it yours.", index: 0)
+                    if !CaptureIntelligence.isConfigured {
+                        Text("Connect shopping intelligence in Profile for ideas tailored to this find.").font(.subheadline).foregroundStyle(.secondary)
+                    }
                 }
             }
         }
         .task(id: "\(item.id)|\(item.revision)") {
             do {
                 let saved = try await LocalLibrary.shared.metadata()[item.id]
-                intent = saved?.intent; analysis = saved?.analysis
-                if analysis == nil, CaptureIntelligence.isConfigured, item.client != "sample" { await analyzeFind() }
-            }
-            catch { errorMessage = error.localizedDescription }
+                intents = saved?.selectedIntents ?? []; analysis = saved?.analysis
+                let needsQuestions = analysis.map { $0.schemaVersion != 2 } ?? false
+                if (analysis == nil || needsQuestions), CaptureIntelligence.isConfigured, item.client != "sample" { await analyzeFind() }
+            } catch { errorMessage = error.localizedDescription }
         }
-        .sheet(isPresented: $showingEditor) {
-            LocalIntentEditor(initial: intent ?? "") { value in
-                await saveIntent(value)
-                return errorMessage == nil
+        .sheet(item: $editor) { value in
+            LocalIntentEditor(initial: value.initial) { text in
+                var updated = intents
+                if let original = value.original, let index = updated.firstIndex(of: original) { updated[index] = text }
+                else if !updated.contains(text) { updated.append(text) }
+                return await saveIntents(updated)
             }
         }
+    }
+
+    private func intentMenu(_ choice: String, selected: Bool) -> some View {
+        Menu {
+            Button("Make it your own", systemImage: "square.and.pencil") { editor = IntentEdit(original: selected ? choice : nil, initial: choice) }
+            if selected { Button("Remove this detail", systemImage: "minus.circle", role: .destructive) { Task { await toggleIntent(choice) } } }
+        } label: {
+            Image(systemName: "ellipsis").font(.body.bold()).frame(width: 32, height: 48).foregroundStyle(.secondary)
+        }.disabled(busy).accessibilityLabel("Edit \(choice)")
     }
 
     @MainActor private func analyzeFind() async {
@@ -155,45 +151,33 @@ struct LocalIntelligencePreview: View {
         } catch is CancellationError {} catch { analysisError = error.localizedDescription }
     }
 
-    @MainActor private func saveIntent(_ value: String?, message: String = "Intention saved on this iPhone") async {
-        guard !busy else { return }; busy = true; errorMessage = nil
+    @MainActor private func toggleIntent(_ value: String) async {
+        var updated = intents
+        if updated.contains(value) { updated.removeAll { $0 == value } } else { updated.append(value) }
+        _ = await saveIntents(updated)
+    }
+
+    @MainActor private func saveIntents(_ values: [String]) async -> Bool {
+        guard !busy else { return false }; busy = true; errorMessage = nil
         defer { busy = false }
         do {
-            try await LocalLibrary.shared.setIntent(item.id, value)
-            intent = value; acknowledgment = message; onChanged()
-            FindsHaptics.success()
-        } catch { errorMessage = error.localizedDescription }
+            var unique: [String] = []
+            for value in values.map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where !value.isEmpty && !unique.contains(value) { unique.append(value) }
+            guard unique.count <= 8 else {
+                errorMessage = "You can choose up to 8 details. Remove one to add another."
+                return false
+            }
+            try await LocalLibrary.shared.setIntents(item.id, unique)
+            intents = unique; onChanged(); FindsHaptics.selection()
+            return true
+        } catch { errorMessage = error.localizedDescription; return false }
     }
 }
 
-private struct WatchAnalysisExample: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Divider()
-            ExamplePreviewBadge()
-            HStack(spacing: 14) {
-                Image(systemName: "applewatch").font(.system(size: 45)).foregroundStyle(.blue)
-                    .frame(width: 76, height: 88).background(Color.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 20))
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("A vintage-inspired digital watch").font(.headline.bold())
-                    Text("Illustrative watch example.").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            LabeledContent("Category", value: "Accessories › Watches › Digital")
-            LabeledContent("Brand", value: "Unknown")
-            LabeledContent("Model", value: "Unknown")
-            LabeledContent("Display", value: "Digital · example detail")
-            LabeledContent("Style", value: "Vintage-inspired · interpretation")
-            LabeledContent("Material", value: "Unknown · needs confirmation")
-            Text("The future analysis would separate visible evidence from style interpretations, and leave unsupported brand or model claims unknown.")
-                .font(.caption).foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Example prompts").font(.subheadline.bold())
-                Text("“I like the retro face.”\n“Find something similar with a smaller case.”\n“Compare it with the watch I already own.”")
-                    .font(.subheadline).foregroundStyle(.secondary)
-            }
-        }
-    }
+private struct IntentEdit: Identifiable {
+    let id = UUID()
+    let original: String?
+    let initial: String
 }
 
 private struct LocalIntentEditor: View {
@@ -210,29 +194,29 @@ private struct LocalIntentEditor: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("What are you drawn to?") {
+                Section("What do you like about this find?") {
                     TextEditor(text: $text).frame(minHeight: 130).disabled(recorder.isRecording || startingVoice)
-                    Text("\(text.count)/2,000").font(.caption).foregroundStyle(.secondary)
+                    Text("\(text.count)/500").font(.caption).foregroundStyle(.secondary)
                     Button {
                         if recorder.isRecording || startingVoice { stopVoice() }
                         else { startVoice() }
-                    } label: { Label(recorder.isRecording ? "Stop recording" : startingVoice ? "Starting microphone…" : "Tell us in your own words", systemImage: recorder.isRecording ? "stop.circle.fill" : "mic") }
+                    } label: { Label(recorder.isRecording ? "Stop recording" : startingVoice ? "Starting microphone…" : "Say it out loud", systemImage: recorder.isRecording ? "stop.circle.fill" : "mic.fill") }
                 }
-                Section { Text("Voice becomes editable text. Nothing is sent to an AI service.").font(.footnote).foregroundStyle(.secondary) }
+                Section { Text("This detail helps shape Explore. You can edit or remove it whenever you like.").font(.footnote).foregroundStyle(.secondary) }
                 if let errorMessage = errorMessage ?? recorder.errorMessage { Text(errorMessage).foregroundStyle(.red).font(.footnote) }
             }
-            .navigationTitle("Your intention").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("What caught your eye?").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { stopVoice(); dismiss() }.disabled(busy) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button("Save detail") {
                         stopVoice(); busy = true
                         Task {
                             if await save(text.trimmingCharacters(in: .whitespacesAndNewlines)) { dismiss() }
-                            else { errorMessage = "Couldn’t save your intention. Please try again." }
+                            else { errorMessage = "Couldn’t save your detail. Please try again." }
                             busy = false
                         }
-                    }.bold().disabled(busy || startingVoice || recorder.isRecording || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text.count > 2000)
+                    }.bold().disabled(busy || startingVoice || recorder.isRecording || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text.count > 500)
                 }
             }
             .task { text = initial }
@@ -250,194 +234,4 @@ private struct LocalIntentEditor: View {
         }
     }
     private func stopVoice() { voiceTask?.cancel(); voiceTask = nil; startingVoice = false; recorder.stop() }
-}
-
-private struct PreviewCatalogIdea: Identifiable {
-    let id: String
-    let title: String
-    let asset: String?
-    let category: String
-    let style: String
-    let detail: String
-    let reason: String
-    static let all: [Self] = [
-        .init(id: "lamp", title: "A softer kind of light", asset: "sculptural-lamp", category: "Lighting", style: "Sculptural · warm · curved", detail: "An illustrative table-lamp direction with a sculptural silhouette.", reason: "Example match: a warm-lighting preference could connect to a soft, sculptural lamp."),
-        .init(id: "reading", title: "A corner just for you", asset: "reading-corner", category: "Small spaces", style: "Calm · natural · cozy", detail: "A reading-corner concept for exploring comfort and a quieter room.", reason: "Example match: a wish for a calmer room could connect to a reading-corner concept."),
-        .init(id: "balcony", title: "Your small outdoor escape", asset: "balcony", category: "Small spaces", style: "Compact · green · outdoor", detail: "A small-balcony concept with greenery and room to pause.", reason: "Example match: a small-space constraint could connect to a compact outdoor arrangement."),
-        .init(id: "ceramics", title: "Little everyday objects", asset: "ceramics", category: "Objects", style: "Ceramic · textured · earthy", detail: "Illustrative ceramic objects for exploring texture and an earthy palette.", reason: "Example match: an interest in earthy textures could connect to ceramic objects."),
-        .init(id: "watch", title: "A little retro on your wrist", asset: nil, category: "Accessories", style: "Digital · vintage-inspired · watch", detail: "A digital-watch direction demonstrating a category and style breakdown. No exact product is identified.", reason: "Example match: a vintage-inspired style preference could connect to a digital-watch direction.")
-    ]
-}
-
-/// Content-only Explore preview: its parent owns NavigationStack and the search field.
-struct ExplorePreviewScreen: View {
-    @Binding var query: String
-    var libraryRevision: String = ""
-    var onChanged: () -> Void = {}
-    @State private var category = "All"
-    @State private var showsLibrary = false
-    @State private var items: [SavedItem] = []
-    @State private var metadata: [String: LocalFindMetadata] = [:]
-    @State private var errorMessage: String?
-    private let categories = ["All", "Lighting", "Small spaces", "Objects", "Accessories"]
-    private var ideas: [PreviewCatalogIdea] {
-        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return PreviewCatalogIdea.all.filter { (category == "All" || $0.category == category) &&
-            (text.isEmpty || [$0.title, $0.category, $0.style, $0.detail].contains { $0.localizedStandardContains(text) }) }
-    }
-    private var savedMatches: [SavedItem] {
-        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return items.filter { item in
-            !(metadata[item.id]?.isArchived ?? false) && (text.isEmpty ||
-                [item.title, item.note, item.selectedText, metadata[item.id]?.intent ?? "", metadata[item.id]?.analysis?.searchableText ?? ""].contains { $0.localizedStandardContains(text) })
-        }
-    }
-    var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("Follow your curiosity.").font(.title2.bold())
-                    Text("A feel for what comes next.").font(.subheadline).foregroundStyle(.secondary)
-                }
-                Spacer()
-                ExamplePreviewBadge()
-            }
-            Picker("Explore content", selection: $showsLibrary) {
-                Text("Example ideas").tag(false)
-                Text("Your finds").tag(true)
-            }.pickerStyle(.segmented)
-            if showsLibrary {
-                Text("Your real local saves and the intentions you chose. Search matches those words; no AI inference has run.")
-                    .font(.caption).foregroundStyle(.secondary)
-                ForEach(savedMatches) { item in
-                    NavigationLink {
-                        SavedContentView(item: item, stillSaved: items.contains { $0.id == item.id }, localOnly: true,
-                                         onChanged: { Task { await load() }; onChanged() }, onDelete: { id, _ in
-                            try await LocalLibrary.shared.delete(id); await load(); onChanged()
-                        })
-                    } label: {
-                        VStack(alignment: .leading, spacing: 9) {
-                            SavedContentCard(item: item, compact: true)
-                            if let intent = metadata[item.id]?.intent { Label(intent, systemImage: "checkmark.bubble").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 18) }
-                        }
-                    }.buttonStyle(.plain)
-                }
-                if savedMatches.isEmpty { ContentUnavailableView.search(text: query) }
-            } else {
-                Text("Explore example ideas by category and style. Personalized recommendations will appear when analysis is connected.")
-                    .font(.caption).foregroundStyle(.secondary)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(categories, id: \.self) { value in
-                            Button { category = value } label: {
-                                Text(value).font(.subheadline.weight(.semibold)).padding(.horizontal, 15).padding(.vertical, 10)
-                                    .foregroundStyle(category == value ? NativeTheme.bg : Color.primary)
-                                    .background(category == value ? Color.primary : NativeTheme.surface, in: Capsule())
-                            }.buttonStyle(.plain).accessibilityAddTraits(category == value ? .isSelected : [])
-                        }
-                    }
-                }
-                ForEach(ideas) { idea in
-                    NavigationLink { PreviewIdeaDetail(idea: idea) { Task { await load() }; onChanged() } } label: { PreviewIdeaCard(idea: idea) }.buttonStyle(.plain)
-                }
-                if ideas.isEmpty { ContentUnavailableView.search(text: query) }
-            }
-            if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
-        }.task(id: libraryRevision) { await load() }
-    }
-    @MainActor private func load() async {
-        do { items = try await LocalLibrary.shared.collection(); metadata = try await LocalLibrary.shared.metadata(); errorMessage = nil }
-        catch { errorMessage = error.localizedDescription }
-    }
-}
-
-private struct PreviewIdeaCard: View {
-    let idea: PreviewCatalogIdea
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let asset = idea.asset {
-                Image(asset).resizable().scaledToFill().frame(height: 220).clipped().accessibilityLabel("Illustrative \(idea.category.lowercased()) image")
-            } else {
-                Color.blue.opacity(0.08).frame(height: 160).overlay { Image(systemName: "applewatch").font(.system(size: 76, weight: .light)).foregroundStyle(.blue) }
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                HStack { Text(idea.category).font(.caption.weight(.semibold)).foregroundStyle(.secondary); Spacer(); ExamplePreviewBadge() }
-                Text(idea.title).font(.title3.bold()).foregroundStyle(.primary)
-                Text(idea.style).font(.subheadline).foregroundStyle(.secondary)
-                HStack { Text("See the idea & why it connects").font(.subheadline.weight(.semibold)); Spacer(); Image(systemName: "arrow.up.right") }.foregroundStyle(.blue)
-            }.padding(18)
-        }.background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 26)).clipShape(RoundedRectangle(cornerRadius: 26))
-    }
-}
-
-private struct PreviewIdeaDetail: View {
-    let idea: PreviewCatalogIdea
-    var onSaved: () -> Void = {}
-    @State private var saving = false
-    @State private var saved = false
-    @State private var captureID = UUID().uuidString
-    @State private var errorMessage: String?
-    @State private var note = ""
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                PreviewIdeaCard(idea: idea)
-                Text(idea.detail).font(.body)
-                PreviewSection(title: "Product details", symbol: "viewfinder") {
-                    LabeledContent("Category", value: idea.category)
-                    LabeledContent("Style", value: idea.style)
-                    LabeledContent("Brand & model", value: "Unknown")
-                    LabeledContent("Price & availability", value: "Not provided")
-                    Text("These fields demonstrate the interface. They were authored for this preview, not extracted by AI.").font(.caption).foregroundStyle(.secondary)
-                }
-                PreviewSection(title: "Why this example?", symbol: "sparkles") {
-                    ExamplePreviewBadge()
-                    Text(idea.reason).font(.subheadline)
-                    Text("This explanation demonstrates how a future recommendation could cite a confirmed preference. It is not evidence about your preferences.").font(.caption).foregroundStyle(.secondary)
-                    NavigationLink { PreviewSourceView(idea: idea) } label: { Label("View example source", systemImage: "link") }
-                }
-                PreviewSection(title: "Make this direction yours", symbol: "bookmark") {
-                    TextField("What do you like about it?", text: $note, axis: .vertical).lineLimit(3...6)
-                    Button(saved ? "Saved to your library" : "Save this inspiration", systemImage: saved ? "checkmark.circle.fill" : "plus") { Task { await save() } }
-                        .font(.headline).disabled(saving || saved || note.count > 2000)
-                    Text("Saves this labeled example and your note locally. No product is purchased.").font(.caption).foregroundStyle(.secondary)
-                    if saving { ProgressView("Saving inspiration") }
-                    if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.red) }
-                }
-            }.padding(20)
-        }.navigationTitle("Explore an idea").navigationBarTitleDisplayMode(.inline)
-    }
-    @MainActor private func save() async {
-        guard !saving, !saved else { return }; saving = true; errorMessage = nil
-        defer { saving = false }
-        do {
-            var attachments: [LocalCaptureAttachment] = []
-            if let asset = idea.asset, let data = UIImage(named: asset)?.jpegData(compressionQuality: 0.8) {
-                attachments.append(.init(filename: "Example inspiration.jpg", typeIdentifier: "public.jpeg", data: data))
-            }
-            _ = try await LocalLibrary.shared.captureContent(title: "Example inspiration: \(idea.title)",
-                text: "Example preview. \(idea.detail) Category: \(idea.category). Style: \(idea.style). This is authored illustrative content, not a live product or AI analysis.",
-                note: note, source: .product, attachments: attachments, id: "preview-idea-\(captureID)")
-            saved = true; FindsHaptics.success(); onSaved()
-        } catch { errorMessage = error.localizedDescription }
-    }
-}
-
-private struct PreviewSourceView: View {
-    let idea: PreviewCatalogIdea
-    var body: some View {
-        List {
-            Section {
-                ExamplePreviewBadge()
-                Text(idea.title).font(.title2.bold())
-                Text("Source: the app’s bundled illustrative collection.")
-                Text("This example source is included to demonstrate the citation interface. There is no merchant, product record, verified price or checkout URL attached.").font(.subheadline).foregroundStyle(.secondary)
-            }
-            Section("What this source supports") {
-                LabeledContent("Authored category", value: idea.category)
-                Text(idea.style).font(.subheadline)
-            }
-
-        }.navigationTitle("Example source").navigationBarTitleDisplayMode(.inline)
-    }
 }

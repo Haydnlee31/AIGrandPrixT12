@@ -35,6 +35,7 @@ struct MymahFindsView: View {
     @State private var errorMessage: String?
     @State private var busy = false
     @State private var showingCapture = false
+    @State private var linkedFind: SavedItem?
     @State private var searchText = ""
     @AppStorage("finds.library.source") private var selectedSourceValue = ""
     @AppStorage("finds.library.grid") private var showsGrid = true
@@ -62,7 +63,7 @@ struct MymahFindsView: View {
         let filtered = base.filter { item in
             let flags = metadata[item.id] ?? LocalFindMetadata()
             let scopeMatches = connection != nil || (scope == .archived ? flags.isArchived : !flags.isArchived && (scope != .favorites || flags.isFavorite))
-            let textMatches = connection != nil || query.isEmpty || [item.title, item.note, item.selectedText, item.originalUrl, item.source, flags.intent ?? "", flags.analysis?.searchableText ?? ""]
+            let textMatches = connection != nil || query.isEmpty || [item.title, item.note, item.selectedText, item.originalUrl, item.source, flags.selectedIntents.joined(separator: " "), flags.analysis?.searchableText ?? ""]
                 .contains { $0.localizedStandardContains(query) }
             return scopeMatches && textMatches && (selectedSource == nil || item.source == selectedSource)
         }
@@ -76,7 +77,7 @@ struct MymahFindsView: View {
     private var exploreRevision: String {
         items.map { item in
             let flags = connection == nil ? metadata[item.id] : nil
-            return "\(item.id):\(item.revision):\(flags?.isArchived ?? false):\(flags?.isFavorite ?? false):\(flags?.intent ?? ""):\(flags?.analysis?.analyzedAt ?? 0)"
+            return "\(item.id):\(item.revision):\(flags?.isArchived ?? false):\(flags?.isFavorite ?? false):\(flags?.selectedIntents.joined(separator: " · ") ?? ""):\(flags?.analysis?.analyzedAt ?? 0)"
         }.joined(separator: "|")
     }
 
@@ -91,6 +92,14 @@ struct MymahFindsView: View {
             CaptureForm(connection: connection) {
                 selectedSource = nil; scopeValue = LibraryScope.library.rawValue; searchText = ""; selectedTab = .library
                 Task { await refresh() }
+            }
+        }
+        .sheet(item: $linkedFind) { find in
+            NavigationStack {
+                SavedContentView(item: find, stillSaved: items.contains { $0.id == find.id }, localOnly: connection == nil,
+                    connection: connection, onChanged: { Task { await refresh() } },
+                    onDelete: { id, key in try await removeSave(id, key: key) })
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { linkedFind = nil } } }
             }
         }
         .confirmationDialog("Discard this pending save?", isPresented: Binding(
@@ -112,17 +121,21 @@ struct MymahFindsView: View {
             // Deterministic visual acceptance on a connected physical iPhone.
             let arguments = ProcessInfo.processInfo.arguments
             if arguments.contains("-showExplore") { selectedTab = .explore }
+            if arguments.contains("-showSavedPhoto") { linkedFind = items.first { $0.hasImage && $0.client != "sample" } }
             if arguments.contains("-showProfile") { selectedTab = .profile }
             if arguments.contains("-showCapture") || arguments.contains("-demoWatchDraft") { showingCapture = true }
             #endif
         }
         .onOpenURL { url in
-            guard case .library = MynahDeepLink.destination(for: url) else { return }
+            guard case .library(let savedFindID) = MynahDeepLink.destination(for: url) else { return }
             selectedTab = .library; showingCapture = false
-            Task { await refresh() }
+            Task {
+                await refresh()
+                if let savedFindID { linkedFind = items.first { $0.id.caseInsensitiveCompare(savedFindID.uuidString) == .orderedSame } }
+            }
         }
         .task(id: searchIdentity) { await searchLibrary() }
-        .onChange(of: selectedTab) { _, _ in FindsHaptics.selection() }
+        .onChange(of: selectedTab) { _, _ in FindsHaptics.selection(); Task { await refresh() } }
         .onChange(of: scenePhase) { _, phase in
             // Foreground reads never silently replay a permanently rejected capture.
             if phase == .active && !busy { Task { await refresh() } }

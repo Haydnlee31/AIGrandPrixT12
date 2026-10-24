@@ -16,6 +16,7 @@
 		2C3E70589E74F68905267EB0 /* SharedEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFBDAB5909186036DEE2BCC9 /* SharedEnvironment.swift */; };
 		320DEE3275B637264FEE90D7 /* Preferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8322BFAE6E851D1BA8FC18B5 /* Preferences.swift */; };
 		33742869786DABEDBFD4BAD8 /* MynahDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8A95CE6064A567D7F1F1BEB /* MynahDeepLink.swift */; };
+		3666A2A22B65D1D7027DAE0D /* LocalExploreScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD73EE37548C53317389D6DE /* LocalExploreScreen.swift */; };
 		39B0D976EA71792D1679A1B3 /* ShoppingPlanViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF76D69D2745B8BA4195301D /* ShoppingPlanViews.swift */; };
 		3BBAB8F4EF9EB7E19D6C0480 /* LocalShareInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1974E8EFEFEAA9869739E51 /* LocalShareInbox.swift */; };
 		3F149A2DD40E8D8B9D9C30B1 /* LocalLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE070D02235ED86A1E0991A /* LocalLibrary.swift */; };
@@ -29,6 +30,7 @@
 		8BF185192150548EDF7E098E /* VoiceNoteRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 367F2423A7181351F2217769 /* VoiceNoteRecorder.swift */; };
 		96374764C9A581579FDBDB9A /* CommonThreadShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = ABB2BDA80676D8F8411CAC46 /* CommonThreadShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		9BCA1202FEBDD0C2316B70C4 /* IntelligenceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B15658BA182DF2C518C82EB0 /* IntelligenceViews.swift */; };
+		9C1E7A52E52ADE38F7D37411 /* FindIntentViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27AD6019322871EAF545EEC9 /* FindIntentViews.swift */; };
 		9DFB2DAE7E55F4A87452CDAF /* MynahDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8A95CE6064A567D7F1F1BEB /* MynahDeepLink.swift */; };
 		A32F1C7180DA5B269A96C750 /* CaptureIntelligence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 134CFD18A9F40E1E470A4677 /* CaptureIntelligence.swift */; };
 		AEDD5988A1C7ABC58C288E4A /* CaptureIntelligenceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C9A4D619AD782E8930F6886 /* CaptureIntelligenceModels.swift */; };
@@ -70,6 +72,7 @@
 		1A31D99C6DEF7611FED6E2C7 /* CommonThread.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CommonThread.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1C9A4D619AD782E8930F6886 /* CaptureIntelligenceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureIntelligenceModels.swift; sourceTree = "<group>"; };
 		1DE070D02235ED86A1E0991A /* LocalLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalLibrary.swift; sourceTree = "<group>"; };
+		27AD6019322871EAF545EEC9 /* FindIntentViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindIntentViews.swift; sourceTree = "<group>"; };
 		2E979A581AA100CE167143CE /* IntelligenceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntelligenceSettingsView.swift; sourceTree = "<group>"; };
 		367F2423A7181351F2217769 /* VoiceNoteRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNoteRecorder.swift; sourceTree = "<group>"; };
 		44AF70019E6425DCBF509A79 /* FindMediaViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindMediaViews.swift; sourceTree = "<group>"; };
@@ -84,6 +87,7 @@
 		8EB419D30C8F0D68B6299A60 /* LocalShareImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalShareImport.swift; sourceTree = "<group>"; };
 		A13F9A2FB8637A369285F286 /* CaptureForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureForm.swift; sourceTree = "<group>"; };
 		ABB2BDA80676D8F8411CAC46 /* CommonThreadShare.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = CommonThreadShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		AD73EE37548C53317389D6DE /* LocalExploreScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalExploreScreen.swift; sourceTree = "<group>"; };
 		B15658BA182DF2C518C82EB0 /* IntelligenceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntelligenceViews.swift; sourceTree = "<group>"; };
 		B286E7C423A5202102A0AE95 /* LibraryPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryPresentation.swift; sourceTree = "<group>"; };
 		BD9D9FA35ED1E82755878AB5 /* ios */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ios; path = .; sourceTree = SOURCE_ROOT; };
@@ -163,11 +167,13 @@
 				A13F9A2FB8637A369285F286 /* CaptureForm.swift */,
 				71619F1A734E5CF35100589D /* CaptureMedia.swift */,
 				4569D5244B4D817F992E9900 /* CommonThreadApp.swift */,
+				27AD6019322871EAF545EEC9 /* FindIntentViews.swift */,
 				44AF70019E6425DCBF509A79 /* FindMediaViews.swift */,
 				E144240FE076B72D13710D59 /* IntelligenceMutationKeys.swift */,
 				2E979A581AA100CE167143CE /* IntelligenceSettingsView.swift */,
 				B15658BA182DF2C518C82EB0 /* IntelligenceViews.swift */,
 				B286E7C423A5202102A0AE95 /* LibraryPresentation.swift */,
+				AD73EE37548C53317389D6DE /* LocalExploreScreen.swift */,
 				1DE070D02235ED86A1E0991A /* LocalLibrary.swift */,
 				8EB419D30C8F0D68B6299A60 /* LocalShareImport.swift */,
 				8CBDF56D1EBA655CFB77BF37 /* NativeTheme.swift */,
@@ -311,11 +317,13 @@
 				87CBFB54FAB948C9DEFC3151 /* CaptureIntelligenceModels.swift in Sources */,
 				DEFE2FC49E0ECDD659663620 /* CaptureMedia.swift in Sources */,
 				83CB78A59E0B98BBE3D2DD8D /* CommonThreadApp.swift in Sources */,
+				9C1E7A52E52ADE38F7D37411 /* FindIntentViews.swift in Sources */,
 				84988BF9C794ACDCA27662EA /* FindMediaViews.swift in Sources */,
 				67F9CBE61630508991D501FB /* IntelligenceMutationKeys.swift in Sources */,
 				22F08A690081697CDF0097B9 /* IntelligenceSettingsView.swift in Sources */,
 				9BCA1202FEBDD0C2316B70C4 /* IntelligenceViews.swift in Sources */,
 				C73DF63B54F84F069338BE58 /* LibraryPresentation.swift in Sources */,
+				3666A2A22B65D1D7027DAE0D /* LocalExploreScreen.swift in Sources */,
 				3F149A2DD40E8D8B9D9C30B1 /* LocalLibrary.swift in Sources */,
 				FE8F813021201968706149F3 /* LocalShareImport.swift in Sources */,
 				3BBAB8F4EF9EB7E19D6C0480 /* LocalShareInbox.swift in Sources */,

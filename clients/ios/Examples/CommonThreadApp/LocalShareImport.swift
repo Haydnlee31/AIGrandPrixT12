@@ -12,7 +12,8 @@ extension LocalLibrary {
             let attachments = draft.attachments.map { LocalCaptureAttachment(filename: $0.filename, typeIdentifier: $0.typeIdentifier, data: $0.data) }
             _ = try captureContent(url: draft.url, title: draft.title, text: draft.text, note: draft.note,
                                    source: source, client: .iosShareExtension, attachments: attachments,
-                                   id: draft.id.uuidString, deduplicateLink: false, capturedAt: draft.createdAt)
+                                   id: draft.id.uuidString, deduplicateLink: false, capturedAt: draft.createdAt,
+                                   intents: draft.intents, analysis: draft.analysis, userEditedTitle: draft.userEditedTitle)
             try LocalShareInbox.remove(draft)
             count += 1
         }

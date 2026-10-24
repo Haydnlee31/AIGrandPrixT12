@@ -15,12 +15,12 @@ struct LocalLibrarySmoke {
         let file = directory.appendingPathComponent("library.json")
         let library = LocalLibrary(fileURL: file)
         let starter = try await library.collection()
-        try check(starter.count == 4 && starter.allSatisfy { $0.client == "sample" }, "starter collection is available")
-        try check(FileManager.default.fileExists(atPath: file.path), "starter collection persists to disk")
+        try check(starter.isEmpty, "new library starts with only the user's finds")
+        try check(FileManager.default.fileExists(atPath: file.path), "empty collection persists to disk")
         let reopened = LocalLibrary(fileURL: file)
         let persistedStarter = try await reopened.collection()
         try check(starter.map(\.id) == persistedStarter.map(\.id) && starter.map(\.capturedAt) == persistedStarter.map(\.capturedAt), "reopening retains starter items and dates")
-        print("PASS starter collection persisted and retained after reopening")
+        print("PASS fresh library stays empty without fabricated finds")
 
         let note = "Warm light for my small rented desk; keep the original note."
         let request = CaptureRequest(url: "https://example.org/desk-lamp/?utm_source=local&a=1#detail",
@@ -38,6 +38,30 @@ struct LocalLibrarySmoke {
         try check(duplicate.duplicate && duplicate.id == receipt.id, "canonical URL identifies duplicate")
         try check(afterDuplicate.count == reloaded.count && afterDuplicate.first?.note == note && afterDuplicate.first?.title == request.title, "duplicate preserves original title and note")
         print("PASS capture, reload and canonical duplicate preserve original content")
+
+        // Version-2 migration removes only the four known starter records.
+        let originalObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(reloaded[0])) as! [String: Any]
+        let knownIDs = ["sample-reading", "sample-lamp", "sample-balcony", "sample-ceramics"]
+        let oldExamples: [[String: Any]] = knownIDs.map { id in
+            var copy = originalObject; copy["id"] = id; copy["client"] = "sample"; return copy
+        }
+        let migrationFile = directory.appendingPathComponent("migration.json")
+        let oldMetadata: [String: Any] = ["isFavorite": false, "isArchived": false, "attachments": [], "intent": "I like the small dial"]
+        try JSONSerialization.data(withJSONObject: ["version": 2, "items": oldExamples + [originalObject],
+            "metadata": [receipt.id: oldMetadata]]).write(to: migrationFile)
+        let migrated = LocalLibrary(fileURL: migrationFile)
+        let migratedItems = try await migrated.collection()
+        let migratedIntents = try await migrated.metadata()[receipt.id]?.selectedIntents
+        try check(migratedItems.map(\.id) == [receipt.id] && migratedIntents == ["I like the small dial"], "known samples removed and legacy user intention survives migration")
+        let migratedFile = try JSONSerialization.jsonObject(with: Data(contentsOf: migrationFile)) as! [String: Any]
+        try check(migratedFile["version"] as? Int == 3, "migration is persisted")
+        var matchingID = originalObject; matchingID["id"] = "sample-reading"
+        var unrelatedSample = originalObject; unrelatedSample["id"] = "sample-user-owned"; unrelatedSample["client"] = "sample"
+        let legacyFile = directory.appendingPathComponent("legacy-array.json")
+        try JSONSerialization.data(withJSONObject: [matchingID, unrelatedSample]).write(to: legacyFile)
+        let legacyItems = try await LocalLibrary(fileURL: legacyFile).collection()
+        try check(legacyItems.count == 2, "matching ID with real client and other sample IDs are preserved")
+        print("PASS bounded sample migration and backward-compatible intention decoding")
 
         let beforeInvalid = try Data(contentsOf: file)
         do {
@@ -63,12 +87,85 @@ struct LocalLibrarySmoke {
         let edited = try await library.collection().first { $0.id == imageReceipt.id }
         let editedMetadata = try await library.metadata()[imageReceipt.id]!
         try check(edited?.title == "Edited title" && edited?.note == "An editable voice transcript" && editedMetadata.isFavorite && editedMetadata.isArchived && editedMetadata.intent == "Compare smaller versions", "editing and organization persist")
+        let revisionBeforeIntents = edited!.revision
+        try await reopened.setIntents(imageReceipt.id, ["Retro face", "Smaller case", "Retro face", "  "])
+        let chosenDetails = try await LocalLibrary(fileURL: file).metadata()[imageReceipt.id]?.selectedIntents
+        let revisionAfterIntents = try await library.collection().first { $0.id == imageReceipt.id }!.revision
+        try check(chosenDetails == ["Retro face", "Smaller case"] && revisionAfterIntents > revisionBeforeIntents, "multiple intentions deduplicate, persist and change revision")
+        let beforeInvalidIntents = try Data(contentsOf: file)
+        for invalid in [Array(repeating: "x", count: 9).enumerated().map { "\($0.offset)\($0.element)" }, [String(repeating: "x", count: 501)]] {
+            do { try await library.setIntents(imageReceipt.id, invalid); throw SmokeFailure.assertion("invalid intentions accepted") }
+            catch LocalLibrary.LocalError.invalidIntents {}
+        }
+        let afterInvalidIntents = try Data(contentsOf: file)
+        try check(afterInvalidIntents == beforeInvalidIntents, "invalid intentions never alter the store")
+        try await reopened.setIntents(imageReceipt.id, [])
+        let clearedDetails = try await library.metadata()[imageReceipt.id]?.selectedIntents
+        try check(clearedDetails == [], "clearing intentions does not restore the legacy value")
         let analysis = CaptureIntelligenceResult(productName: "Digital watch", categoryPath: ["Accessories", "Watches", "Digital"], brand: nil,
             style: ["Vintage-inspired"], summary: "Test analysis fixture", uncertainties: ["Brand is unknown"],
-            prompts: [.init(id: "p1", text: "I like the retro face")], evidence: ["Rectangular digital face"], analyzedAt: 1234)
+            prompts: [.init(id: "p1", text: "I like the retro face", question: "What draws you to this face?")], evidence: ["Rectangular digital face"], analyzedAt: 1234, schemaVersion: 2)
         try await reopened.setAnalysis(imageReceipt.id, analysis)
         let analyzed = try await LocalLibrary(fileURL: file).metadata()[imageReceipt.id]?.analysis
-        try check(analyzed?.categoryPath == analysis.categoryPath && analyzed?.brand == nil && analyzed?.prompts.first?.text == "I like the retro face", "structured analysis and uncertainty survive reopening")
+        try check(analyzed?.categoryPath == analysis.categoryPath && analyzed?.brand == nil && analyzed?.prompts.first?.question == "What draws you to this face?" && analyzed?.schemaVersion == 2, "structured analysis, schema version and predictive question survive reopening")
+        let generatedReceipt = try await library.captureContent(title: "A new find", text: "Watch description", analysis: analysis, userEditedTitle: false)
+        let correctedAnalysis = CaptureIntelligenceResult(productName: "Solar digital watch", categoryPath: analysis.categoryPath,
+            brand: nil, style: analysis.style, summary: analysis.summary, uncertainties: [],
+            prompts: [.init(id: "no-question", text: "I like the face")], evidence: analysis.evidence, analyzedAt: 1235, schemaVersion: 2)
+        try await library.setAnalysis(generatedReceipt.id, correctedAnalysis)
+        let correctedTitle = try await library.collection().first { $0.id == generatedReceipt.id }?.title
+        let currentVersion = try await library.metadata()[generatedReceipt.id]?.analysis
+        try check(correctedTitle == "Solar digital watch", "known autogenerated title follows corrected product analysis")
+        try check(currentVersion?.schemaVersion == 2 && currentVersion?.prompts.first?.question == nil, "schema version distinguishes valid current analysis with no question")
+        try await library.delete(generatedReceipt.id)
+        let stillCustom = try await library.collection().first { $0.id == imageReceipt.id }?.title
+        try check(stillCustom == "Edited title", "analysis preserves explicitly edited titles")
+        let oldPrompt = try JSONDecoder().decode(CaptureIntelligenceResult.Prompt.self, from: Data("{\"id\":\"old\",\"text\":\"An older prompt\"}".utf8))
+        try check(oldPrompt.question == nil, "old prompt decodes without question")
+        let analysisObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(analysis))
+        var oldPhotoObject = originalObject; oldPhotoObject["id"] = "old-photo"; oldPhotoObject["title"] = "IMG_2715.jpg"
+        var protectedObject = originalObject; protectedObject["id"] = "protected-photo"; protectedObject["title"] = "IMG_2716.jpg"
+        var oldPhotoMetadata = oldMetadata; oldPhotoMetadata["analysis"] = analysisObject
+        var protectedMetadata = oldPhotoMetadata; protectedMetadata["userEditedTitle"] = true
+        let titleMigrationFile = directory.appendingPathComponent("title-migration.json")
+        try JSONSerialization.data(withJSONObject: ["version": 2, "items": [oldPhotoObject, protectedObject],
+            "metadata": ["old-photo": oldPhotoMetadata, "protected-photo": protectedMetadata]]).write(to: titleMigrationFile)
+        let titleMigrationLibrary = LocalLibrary(fileURL: titleMigrationFile)
+        let migratedTitles = try await titleMigrationLibrary.collection()
+        let firstMigrationBytes = try Data(contentsOf: titleMigrationFile)
+        _ = try await titleMigrationLibrary.collection()
+        let repeatedMigrationBytes = try Data(contentsOf: titleMigrationFile)
+        try check(migratedTitles[0].title == "Digital watch" && migratedTitles[1].title == "IMG_2716.jpg", "existing analyzed filenames migrate while manual titles are protected")
+        try check(firstMigrationBytes == repeatedMigrationBytes, "title migration does not create revision or persistence loops")
+        let shareDraft = LocalShareDraft(title: "A new find", url: "https://example.org/watch", text: "A watch", note: "My note", attachments: [],
+            intents: ["Retro face", "Smaller case"], analysis: analysis, userEditedTitle: false)
+        let restoredDraft = try JSONDecoder().decode(LocalShareDraft.self, from: JSONEncoder().encode(shareDraft))
+        try check(restoredDraft.intents?.count == 2 && restoredDraft.analysis?.prompts.first?.question == "What draws you to this face?", "share payload roundtrip preserves chosen details and AI questions")
+        var oldDraftObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(shareDraft)) as! [String: Any]
+        oldDraftObject.removeValue(forKey: "intents"); oldDraftObject.removeValue(forKey: "analysis"); oldDraftObject.removeValue(forKey: "userEditedTitle")
+        let oldDraft = try JSONDecoder().decode(LocalShareDraft.self, from: JSONSerialization.data(withJSONObject: oldDraftObject))
+        try check(oldDraft.intents == nil && oldDraft.analysis == nil && oldDraft.note == "My note", "older queued share drafts remain readable")
+        let namedReceipt = try await library.captureContent(url: "https://example.net/watch", title: "example.net")
+        try await library.setAnalysis(namedReceipt.id, analysis)
+        let renamed = try await library.collection().first { $0.id == namedReceipt.id }
+        try check(renamed?.title == "Digital watch", "generic hostname becomes product title")
+        try await library.update(namedReceipt.id, title: "my-own-name.png", note: "My own title", text: "")
+        try await library.setAnalysis(namedReceipt.id, analysis)
+        let titleProtected = try await library.collection().first { $0.id == namedReceipt.id }
+        try check(titleProtected?.title == "my-own-name.png", "user-chosen filename-like title stays intact")
+        let analyzedShareID = UUID().uuidString
+        _ = try await library.captureContent(title: "A photo worth saving", text: "A saved watch", id: analyzedShareID,
+            deduplicateLink: false, intents: ["Retro face", "Smaller case"], analysis: analysis)
+        let imported = try await LocalLibrary(fileURL: file).metadata()[analyzedShareID]
+        let importedTitle = try await library.collection().first { $0.id == analyzedShareID }?.title
+        try check(imported?.selectedIntents == ["Retro face", "Smaller case"] && imported?.analysis?.productName == "Digital watch" && importedTitle == "Digital watch", "shared content and AI context are durable in the same write")
+        try await library.setIntents(analyzedShareID, ["My newer choice"])
+        _ = try await library.captureContent(title: "Old title", text: "Old text", id: analyzedShareID,
+            deduplicateLink: false, intents: ["Retro face"], analysis: analysis)
+        let replayed = try await library.metadata()[analyzedShareID]?.selectedIntents
+        try check(replayed == ["My newer choice"], "share replay never overwrites later preference edits")
+        try await library.delete(namedReceipt.id); try await library.delete(analyzedShareID)
+        print("PASS multi-intent persistence, generated titles, custom title protection and atomic share replay")
         try await library.update(imageReceipt.id, title: "A different find", note: "", text: "Changed context")
         let invalidated = try await reopened.metadata()[imageReceipt.id]?.analysis
         try check(invalidated == nil, "editing source context invalidates stale analysis")
