@@ -28,6 +28,7 @@ project = {
             'settings': {'base': {'PRODUCT_BUNDLE_IDENTIFIER': 'com.aigrandprix.mymahfinds', 'TARGETED_DEVICE_FAMILY': '1'}},
             'info': {'path': 'App-Info.plist', 'properties': {**shared_info,
                 'CFBundleDisplayName': 'Mynah Finds', 'UILaunchScreen': {},
+                'CFBundleURLTypes': [{'CFBundleURLName': 'com.aigrandprix.mymahfinds.navigation', 'CFBundleTypeRole': 'Editor', 'CFBundleURLSchemes': ['mynah']}],
                 'NSMicrophoneUsageDescription': 'Record your voice to add an editable note to a saved find.',
                 'NSSpeechRecognitionUsageDescription': 'Turn your voice into an editable note about why you are saving this find.',
                 'NSCameraUsageDescription': 'Take a photo to save something that caught your eye.',

@@ -62,7 +62,7 @@ struct MymahFindsView: View {
         let filtered = base.filter { item in
             let flags = metadata[item.id] ?? LocalFindMetadata()
             let scopeMatches = connection != nil || (scope == .archived ? flags.isArchived : !flags.isArchived && (scope != .favorites || flags.isFavorite))
-            let textMatches = connection != nil || query.isEmpty || [item.title, item.note, item.selectedText, item.originalUrl, item.source, flags.intent ?? ""]
+            let textMatches = connection != nil || query.isEmpty || [item.title, item.note, item.selectedText, item.originalUrl, item.source, flags.intent ?? "", flags.analysis?.searchableText ?? ""]
                 .contains { $0.localizedStandardContains(query) }
             return scopeMatches && textMatches && (selectedSource == nil || item.source == selectedSource)
         }
@@ -76,7 +76,7 @@ struct MymahFindsView: View {
     private var exploreRevision: String {
         items.map { item in
             let flags = connection == nil ? metadata[item.id] : nil
-            return "\(item.id):\(item.revision):\(flags?.isArchived ?? false):\(flags?.isFavorite ?? false):\(flags?.intent ?? "")"
+            return "\(item.id):\(item.revision):\(flags?.isArchived ?? false):\(flags?.isFavorite ?? false):\(flags?.intent ?? ""):\(flags?.analysis?.analyzedAt ?? 0)"
         }.joined(separator: "|")
     }
 
@@ -100,6 +100,10 @@ struct MymahFindsView: View {
             Button("Cancel", role: .cancel) { discardingDraft = nil }
         } message: { _ in Text("This removes the request from this device. It does not remove a link that has already reached your library.") }
         .task {
+            #if DEBUG
+            do { try CaptureIntelligence.importDevelopmentConfiguration() }
+            catch { errorMessage = "Shopping intelligence setup needs attention. Your local library is still available." }
+            #endif
             if let saved = try? SharedEnvironment.read() {
                 connection = saved; apiURL = saved.baseURL.absoluteString
             }
@@ -109,8 +113,13 @@ struct MymahFindsView: View {
             let arguments = ProcessInfo.processInfo.arguments
             if arguments.contains("-showExplore") { selectedTab = .explore }
             if arguments.contains("-showProfile") { selectedTab = .profile }
-            if arguments.contains("-showCapture") { showingCapture = true }
+            if arguments.contains("-showCapture") || arguments.contains("-demoWatchDraft") { showingCapture = true }
             #endif
+        }
+        .onOpenURL { url in
+            guard case .library = MynahDeepLink.destination(for: url) else { return }
+            selectedTab = .library; showingCapture = false
+            Task { await refresh() }
         }
         .task(id: searchIdentity) { await searchLibrary() }
         .onChange(of: selectedTab) { _, _ in FindsHaptics.selection() }

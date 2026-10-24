@@ -11,7 +11,9 @@ This records implementation coverage, not a claim that a deployed account or AI 
 
 ## Local frontend preview
 
-The user explicitly requested visible AI feature interfaces before a backend exists. Local detail therefore shows product/category/brand/style fields as **Not analyzed yet**, with a separate **Example preview** watch breakdown. Optional authored intention chips can be selected, edited by typing or local speech-to-text, removed or skipped; explicit choices persist through `LocalLibrary.setIntent` and become searchable local metadata.
+**Follow-up:** product-aware capture and local saved-item analysis now have a real optional OpenAI connection via the private capture-preview relay. See [live setup and evidence](ios-build.md#live-capture-intelligence-25-october-follow-up). This supersedes the no-provider-call status below for this small capture flow; full catalog Explore and the older shared-account tools still need their team backend.
+
+Without an intelligence connection, local detail shows product/category/brand/style fields as **Not analyzed yet**, with a separate **Example preview** watch breakdown. With the optional relay connected, actual product analysis and model-written contextual note choices appear. Chosen intentions can be edited by typing or local speech-to-text, removed or skipped; explicit choices persist through `LocalLibrary.setIntent` and become searchable local metadata. Generic preset chips have been removed.
 
 Local Explore includes five labeled illustrative ideas, bundled photos, category/style search and filters, detail screens, example explanations and example source records. These are authored examples, not inferred personal recommendations. A separate **Your finds** segment searches actual saved titles, text, notes and user-selected intentions. Saving an example explicitly adds labeled illustrative content to local Library. No sample offers include a merchant price or checkout URL; no preview claims that a user image was analyzed. This preview uses no remote API.
 
@@ -46,7 +48,7 @@ Local Explore includes five labeled illustrative ideas, bundled photos, category
 ## Verification so far
 
 - All native app sources, shared code and SDK compiled for a physical iOS target using a separate temporary Xcode project, `CODE_SIGNING_ALLOWED=NO`; `/tmp/mymah-framework-check-build.log` ended `BUILD SUCCEEDED`.
-- Root and backend `.env` files were absent at inspection. No live provider, remote database or paid API was called by this implementation task.
+- At the initial frontend-only checkpoint, root and backend `.env` files were absent and no provider was called. The later live-capture follow-up is documented above; credentials are kept out of source control.
 - Real API/UI end-to-end validation remains dependent on a reachable authenticated service. Compilation alone is not evidence that a live AI result, price observation or push notification ran.
 - Focused source review tightened monetary parsing (reject partial pasted input), shared currency exponent formatting, active-account verification before connected requests, annotation capability gating and current-offer links. A current offer must be a production merchant record with a nonnegative price, supported currency, bounded observation window and the exact HTTPS offer URL. The integrated signed physical-device build passed with these fixes and the local preview screens; Explore and Profile were visually checked on Adi's iPhone.
 

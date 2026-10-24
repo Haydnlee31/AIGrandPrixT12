@@ -6,7 +6,14 @@ import ImageIO
 final class ShareViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
-        let host = UIHostingController(rootView: ShareCaptureView(items: extensionContext?.inputItems as? [NSExtensionItem] ?? []) { [weak self] in
+        let host = UIHostingController(rootView: ShareCaptureView(items: extensionContext?.inputItems as? [NSExtensionItem] ?? [], openApp: { [weak self] url, completion in
+            guard let context = self?.extensionContext else { completion(false); return }
+            // Ask the system through the public extension API. Share hosts may refuse
+            // this request; the view keeps the saved confirmation and explains next steps.
+            context.open(url) { opened in
+                DispatchQueue.main.async { completion(opened) }
+            }
+        }) { [weak self] in
             self?.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
         })
         addChild(host)
@@ -22,6 +29,7 @@ final class ShareViewController: UIViewController {
 
 struct ShareCaptureView: View {
     let items: [NSExtensionItem]
+    let openApp: (URL, @escaping (Bool) -> Void) -> Void
     let close: () -> Void
     @State private var draft = LocalShareDraft(title: "", url: nil, text: "", note: "", attachments: [])
     @State private var loading = true
@@ -30,10 +38,27 @@ struct ShareCaptureView: View {
     @State private var message: String?
     @State private var importWarnings: [String] = []
     @State private var acceptedPartial = false
+    @State private var openingApp = false
+    @State private var showingOpenHelp = false
+    @State private var intelligence: CaptureIntelligenceResult?
+    @State private var intelligenceSourceContext = ""
+    @State private var intelligenceLoading = false
+    @State private var intelligenceFailed = false
+    @State private var intelligenceRequestID = UUID()
+    @State private var intelligenceRetryID = UUID()
     @FocusState private var noteFocused: Bool
 
     private var hasContent: Bool {
         !(draft.url ?? "").isEmpty || !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draft.attachments.isEmpty
+    }
+    private var canSave: Bool {
+        !loading && !saving && hasContent && LocalShareInbox.validationIssue(draft) == nil
+            && (importWarnings.isEmpty || acceptedPartial)
+    }
+    // Editing a note must not trigger another request or replace the user's words.
+    private var intelligenceContext: String {
+        ([draft.title, draft.url ?? "", draft.text, String(loading), String(saved), intelligenceRetryID.uuidString]
+            + draft.attachments.map { $0.id.uuidString }).joined(separator: "\u{1F}")
     }
     var body: some View {
         NavigationStack {
@@ -43,15 +68,20 @@ struct ShareCaptureView: View {
                         VStack(spacing: 16) {
                             Image(systemName: "checkmark.circle.fill").font(.system(size: 64)).foregroundStyle(.green)
                             Text("Saved!").font(.system(.largeTitle, weight: .bold))
-                            Text("Your find is safe on this iPhone. Open Mynah Finds to see it in your library.")
+                            Text("Your find and note are saved on this iPhone.")
                                 .font(.body).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                            if !draft.title.isEmpty {
+                                Text(draft.title).font(.headline).lineLimit(3).multilineTextAlignment(.center)
+                                    .padding(16).frame(maxWidth: .infinity)
+                                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+                            }
                         }.frame(maxWidth: .infinity).padding(.vertical, 50)
                     } else {
                         HStack(spacing: 12) {
                             Image(systemName: "bookmark.fill").font(.system(size: 27, weight: .bold))
                             VStack(alignment: .leading, spacing: 3) {
                                 Text("Keep a good find.").font(.system(.title2, weight: .bold))
-                                Text("Saved privately on this iPhone").font(.subheadline).foregroundStyle(.secondary)
+                                Text("Saved on this iPhone").font(.subheadline).foregroundStyle(.secondary)
                             }
                         }
                         if loading { ProgressView("Getting your find…").frame(maxWidth: .infinity).padding() }
@@ -90,8 +120,11 @@ struct ShareCaptureView: View {
                         }.padding(18).background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
                         VStack(alignment: .leading, spacing: 12) {
                             Text("What caught your eye?").font(.system(.headline, weight: .bold))
-                            TextField("The shape, a gift idea, or a space it would fit…", text: $draft.note, axis: .vertical)
+                            TextField("Add why you saved this find…", text: $draft.note, axis: .vertical)
                                 .lineLimit(4...8).focused($noteFocused).accessibilityIdentifier("shareNote")
+                            if draft.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                predictivePrompts
+                            }
                             HStack(alignment: .top, spacing: 8) {
                                 Image(systemName: "mic").foregroundStyle(.secondary)
                                 Text("Tap the note, then the keyboard’s microphone to dictate when available. You can also add a voice note in Mynah Finds.")
@@ -117,19 +150,124 @@ struct ShareCaptureView: View {
             .navigationTitle("Mynah Finds").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button(saved ? "Done" : "Cancel", action: close).disabled(saving) } }
             .safeAreaInset(edge: .bottom) {
-                Button { if saved { close() } else { Task { await save() } } } label: {
-                    HStack(spacing: 8) {
-                        if saving { ProgressView().tint(Color(.systemBackground)) }
-                        Text(saved ? "Done" : saving ? "Saving…" : "Save find").font(.system(.headline, weight: .bold))
-                    }.frame(maxWidth: .infinity).frame(height: 54)
-                        .foregroundStyle(Color(.systemBackground)).background(Color.primary, in: Capsule())
+                VStack(spacing: 12) {
+                    Button { if saved { openSavedFind() } else { Task { await save() } } } label: {
+                        HStack(spacing: 8) {
+                            if saving || openingApp { ProgressView().tint(.black) }
+                            else if saved { Image(systemName: "arrow.up.forward.app") }
+                            Text(saved ? (openingApp ? "Opening…" : "Open in Mynah") : saving ? "Saving…" : "Save find")
+                                .font(.system(.headline, weight: .bold))
+                        }.frame(maxWidth: .infinity).frame(height: 54)
+                            .foregroundStyle(saved || canSave ? Color.black : Color.secondary)
+                            .background(saved || canSave ? Color.white : Color(.tertiarySystemFill), in: Capsule())
+                            .overlay(Capsule().strokeBorder(.black.opacity(0.12), lineWidth: 1))
+                    }
+                    .disabled(saved ? openingApp : !canSave)
+                    .accessibilityIdentifier(saved ? "shareOpenApp" : "shareSave")
+                    if saved {
+                        Button("Done", action: close).font(.subheadline.weight(.semibold))
+                            .frame(minHeight: 36).accessibilityIdentifier("shareDone")
+                    }
                 }
-                .disabled(!saved && (loading || saving || !hasContent || LocalShareInbox.validationIssue(draft) != nil || (!importWarnings.isEmpty && !acceptedPartial)))
-                .accessibilityIdentifier("shareSave")
                 .padding(.horizontal, 24).padding(.vertical, 12).background(.bar)
             }
+            .alert("Your find is saved", isPresented: $showingOpenHelp) {
+                Button("Done", action: close)
+                Button("Stay here", role: .cancel) {}
+            } message: {
+                Text("iOS didn’t allow Mynah to open from this share sheet. Tap Done, then open Mynah Finds from your Home Screen or App Switcher. Your find will appear in Library.")
+            }
             .task { await loadItems() }
+            .task(id: intelligenceContext) { await loadIntelligence() }
         }.tint(.primary)
+    }
+
+    @ViewBuilder private var predictivePrompts: some View {
+        if CaptureIntelligence.isConfigured {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Your photo and shared context are sent to OpenAI for suggestions.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if intelligenceLoading {
+                    ProgressView("Finding suggestions for this find…").font(.caption)
+                        .accessibilityIdentifier("shareIntelligenceLoading")
+                } else if let intelligence, intelligenceSourceContext == intelligenceContext {
+                    Label("Suggestions for this find", systemImage: "sparkles")
+                        .font(.caption.weight(.semibold))
+                    if let productName = intelligence.productName, !productName.isEmpty {
+                        Text(productName).font(.subheadline.weight(.semibold))
+                    }
+                    if !intelligence.categoryPath.isEmpty {
+                        Text(intelligence.categoryPath.joined(separator: " › "))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    ForEach(intelligence.prompts, id: \.id) { prompt in
+                        Button {
+                            draft.note = prompt.text
+                            noteFocused = true
+                        } label: {
+                            HStack(spacing: 10) {
+                                Text(prompt.text).font(.subheadline).multilineTextAlignment(.leading)
+                                Spacer(minLength: 0)
+                                Image(systemName: "plus").font(.caption.weight(.semibold))
+                            }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12))
+                        }.buttonStyle(.plain).accessibilityIdentifier("sharePredictivePrompt_\(prompt.id)")
+                    }
+                    if intelligence.prompts.isEmpty {
+                        Text("There isn’t enough product context for suggestions yet. Add a note in your own words.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                } else if intelligenceFailed {
+                    Text("Suggestions couldn’t load. You can still save your find.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Retry suggestions") { intelligenceRetryID = UUID() }
+                        .font(.caption.weight(.semibold))
+                }
+            }
+        }
+    }
+
+    @MainActor private func loadIntelligence() async {
+        let requestID = UUID()
+        let context = intelligenceContext
+        intelligenceRequestID = requestID
+        intelligence = nil
+        intelligenceSourceContext = ""
+        intelligenceFailed = false
+        intelligenceLoading = false
+        guard !loading, !saved, hasContent, CaptureIntelligence.isConfigured else { return }
+        intelligenceLoading = true
+        defer {
+            if intelligenceRequestID == requestID { intelligenceLoading = false }
+        }
+        do {
+            try await Task.sleep(for: .seconds(1))
+            try Task.checkCancellation()
+            let snapshot = draft
+            let image = snapshot.attachments.first { UTType($0.typeIdentifier)?.conforms(to: .image) == true }?.data
+            let result = try await CaptureIntelligence.analyze(
+                url: snapshot.url, title: snapshot.title, text: snapshot.text, note: snapshot.note, imageData: image
+            )
+            guard !Task.isCancelled, intelligenceRequestID == requestID,
+                  intelligenceContext == context, !saved else { return }
+            intelligence = result
+            intelligenceSourceContext = context
+        } catch is CancellationError {
+            // A changed product cancels old suggestions, without affecting local saving.
+        } catch {
+            guard !Task.isCancelled, intelligenceRequestID == requestID,
+                  intelligenceContext == context, !saved else { return }
+            intelligenceFailed = true
+        }
+    }
+    private func openSavedFind() {
+        guard saved, !openingApp else { return }
+        openingApp = true
+        openApp(MynahDeepLink.libraryURL(savedFindID: draft.id)) { opened in
+            openingApp = false
+            if opened { close() }
+            else { showingOpenHelp = true }
+        }
     }
     @MainActor private func loadItems() async {
         guard loading else { return }

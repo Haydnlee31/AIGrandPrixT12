@@ -40,6 +40,23 @@ struct CaptureForm: View {
     @State private var maxURL = 2048
     @State private var maxTitle = 300
     @State private var maxNote = 2000
+    @State private var analysis: CaptureIntelligenceResult?
+    @State private var analysisInput: AnalysisInput?
+    @State private var analysisError: String?
+    @State private var analyzing = false
+    @State private var analysisRequestID = UUID()
+    @State private var analysisRetry = 0
+    private struct AnalysisInput: Equatable {
+        let url: String
+        let title: String
+        let text: String
+        let attachmentIDs: [UUID]
+    }
+    private struct AnalysisRequest: Equatable {
+        let input: AnalysisInput
+        let ready: Bool
+        let retry: Int
+    }
     @FocusState private var focused: Field?
     private enum Field: Hashable { case link, title, note }
     private var cleanedLink: String { link.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -61,6 +78,17 @@ struct CaptureForm: View {
             && (effectiveConnection == nil || cloudCompatible)
     }
     private var frozen: Bool { pending != nil || saving || receipt != nil }
+    private var canSave: Bool { !saving && canRetry && receipt == nil && (pending != nil || valid) }
+    private var currentAnalysisInput: AnalysisInput {
+        AnalysisInput(url: cleanedLink, title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+                      text: savedText.trimmingCharacters(in: .whitespacesAndNewlines), attachmentIDs: attachments.map(\.id))
+    }
+    private var analysisRequest: AnalysisRequest {
+        AnalysisRequest(input: currentAnalysisInput,
+                        ready: CaptureIntelligence.isConfigured && valid && !frozen && scenePhase == .active,
+                        retry: analysisRetry)
+    }
+    private var currentAnalysis: CaptureIntelligenceResult? { analysisInput == currentAnalysisInput ? analysis : nil }
 
     var body: some View {
         NavigationStack {
@@ -80,9 +108,20 @@ struct CaptureForm: View {
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(saving)
         .task {
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-demoWatchDraft"), link.isEmpty, title.isEmpty, savedText.isEmpty {
+                format = .text
+                title = "Vintage-style digital watch"
+                savedText = "A compact rectangular digital wristwatch with a silver stainless-steel bracelet, a black LCD face, and a retro 1980s look. No brand or model is identified."
+            }
+            #endif
             if let connection, let limits = try? await connection.client().capabilities().capture {
                 maxURL = limits.maxUrlLength; maxTitle = limits.maxTitleLength; maxNote = limits.maxNoteLength
             }
+        }
+        .task(id: analysisRequest) { await analyzeCapture(analysisRequest) }
+        .onChange(of: currentAnalysisInput) { _, _ in
+            analysis = nil; analysisInput = nil; analysisError = nil; analyzing = false
         }
         .onDisappear { stopVoice() }
         .onChange(of: scenePhase) { _, phase in if phase != .active { stopVoice() } }
@@ -104,7 +143,8 @@ struct CaptureForm: View {
     }
 
     private var editor: some View {
-        ScrollView {
+        ScrollViewReader { proxy in
+          ScrollView {
             VStack(alignment: .leading, spacing: 25) {
                 HStack(spacing: 14) {
                     Image(systemName: "link").font(.title2.bold()).foregroundStyle(.blue)
@@ -170,7 +210,7 @@ struct CaptureForm: View {
                             .accessibilityLabel(recorder.isRecording || startingVoice ? "Stop voice note" : "Record a voice note")
                             .accessibilityIdentifier("captureMicrophone")
                     }
-                    TextField("Love the shape? Perfect for your room? Add a note…", text: $note, axis: .vertical)
+                    TextField("What caught your eye? Add a note…", text: $note, axis: .vertical)
                         .lineLimit(4...8).focused($focused, equals: .note)
                         .disabled(frozen || recorder.isRecording || startingVoice)
                         .accessibilityIdentifier("captureNote")
@@ -181,18 +221,7 @@ struct CaptureForm: View {
                     }.font(.caption).foregroundStyle(.secondary)
                 }.padding(20).background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 24))
 
-                if pending == nil {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 9) {
-                            ForEach(["Love the look", "For my space", "Compare later"], id: \.self) { hint in
-                                Button(hint) { note += note.isEmpty ? hint : " · \(hint)" }
-                                    .font(.subheadline.weight(.medium)).padding(.horizontal, 16).padding(.vertical, 12)
-                                    .background(NativeTheme.surface, in: Capsule()).buttonStyle(.plain)
-                                    .disabled(saving || recorder.isRecording || startingVoice)
-                            }
-                        }
-                    }
-                }
+                if pending == nil { predictiveNotes.id("capturePredictiveNotes") }
                 if let text = message ?? recorder.errorMessage {
                     Label(text, systemImage: "info.circle").font(.subheadline).foregroundStyle(.secondary)
                         .accessibilityIdentifier("captureStatus")
@@ -208,14 +237,114 @@ struct CaptureForm: View {
                     }.font(.subheadline)
                 }
                 if saving { ProgressView("Saving your find…").frame(maxWidth: .infinity) }
-                NativePrimaryButton(title: pending == nil ? "Save to library" : canRetry ? "Retry save" : "Reconnect or edit to continue") {
+                Button {
+                    FindsHaptics.selection()
                     focused = nil; stopVoice(); Task { await save() }
-                }.disabled(saving || !canRetry || (!valid && pending == nil))
+                } label: {
+                    Text(pending == nil ? "Save find" : canRetry ? "Retry save" : "Reconnect or edit to continue")
+                        .font(.headline.bold())
+                        .foregroundStyle(canSave ? Color.black : Color.secondary)
+                        .frame(maxWidth: .infinity).padding(.vertical, 19)
+                        .background(canSave ? Color.white : Color(.tertiarySystemFill), in: Capsule())
+                        .overlay { Capsule().strokeBorder(Color.primary.opacity(canSave ? 0.16 : 0.06), lineWidth: 1) }
+                }.buttonStyle(.plain)
+                    .disabled(!canSave)
+                    .animation(.easeInOut(duration: 0.18), value: canSave)
                     .accessibilityIdentifier("captureSave")
-                Text("Your note stays with your find. Photos and files are private.")
+                Text(CaptureIntelligence.isConfigured
+                     ? "OpenAI analyzes this draft to suggest relevant notes. You can save without waiting."
+                     : "Your note stays with your find.")
                     .font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity)
             }.padding(24).frame(maxWidth: 600).frame(maxWidth: .infinity)
-        }.scrollDismissesKeyboard(.interactively)
+          }.scrollDismissesKeyboard(.interactively)
+          #if DEBUG
+          .onChange(of: currentAnalysis?.analyzedAt) { _, analyzedAt in
+              guard analyzedAt != nil, ProcessInfo.processInfo.arguments.contains("-demoWatchDraft") else { return }
+              withAnimation(.easeInOut(duration: 0.3)) {
+                  proxy.scrollTo("capturePredictiveNotes", anchor: .top)
+              }
+          }
+          #endif
+        }
+    }
+
+    private var predictiveNotes: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if analyzing {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Understanding this find…").font(.subheadline).foregroundStyle(.secondary)
+                }.accessibilityIdentifier("captureAnalysisLoading")
+            } else if let analysis = currentAnalysis {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(analysis.productName ?? "About this find", systemImage: "sparkles").font(.subheadline.bold())
+                    if !analysis.categoryPath.isEmpty {
+                        Text(analysis.categoryPath.joined(separator: " › ")).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text(analysis.summary).font(.subheadline).foregroundStyle(.secondary)
+                    if let uncertainty = analysis.uncertainties.first {
+                        Text(uncertainty).font(.caption).foregroundStyle(.secondary)
+                    }
+                }.accessibilityIdentifier("captureProductContext")
+                if note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !analysis.prompts.isEmpty {
+                    Text("What matters to you?").font(.subheadline.bold())
+                    ForEach(analysis.prompts, id: \.id) { prompt in
+                        Button {
+                            note = prompt.text
+                            focused = .note
+                            FindsHaptics.selection()
+                        } label: {
+                            HStack(spacing: 10) {
+                                Text(prompt.text).font(.subheadline.weight(.medium)).multilineTextAlignment(.leading)
+                                Spacer(minLength: 4)
+                                Image(systemName: "arrow.up.left").font(.caption.bold()).foregroundStyle(.secondary)
+                            }.padding(.horizontal, 16).padding(.vertical, 13)
+                                .background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+                        }.buttonStyle(.plain).disabled(frozen || recorder.isRecording || startingVoice)
+                    }
+                }
+            } else if let analysisError {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Suggestions are unavailable. Your find can still be saved.").font(.subheadline).foregroundStyle(.secondary)
+                    Text(analysisError).font(.caption).foregroundStyle(.secondary)
+                    Button("Retry suggestions") { self.analysisError = nil; analysisRetry += 1 }
+                        .font(.subheadline.bold()).disabled(!analysisRequest.ready)
+                }.accessibilityIdentifier("captureAnalysisError")
+            } else if note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(CaptureIntelligence.isConfigured
+                     ? "Add a link, photo, or text for suggestions about this find."
+                     : "Add a note in your own words. Tailored suggestions will appear when AI is connected.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @MainActor private func analyzeCapture(_ request: AnalysisRequest) async {
+        let requestID = UUID()
+        analysisRequestID = requestID
+        defer { if requestID == analysisRequestID { analyzing = false } }
+        guard request.ready else {
+            analyzing = false
+            return
+        }
+        if currentAnalysis != nil { return }
+        analysis = nil; analysisInput = nil; analysisError = nil
+        do {
+            try await Task.sleep(for: .seconds(1))
+            try Task.checkCancellation()
+            guard request == analysisRequest, requestID == analysisRequestID else { return }
+            analyzing = true
+            let imageData = attachments.first { UTType($0.value.typeIdentifier)?.conforms(to: .image) == true }?.value.data
+            let result = try await CaptureIntelligence.analyze(url: request.input.url.isEmpty ? nil : request.input.url,
+                title: resolvedTitle, text: request.input.text, note: note, imageData: imageData)
+            try Task.checkCancellation()
+            guard request == analysisRequest, requestID == analysisRequestID else { return }
+            analysis = result; analysisInput = request.input
+        } catch {
+            guard requestID == analysisRequestID else { return }
+            analysis = nil; analysisInput = nil
+            if !Task.isCancelled && !(error is CancellationError) { analysisError = error.localizedDescription }
+        }
     }
 
     private func confirmation(_ receipt: CaptureReceipt) -> some View {
@@ -250,12 +379,18 @@ struct CaptureForm: View {
 
     @MainActor private func save() async {
         guard !saving else { return }
+        let analysisToSave = currentAnalysis
         saving = true; message = nil
         defer { saving = false }
         do {
             guard let connection = effectiveConnection else {
-                receipt = try await LocalLibrary.shared.captureContent(url: cleanedLink.isEmpty ? nil : cleanedLink, title: resolvedTitle,
+                let saved = try await LocalLibrary.shared.captureContent(url: cleanedLink.isEmpty ? nil : cleanedLink, title: resolvedTitle,
                     text: savedText, note: note, source: captureSource, attachments: attachments.map(\.value))
+                receipt = saved
+                if !saved.duplicate, let analysisToSave {
+                    do { try await LocalLibrary.shared.setAnalysis(saved.id, analysisToSave) }
+                    catch { message = "Your find is saved. Its AI context could not be stored; your original content and note are safe." }
+                }
                 FindsHaptics.success(); onSave()
                 return
             }

@@ -15,6 +15,11 @@ struct ProfileSettingsSections: View {
     @State private var showingIntro = false
 
     var body: some View {
+        Section("Shopping intelligence") {
+            NavigationLink { IntelligenceSettingsView() } label: {
+                Label("AI connection & privacy", systemImage: "sparkles")
+            }
+        }
         Section("Make it yours") {
             Picker(selection: $appearance) {
                 ForEach(AppAppearance.allCases) { Text($0.title).tag($0.rawValue) }
@@ -98,7 +103,7 @@ private struct FindsPrivacyView: View {
         List {
             Section("Local library") {
                 Label("Your saves stay on this iPhone", systemImage: "iphone")
-                Text("Local finds, photos, files and notes are stored by the app on this device. They are not automatically uploaded when you connect a separate shared library.")
+                Text("Local finds, photos, files and notes are stored by the app on this device. A separate shared library does not automatically import them. When shopping intelligence is connected, the selected photo and product context are sent to OpenAI to create suggestions and analysis. Disconnect intelligence in Profile to stop this processing.")
             }
             Section("Photos & voice") {
                 Text("Choose individual photos or files to share with the app. The app’s voice-note button requests microphone and speech recognition permission when you use it. In a share sheet, use the iPhone keyboard’s dictation button. Review and edit the transcript before saving.")

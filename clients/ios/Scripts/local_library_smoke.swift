@@ -63,6 +63,15 @@ struct LocalLibrarySmoke {
         let edited = try await library.collection().first { $0.id == imageReceipt.id }
         let editedMetadata = try await library.metadata()[imageReceipt.id]!
         try check(edited?.title == "Edited title" && edited?.note == "An editable voice transcript" && editedMetadata.isFavorite && editedMetadata.isArchived && editedMetadata.intent == "Compare smaller versions", "editing and organization persist")
+        let analysis = CaptureIntelligenceResult(productName: "Digital watch", categoryPath: ["Accessories", "Watches", "Digital"], brand: nil,
+            style: ["Vintage-inspired"], summary: "Test analysis fixture", uncertainties: ["Brand is unknown"],
+            prompts: [.init(id: "p1", text: "I like the retro face")], evidence: ["Rectangular digital face"], analyzedAt: 1234)
+        try await reopened.setAnalysis(imageReceipt.id, analysis)
+        let analyzed = try await LocalLibrary(fileURL: file).metadata()[imageReceipt.id]?.analysis
+        try check(analyzed?.categoryPath == analysis.categoryPath && analyzed?.brand == nil && analyzed?.prompts.first?.text == "I like the retro face", "structured analysis and uncertainty survive reopening")
+        try await library.update(imageReceipt.id, title: "A different find", note: "", text: "Changed context")
+        let invalidated = try await reopened.metadata()[imageReceipt.id]?.analysis
+        try check(invalidated == nil, "editing source context invalidates stale analysis")
         let mediaURL = await library.attachmentURL(attachment)
         try await library.delete(imageReceipt.id)
         try check(!FileManager.default.fileExists(atPath: mediaURL.path), "deleting a find cleans its private files")

@@ -14,6 +14,7 @@ struct LocalFindMetadata: Codable, Sendable {
     var isArchived = false
     var attachments: [LocalAttachment] = []
     var intent: String? = nil
+    var analysis: CaptureIntelligenceResult? = nil
 }
 struct LocalCaptureAttachment: Sendable {
     let filename: String
@@ -26,7 +27,7 @@ private struct LocalLibraryDocument: Codable {
     var metadata: [String: LocalFindMetadata] = [:]
 }
 
-/// Local content never leaves the phone. SDK records stay compatible with the server.
+/// Durable on-device storage. Optional intelligence is separate from this store.
 actor LocalLibrary {
     static let shared = LocalLibrary(fileURL: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("MymahFinds", isDirectory: true).appendingPathComponent("local-library.json"))
@@ -121,6 +122,12 @@ actor LocalLibrary {
         value["title"] = title; value["note"] = note; value["selectedText"] = text
         value["revision"] = document.items[index].revision + 1
         document.items[index] = try JSONDecoder().decode(SavedItem.self, from: JSONSerialization.data(withJSONObject: value))
+        document.metadata[id, default: LocalFindMetadata()].analysis = nil
+        try persist(document)
+    }
+    func setAnalysis(_ id: String, _ analysis: CaptureIntelligenceResult) throws {
+        var document = try document(); guard document.items.contains(where: { $0.id == id }) else { throw LocalError.missingItem }
+        document.metadata[id, default: LocalFindMetadata()].analysis = analysis
         try persist(document)
     }
     func setIntent(_ id: String, _ text: String?) throws {

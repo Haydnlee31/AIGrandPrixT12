@@ -33,6 +33,11 @@ targets:
       path: Configuration/App-Info.plist
       properties:
         CFBundleDisplayName: Mynah Finds
+        CFBundleURLTypes:
+          - CFBundleURLName: com.aigrandprix.mymahfinds.navigation
+            CFBundleTypeRole: Editor
+            CFBundleURLSchemes:
+              - mynah
         UILaunchScreen: {}
         CommonThreadAppGroup: "$(COMMON_THREAD_APP_GROUP)"
         CommonThreadKeychainGroup: "$(COMMON_THREAD_KEYCHAIN_GROUP)"

@@ -34,12 +34,16 @@ struct LocalIntelligencePreview: View {
     @State private var acknowledgment: String?
     @State private var showingEditor = false
     @State private var showingExample = false
-    private let choices = ["Save inspiration", "Compare options", "Find similar"]
+    @State private var analysis: CaptureIntelligenceResult?
+    @State private var analyzing = false
+    @State private var analysisError: String?
+    private var choices: [String] { analysis?.prompts.map(\.text) ?? [] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             PreviewSection(title: "What caught your eye?", symbol: "sparkles") {
-                Text("Choose a direction, or tell us in your own words.").font(.subheadline).foregroundStyle(.secondary)
+                Text(choices.isEmpty ? "Tell us what draws you to this find." : "Suggestions from your find. Choose one, or tell us in your own words.").font(.subheadline).foregroundStyle(.secondary)
+                if analyzing { ProgressView("Looking at your find…").font(.subheadline) }
                 HStack(spacing: 12) {
                     Label(item.hasImage ? "Photo saved" : "Original saved", systemImage: item.hasImage ? "photo" : "bookmark")
                     if !item.note.isEmpty { Label("Your note", systemImage: "quote.bubble") }
@@ -67,14 +71,31 @@ struct LocalIntelligencePreview: View {
                         if intent != nil { Button("Remove intention", role: .destructive) { Task { await saveIntent(nil, message: "Intention removed") } } }
                     } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("Intention options")
                 }.font(.subheadline).disabled(busy)
-                Text("These are optional starting points, not AI predictions. Your choice is saved on this iPhone.").font(.caption).foregroundStyle(.secondary)
+                Text(analysis == nil ? "Your intention stays with this find." : "Generated with OpenAI from the saved context. Your choice remains editable.").font(.caption).foregroundStyle(.secondary)
+                if let analysisError {
+                    Text(analysisError).font(.caption).foregroundStyle(.secondary)
+                    Button("Try suggestions again") { Task { await analyzeFind() } }.disabled(analyzing)
+                }
                 if let acknowledgment { Label(acknowledgment, systemImage: "checkmark.circle").font(.caption).foregroundStyle(.green) }
                 if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.red) }
             }
 
             PreviewSection(title: "Understand this find", symbol: "viewfinder") {
+                if let analysis {
+                    Label("Analyzed with OpenAI", systemImage: "sparkles").font(.caption.bold()).foregroundStyle(.blue)
+                    Text(analysis.productName ?? "More context needed").font(.headline.bold())
+                    Text(analysis.summary).font(.subheadline).foregroundStyle(.secondary)
+                    LabeledContent("Category", value: analysis.categoryPath.isEmpty ? "Unknown" : analysis.categoryPath.joined(separator: " › "))
+                    LabeledContent("Brand", value: analysis.brand ?? "Unknown")
+                    LabeledContent("Style", value: analysis.style.isEmpty ? "Unknown" : analysis.style.joined(separator: " · "))
+                    if !analysis.evidence.isEmpty {
+                        Text("Based on your find").font(.subheadline.bold())
+                        ForEach(analysis.evidence, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
+                    }
+                    ForEach(analysis.uncertainties, id: \.self) { Label($0, systemImage: "questionmark.circle").font(.caption).foregroundStyle(.secondary) }
+                } else {
                 HStack {
-                    Label("Not analyzed yet", systemImage: "clock").font(.subheadline.weight(.semibold))
+                    Label(analyzing ? "Analyzing your find" : "Not analyzed yet", systemImage: "clock").font(.subheadline.weight(.semibold))
                     Spacer()
                 }
                 Text("Your original, photos and notes are safe here. Product recognition becomes available when analysis is connected.").font(.subheadline).foregroundStyle(.secondary)
@@ -85,6 +106,7 @@ struct LocalIntelligencePreview: View {
                     HStack { Text(showingExample ? "Hide example breakdown" : "See an example breakdown"); Spacer(); Image(systemName: showingExample ? "chevron.up" : "chevron.down") }
                 }.font(.subheadline.weight(.semibold))
                 if showingExample { WatchAnalysisExample() }
+                }
             }
 
             PreviewSection(title: "Made personal by you", symbol: "person.crop.circle.badge.checkmark") {
@@ -102,7 +124,11 @@ struct LocalIntelligencePreview: View {
             }
         }
         .task(id: "\(item.id)|\(item.revision)") {
-            do { intent = try await LocalLibrary.shared.metadata()[item.id]?.intent }
+            do {
+                let saved = try await LocalLibrary.shared.metadata()[item.id]
+                intent = saved?.intent; analysis = saved?.analysis
+                if analysis == nil, CaptureIntelligence.isConfigured, item.client != "sample" { await analyzeFind() }
+            }
             catch { errorMessage = error.localizedDescription }
         }
         .sheet(isPresented: $showingEditor) {
@@ -111,6 +137,22 @@ struct LocalIntelligencePreview: View {
                 return errorMessage == nil
             }
         }
+    }
+
+    @MainActor private func analyzeFind() async {
+        guard !analyzing, CaptureIntelligence.isConfigured else { return }
+        analyzing = true; analysisError = nil
+        defer { analyzing = false }
+        do {
+            let metadata = try await LocalLibrary.shared.metadata()[item.id]
+            var image: Data?
+            if let attachment = metadata?.attachments.first(where: \.isImage) { image = try await LocalLibrary.shared.attachmentData(attachment) }
+            let result = try await CaptureIntelligence.analyze(url: item.originalUrl.isEmpty ? nil : item.originalUrl,
+                title: item.title, text: item.selectedText, note: item.note, imageData: image)
+            try Task.checkCancellation()
+            try await LocalLibrary.shared.setAnalysis(item.id, result)
+            analysis = result; onChanged()
+        } catch is CancellationError {} catch { analysisError = error.localizedDescription }
     }
 
     @MainActor private func saveIntent(_ value: String?, message: String = "Intention saved on this iPhone") async {
@@ -247,7 +289,7 @@ struct ExplorePreviewScreen: View {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         return items.filter { item in
             !(metadata[item.id]?.isArchived ?? false) && (text.isEmpty ||
-                [item.title, item.note, item.selectedText, metadata[item.id]?.intent ?? ""].contains { $0.localizedStandardContains(text) })
+                [item.title, item.note, item.selectedText, metadata[item.id]?.intent ?? "", metadata[item.id]?.analysis?.searchableText ?? ""].contains { $0.localizedStandardContains(text) })
         }
     }
     var body: some View {
