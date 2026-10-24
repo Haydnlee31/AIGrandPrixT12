@@ -27,7 +27,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     const item = await captureSelectedImage(info, tab);
     await addSave(item);
     await status({ state: 'saved', id: item.id });
-    if (await getConnection()) {
+    if (await getConnection({allowCached:true})) {
       try { await sync(item.id); await status({state: 'saved', id: item.id}); }
       catch (error) { await status({state: 'saved', id: item.id, error: `Image saved locally. ${error.message}`}); }
     }

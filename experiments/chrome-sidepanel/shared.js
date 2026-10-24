@@ -8,6 +8,11 @@ export function capturePayload(item, modern = false) {
 }
 
 export const accountScope = connection => JSON.stringify([connection.baseURL, connection.userId]);
+export function needsSync(item) {
+  const shared = item.shared;
+  return Boolean(shared && (!shared.remoteId || shared.remote?.status === 'pending' ||
+    (item.answer && (!shared.answerAttempt?.done || shared.answerAttempt.fingerprint !== JSON.stringify(answerPayload(item))))));
+}
 
 export function sharedQuestion(remote) {
   if (!remote.suggestions?.length) return null;
@@ -30,8 +35,6 @@ export function answerPayload(item) {
 
 export async function syncSave({id, connection, api, read, update, retryUnderstanding = false, key = () => crypto.randomUUID()}) {
   const scope = accountScope(connection);
-  const identity = await api.me();
-  if (identity.user_id !== connection.userId) throw new Error('The connected account changed. Reconnect before sharing.');
   let item = await read(id);
   if (!item) throw new Error('This local save was removed.');
   if (item.shared && item.shared.scope !== scope) throw new Error('This save belongs to another shared library. Reconnect to that account to sync it.');
@@ -41,6 +44,9 @@ export async function syncSave({id, connection, api, read, update, retryUndersta
     const payload = capturePayload({...item, image}, connection.modern);
     item = await update(id, current => ({...current, shared: {scope, captureKey: key(), payload}}));
   }
+  const identity = await api.me();
+  if (identity.user_id !== connection.userId) throw new Error('The connected account changed. Reconnect before sharing.');
+  if (item.shared.paused || item.shared.retryAt) item = await update(id, current => ({...current, shared:{...current.shared, paused:false, retryAt:0}}));
   if (item.shared.removing) throw new Error('Removal is pending. Retry Remove to finish it.');
   const previouslyShared = Boolean(item.shared.remoteId);
   if (!item.shared.remoteId) {

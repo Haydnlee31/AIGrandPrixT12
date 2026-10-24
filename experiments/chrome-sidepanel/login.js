@@ -32,7 +32,7 @@ export async function startLogin(input) {
   const baseURL = normalizeBackendURL(input), url = new URL(baseURL);
   const granted = await chrome.permissions.request({origins:[`${url.protocol}//${url.hostname}/*`]});
   if (!granted) throw new Error('Allow access to your Mynah server to sign in.');
-  await chrome.storage.local.set({managedLogin:{baseURL}});
+  await chrome.storage.local.set({managedLogin:{baseURL, generation:crypto.randomUUID()}});
   await chrome.storage.session.remove('sharedConnection');
   await chrome.tabs.create({url:`${baseURL}/?sign-in=1#profile`});
 }
