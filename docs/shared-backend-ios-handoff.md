@@ -5,13 +5,40 @@ Web branch: `codex/mynah-web-app`. API/SDK contract: `0.4.0`.
 
 ## Deployment status
 
-Hosting choice and workspace confirmation are pending. No public endpoint has been created.
-The portable entrypoint is `python scripts/run_shared.py`. It runs migrations before
+Vercel was selected for the hackathon demo on 2026-10-25. Hobby is the target plan,
+subject to its personal, noncommercial-use terms. Vercel sign-in, a hosted database,
+catalog import and the server-side AI credential are still pending. No public endpoint
+has been created.
+
+The portable long-running-server entrypoint is `python scripts/run_shared.py`. It runs migrations before
 starting the existing FastAPI API and web interface on `0.0.0.0:$PORT`.
 It requires PostgreSQL and explicit account access keys, and disables demo mutations.
 This is a private beta with provisioned account keys, not public signup.
 
-Required environment:
+This entrypoint is not a Vercel Function entrypoint. Before deploying on Vercel:
+
+- Export the FastAPI application through a supported Python entrypoint and run
+  migrations as a deployment step, not on every function invocation.
+- Disable the embedded infinite worker. Adapt the durable job queue to bounded
+  invocations with a reliable retry trigger; saving a record must not depend on
+  a background thread surviving the request.
+- Keep both clients on the same authenticated API and hosted PostgreSQL database.
+  A free database plan has its own storage and compute limits; measure the imported
+  catalog and image storage before promising that the complete dataset fits.
+- Handle Vercel's 4.5 MB request/response payload limit. The current API's 4 MiB
+  decoded image allowance can exceed that once base64-encoded. Compress photos
+  before upload or add authenticated direct object-storage uploads on both clients.
+
+[Vercel Hobby limits](https://vercel.com/docs/plans/hobby) currently include
+1 million function invocations, 4 active CPU-hours, 360 GB-hours of provisioned
+memory, 100 GB of fast data transfer and 10 GB of origin transfer per month.
+The first exhausted allowance can interrupt service. These are hosting quotas,
+not free AI model calls or a database allocation.
+[Function limits](https://vercel.com/docs/functions/limitations) include a maximum
+300-second duration on Hobby with Fluid compute and the payload limit above.
+Prices and limits were checked on 2026-10-25; verify them again before deployment.
+
+Required environment for the portable server (Vercel-specific configuration is pending):
 
 - `DATABASE_URL`: hosted PostgreSQL connection string. Both migrations and the API use psycopg 3.
 - `API_TOKENS`: JSON mapping random access keys to account IDs; alternatively
