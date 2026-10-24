@@ -18,6 +18,7 @@ struct CaptureForm: View {
     @State private var savedText = ""
     @State private var attachments: [DraftAttachment] = []
     @State private var photoSelection: [PhotosPickerItem] = []
+    @State private var detailPhoto: DraftAttachment?
     @State private var showingFiles = false
     @State private var showingCamera = false
     @State private var loadingMedia = false
@@ -126,6 +127,13 @@ struct CaptureForm: View {
         .onChange(of: currentAnalysisInput) { _, _ in
             analysis = nil; analysisInput = nil; analysisError = nil; analyzing = false
             if !titleWasEdited { title = "" }
+        }
+        .sheet(item: $detailPhoto) { attachment in
+            PhotoDetailSelector(attachment: attachment, productTitle: currentAnalysis?.productName ?? resolvedTitle) { preference in
+                guard selectedIntents.count < 8 else { return false }
+                if !selectedIntents.contains(preference) { selectedIntents.append(preference) }
+                return true
+            }
         }
         .sheet(item: $refinement) { context in
             IntentRefinementSheet(context: context) { choice in
@@ -448,6 +456,12 @@ struct CaptureForm: View {
                                 }
                             }
                             .clipShape(RoundedRectangle(cornerRadius: 24))
+                            .onLongPressGesture { if !frozen && attachment.preview != nil { focused = nil; detailPhoto = attachment } }
+                        if attachment.preview != nil {
+                            Button { focused = nil; detailPhoto = attachment } label: {
+                                Label("Highlight a detail", systemImage: "lasso").font(.subheadline.bold())
+                            }.tint(.purple).disabled(frozen)
+                        }
                         HStack {
                             Text(attachment.value.filename).font(.caption).lineLimit(1)
                             Spacer()

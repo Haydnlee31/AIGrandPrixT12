@@ -172,11 +172,6 @@ struct SavedContentView: View {
                             .accessibilityIdentifier("openOriginal")
                     }
                 }
-                if localOnly {
-                    VisualIntentSection(itemID: displayed.id, metadata: metadata) {
-                        onChanged(); Task { await reloadLocal() }
-                    }
-                }
                 SavedIntelligenceSection(item: displayed, connection: connection,
                     questionFocusToken: questionFocusToken, onChanged: intelligenceChanged)
                     // Stable identity keeps active editors alive while metadata refreshes.

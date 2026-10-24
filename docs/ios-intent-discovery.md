@@ -2,7 +2,7 @@
 
 Implemented on the iOS branch, 25 October 2026.
 
-Update: the separate discovery entry and screen were removed at the user’s request because they duplicate Explore. Explore remains the recommendation surface; saved-product preference editing remains available. The discovery API below is retained but is no longer exposed by the iOS app.
+Update: the separate discovery entry and screen were removed at the user’s request because they duplicate Explore. Explore remains the recommendation surface; saved-product preference editing was subsequently removed in favor of photo-region capture. The discovery API below is retained but is no longer exposed by the iOS app.
 
 ## Saved product: What matters to you
 
@@ -17,3 +17,10 @@ No saved items are required. The authenticated `/v1/discover` endpoint selects u
 Signed Xcode build and physical-iPhone installation succeeded. 652 backend tests passed, including no-saves discovery, authentication, rotation, explicit preference reranking and brand-flexible scoring. Live HTTPS: 4 starters in 0.86 seconds; silver watch produced 4 matches, blue watch produced 1, and dismissal produced 4 new cards. iPhone Explore was visually inspected with the entry card and actual Amazon images visible. The user physically confirmed choosing products and editing the brief updates results. The subsequent interest-based version was installed and launched; its on-device interaction has not yet been reconfirmed. Live HTTPS personalization using eight actual saves returned four source-attributed cards in 2.46 seconds, including black-strap watch matches and silver-inspired lamp/bag suggestions. Tests also verify that unconfirmed observed colors do not create claimed interests.
 
 Radar demo checks: the live HTTPS price-check endpoint returned INR6,300 against INR16,500 MRP (61% below MRP). An isolated test watch saved its target, recorded a second observation, persisted, and was cleaned up. No historical price drop was asserted because the price was unchanged. Model tests cover unavailable prices, currency precision and exact product identity. Existing actual user watches were not changed. Keep the relay and HTTPS tunnel running; Amazon may withhold a price on some listings.
+
+
+## Photo-region capture revision
+
+The separate What matters to you section and editor were removed, returning the saved-product screen to its previous layout. In + → Photos, an attached photo now has Highlight a detail and a long-press shortcut. A dedicated sheet lets the user draw around a region. The app maps the drawing to normalized image coordinates, crops its rectangular bounds from the orientation-normalized original, shows the selected crop, and sends only that crop plus product-title context to the existing authenticated analysis relay. The original attachment is unchanged. Suggestions remain optional; the user selects or edits a preference and confirms Add this detail. Confirmed preferences feed the existing save, insights and recommendation path. Multiple details can be added by reopening the selector. Cancel does not modify the draft. Redrawing cancels the previous request and rejects stale responses; tiny selections show guidance; failed analysis permits manual text and retry.
+
+This is manual region selection, not automatic object segmentation. Build and physical-device installation passed. A live crop of the user's Tudor dial returned HTTP 200 in 3.97 seconds and suggestions including the classic dial design and metallic dial finish. Physical drawing, scrolling, and confirmation still need user acceptance because remote touch control is unavailable.
