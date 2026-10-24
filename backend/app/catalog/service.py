@@ -262,7 +262,7 @@ def import_dataset(factory, source_id, records, *, version, checksum, now=None, 
             data = record.model_dump()
             data["provenance"].update(license_id=source.license_id, license_url=source.license_url,
                                       attribution=source.attribution, dataset_version=version, source_checksum=checksum,
-                                      catalog_id=catalog_id, normalized_by="Mymah Finds", is_current_offer=False)
+                                      catalog_id=catalog_id, normalized_by="Mynah Finds", is_current_offer=False)
             # Admission must validate the final wire record, including added
             # license metadata, so later API reads cannot fail their contract.
             data = CatalogRecord.model_validate(data).model_dump()

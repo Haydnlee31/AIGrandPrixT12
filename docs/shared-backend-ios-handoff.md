@@ -16,7 +16,10 @@ record through a second client, Vercel queue processing, persistence after redep
 private images, and deletion. The actual Chrome extension SDK saved a record that the
 web SDK then read. Web, iOS and extension request formats were accepted by the live API;
 this is not a physical iPhone or installed-extension end-to-end test. Unauthenticated
-Library and image requests return 401. Live AI is still pending a server-side `OPENAI_API_KEY`.
+Library and image requests return 401. Live AI is enabled with a server-side
+`OPENAI_API_KEY` stored as a Vercel Production Secret. A real ABO lamp image completed
+queued analysis, and two independent clients received the same personalized catalog
+records with citations to that saved item. Verification records were removed afterward.
 The production model is configured as `gpt-4.1-mini`, matching the native relay's
 default model; its shared annotation prompt/contract remains different from that relay.
 Hobby usage must meet Vercel's personal, noncommercial-use terms.
@@ -81,8 +84,8 @@ roughly 300 MB on the 1 GB free allocation for saves, images and growth. Monitor
 before a larger rollout. Live Explore searches for `chair` and `lamp` returned real
 catalog records with CC-BY-4.0 attribution in about 1.4 and 0.8 seconds respectively.
 The catalog is historical product metadata, not current prices or availability.
-Additional sources from Adi's reviewed bundle are not yet available here. The live AI
-credential is still missing. Do not claim live personalized recommendations until configured and tested.
+Additional sources from Adi's reviewed bundle are not yet available here. Live shared
+AI analysis and personalized recommendations were verified against this ABO snapshot.
 Haydn can run `make catalog-bundle` on the machine that holds the reviewed datasets.
 Transfer the resulting data-only bundle separately; the existing
 `scripts/import_catalog_bundle.py` verifies hashes/counts before importing it with
@@ -139,9 +142,9 @@ login, import or Share Extension changes as a separate focused PR based on the c
 `codex/ios-app` head, coordinate its scope with the team, and let them review/merge it.
 The web branding assets and palette are documented in [web-branding.md](web-branding.md).
 
-To enable live AI, add `OPENAI_API_KEY` as a **Production Secret** in the Vercel
+To configure or rotate live AI credentials, set `OPENAI_API_KEY` as a **Production Secret** in the Vercel
 project's Environment Variables, then redeploy. The key must belong to an OpenAI API
-project with available billing; a ChatGPT subscription is separate. Re-analyze saved
+project with available billing; [ChatGPT and API billing are separate](https://help.openai.com/en/articles/9039756-managing-billing-for-chatgpt-and-the-api-platform). Re-analyze saved
 items that were captured before AI was enabled, then verify their analysis and shared
 Explore citations. Never paste the key into an issue, PR, chat or client configuration.
 
@@ -213,5 +216,7 @@ There is no live price monitor or notification delivery in this deployment.
 - Restart/redeploy the service and verify saves/images remain. Check a second account
   cannot list, read, retrieve images from or delete the first account's records.
 
-Physical iPhone/Share Extension and installed Chrome extension acceptance, live AI
-analysis and cross-device personalized-recommendation validation remain required.
+Physical iPhone/Share Extension and installed Chrome extension acceptance remain
+required. Live API analysis and recommendations across two independent clients passed;
+that does not replace testing the installed apps. User-facing sign-in is the next step
+after this private demo, per the demo owner's decision.
