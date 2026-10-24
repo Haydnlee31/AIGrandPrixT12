@@ -8,6 +8,7 @@ __pycache__/
 .env.*
 !.env.example
 node_modules/
+.vercel/
 tmp/
 local-data/
 dist/
@@ -22,3 +23,5 @@ docs/prototype-preview.jpg
 docs/ios-preview.jpg
 docs/ios-capture.jpg
 docs/ios-discovery.jpg
+.vercel
+.env*

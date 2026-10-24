@@ -75,11 +75,12 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
             provider.close()
         engine.dispose()
 
-    app = FastAPI(title="Mymah Finds API", version="0.4.0", lifespan=lifespan,
+    app = FastAPI(title="Mynah Finds API", version="0.4.0", lifespan=lifespan,
         description="Shared Chrome and iOS backend. Server-configured predictive annotations; integer minor-unit prices; Unix seconds UTC. Mutation requests require Idempotency-Key. Suggestions record intent only; actions require separate confirmation and implementation.",
         responses={status: {"model": schema.ErrorEnvelope} for status in [400, 401, 404, 409, 410, 422, 500, 503]})
     app.state.factory = factory
     app.state.annotation_provider = provider
+    app.state.job_dispatcher = None
     app.add_middleware(BodyLimitMiddleware, max_bytes=6 * 1024 * 1024)
     origins = allowed_origins if allowed_origins is not None else json.loads(os.getenv("CORS_ORIGINS", "[]"))
     def exact_origin(origin):
@@ -152,13 +153,29 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
                 return user_id
         raise APIError(401, "unauthorized", "A valid bearer token is required")
 
-    def database(request: Request):
+    def database(request: Request, user_id=Depends(user)):
         with factory.begin() as db:
             # SQLite FOR UPDATE is a no-op. Reserve its writer lock before any
             # mutation reads so two clients cannot both accept the same version.
             if engine.dialect.name == "sqlite" and request.method in {"POST", "PATCH", "DELETE"}:
                 db.connection().exec_driver_sql("BEGIN IMMEDIATE")
             yield db
+        # Notify only after commit. The database job survives a queue outage;
+        # subsequent authenticated reads and the recovery cron retry delivery.
+        if app.state.job_dispatcher is not None:
+            try:
+                app.state.job_dispatcher(factory, user_id=user_id)
+            except Exception as error:
+                logging.getLogger(__name__).warning("queue_dispatch_failed error_type=%s", type(error).__name__)
+
+    @app.get("/internal/jobs/recover", include_in_schema=False)
+    def recover_jobs(authorization: str = Header(default="")):
+        secret = os.getenv("CRON_SECRET", "")
+        if app.state.job_dispatcher is None or len(secret) < 32:
+            raise APIError(404, "not_found", "Not found")
+        if not secrets.compare_digest(authorization, "Bearer " + secret):
+            raise APIError(401, "unauthorized", "Authorization required")
+        return {"dispatched": app.state.job_dispatcher(factory)}
 
     def page_rows(db, query, offset, limit):
         if offset < 0 or not 1 <= limit <= 100:
@@ -255,7 +272,7 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
     @app.get("/v1/capabilities", response_model=schema.Capabilities, tags=["System"])
     def capabilities(user_id=Depends(user)):
         return {"api_version": "v1", "contract_version": "0.4.0", "authentication": "development_bearer",
-            "capture": {"clients": ["web", "chrome_extension", "ios_app", "ios_share_extension"], "content_types": ["url", "selected_text", "note", "image"], "max_url_length": 2048, "max_title_length": 300, "max_selected_text_length": 12000, "max_note_length": 2000, "max_image_bytes": 4194304},
+            "capture": {"clients": ["web", "chrome_extension", "ios_app", "ios_share_extension"], "content_types": ["url", "selected_text", "note", "image"], "max_url_length": 2048, "max_title_length": 300, "max_selected_text_length": 12000, "max_note_length": 2000, "max_image_bytes": min(4194304, int(os.getenv("CAPTURE_IMAGE_BYTES", "4194304")))},
             "data_modes": {"annotations": getattr(provider, "data_mode", "demo_rules"), "catalog": "fixture", "tracking": "simulated"},
             "features": {"annotations": True, "predictive_prompts": hasattr(provider, "understand_capture"), "product_analysis": getattr(provider, "supports_product_analysis", False), "library_search": True, "explore": True, "discovery": True, "watches": True, "price_simulation": demo_mode, "demo_reset": demo_mode, "image_upload": True, "live_price_monitoring": False, "push_notifications": False, "merchant_handoff": False, "personal_agent_connector": False, "reminder_scheduling": False},
             "currencies": ["SGD"], "refresh": {"strategy": "poll_on_foreground", "pending_save_interval_ms": 1500, "pending_save_timeout_ms": 30000, "incremental_sync": False}}

@@ -48,7 +48,7 @@ const store = {
 let token =
   store.get("mymah-finds-token") ??
   store.get("common-thread-token") ??
-  "demo-alex";
+  (["localhost", "127.0.0.1", "[::1]"].includes(location.hostname) ? "demo-alex" : "");
 let view = ["library", "explore", "profile"].includes(location.hash.slice(1))
   ? location.hash.slice(1)
   : "library";
@@ -727,13 +727,25 @@ async function captureImage() {
   const file = $("#capture-image").files[0];
   if (!file) return captureAttempt?.payload?.image_data_url || undefined;
   validateImage(file);
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () =>
-      reject(new Error("Couldn’t read that photo. Choose it again."));
-    reader.readAsDataURL(file);
-  });
+  const bitmap = await createImageBitmap(file);
+  try {
+    const scale = Math.min(1, 2048 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const maxBytes = Math.min(capabilities?.capture?.max_image_bytes || 3145728, 3145728);
+    for (const quality of [0.85, 0.7, 0.5]) {
+      const data = canvas.toDataURL("image/jpeg", quality);
+      if (data.split(",")[1].length * 3 / 4 <= maxBytes) return data;
+    }
+    throw new Error("That photo is too large to send. Try a smaller photo.");
+  } finally {
+    bitmap.close();
+  }
 }
 document.addEventListener("click", async (event) => {
   const offer = event.target.closest("[data-offer-index]");

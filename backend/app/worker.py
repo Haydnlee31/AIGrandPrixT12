@@ -219,19 +219,21 @@ def process_job(db, job, annotation=None, model_version=None):
         raise ValueError("unknown_job_kind")
 
 
-def run_once(factory, provider=None):
+def run_once(factory, provider=None, *, job_id=None):
     owned_provider = provider is None
     provider = provider if provider is not None else get_annotation_provider()
     try:
-        return _run_once(factory, provider)
+        return _run_once(factory, provider, job_id=job_id)
     finally:
         if owned_provider and hasattr(provider, "close"):
             provider.close()
 
 
-def _run_once(factory, provider):
+def _run_once(factory, provider, *, job_id=None):
     now = time.time()
     eligible = or_(and_(Job.status == "pending", Job.due_at <= now), and_(Job.status == "running", Job.lease_until <= now))
+    if job_id is not None:
+        eligible = and_(eligible, Job.id == job_id)
     token = uuid.uuid4().hex
     with transaction(factory) as db:
         candidate = db.scalar(select(Job.id).where(eligible).order_by(Job.due_at, Job.id).limit(1))

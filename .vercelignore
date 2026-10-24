@@ -1,0 +1,16 @@
+.git
+.vercel
+.venv
+.env*
+tmp
+local-data
+dist
+*.db
+*.db-shm
+*.db-wal
+clients/ios
+backend/tests
+frontend/test
+docs
+reports
+extension
