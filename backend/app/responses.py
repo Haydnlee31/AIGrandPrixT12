@@ -34,6 +34,18 @@ class Identity(Response):
     inference_provider: str
 
 
+class LoginConfig(Response):
+    enabled: bool
+    provider: Literal["neon"] | None = None
+    auth_url: str | None = None
+
+
+class SyncState(Response):
+    user_id: str
+    revision: int
+    poll_interval_ms: int
+
+
 class CaptureCapabilities(Response):
     clients: list[str]
     content_types: list[str]

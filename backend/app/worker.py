@@ -188,10 +188,9 @@ def process_job(db, job, annotation=None, model_version=None):
         item.features = annotation["features"]
         item.status = "ready"
         update_search_document(db, item)
-        if isinstance(item.features.get("analysis"), dict):
-            state = db.get(UserState, job.user_id)
-            if state:
-                state.version += 1
+        state = db.get(UserState, job.user_id)
+        if state:
+            state.version += 1
     elif job.kind == "price_check":
         data = job.payload
         watch = db.scalar(select(Watch).where(Watch.id == data["watch_id"], Watch.user_id == job.user_id).with_for_update())
@@ -306,6 +305,9 @@ def _run_once(factory, provider, *, job_id=None):
                 job.lease_until = 0
                 if job.status == "failed" and item:
                     item.status = "enrichment_failed"
+                    state = db.scalar(select(UserState).where(UserState.user_id == job.user_id).with_for_update())
+                    if state:
+                        state.version += 1
     return True
 
 

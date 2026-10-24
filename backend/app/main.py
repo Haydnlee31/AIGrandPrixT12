@@ -12,7 +12,6 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Header, Query, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.exceptions import RequestValidationError
@@ -22,6 +21,8 @@ from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException
 
+from .auth import NeonAuth, InvalidLogin, LoginUnavailable
+from .auth_proxy import LoginCORSMiddleware, install_login_routes
 from .contracts import AnnotationResponse, Capture, CreateWatch, DiscoveryEvent, HypothesisFeedback, SimulatedPrice, StartDiscovery, UpdateWatch, canonical_url
 from .db import Base, DiscoverySession, Evidence, Job, Mutation, Notification, Observation, SavedItem, Suggestion, UserEvent, UserState, Watch, make_database
 from .intelligence import CATALOG, claims_in, context, shortlist
@@ -48,11 +49,12 @@ def row_dict(row):
 
 def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=None, allowed_origins=None, annotation_provider=None):
     engine, factory = make_database(database_url)
+    login = NeonAuth()
     provider = annotation_provider if annotation_provider is not None else get_annotation_provider()
     tokens = tokens if tokens is not None else json.loads(os.getenv("API_TOKENS", '{"demo-alex":"alex","demo-sam":"sam"}'))
     demo_mode = demo_mode if demo_mode is not None else os.getenv("DEMO_MODE", "true").lower() == "true"
     embedded_worker = embedded_worker if embedded_worker is not None else os.getenv("EMBEDDED_WORKER", "true").lower() == "true"
-    if not tokens or not all(isinstance(k, str) and isinstance(v, str) and k and v for k, v in tokens.items()):
+    if (not tokens and not login.enabled) or not isinstance(tokens, dict) or not all(isinstance(k, str) and isinstance(v, str) and k and v for k, v in tokens.items()):
         raise RuntimeError("API_TOKENS must map nonempty bearer tokens to user IDs")
     if not demo_mode and any(k in {"demo-alex", "demo-sam"} for k in tokens):
         raise RuntimeError("Replace demo tokens before disabling demo mode")
@@ -90,8 +92,9 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
         return parsed.scheme in {"http", "https", "chrome-extension"} and bool(parsed.netloc) and not (parsed.path or parsed.query or parsed.fragment or parsed.username or parsed.password)
     if not isinstance(origins, list) or not all(exact_origin(origin) for origin in origins):
         raise RuntimeError("CORS_ORIGINS must be a JSON list of exact origins without wildcards")
-    app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"], allow_headers=["Authorization", "Content-Type", "Idempotency-Key"], expose_headers=["X-Request-ID"], allow_credentials=False)
-    bearer = HTTPBearer(auto_error=False, scheme_name="DevelopmentBearer", description="Use a configured development token, e.g. demo-alex locally. Production identity is a separate backend integration.")
+    app.add_middleware(LoginCORSMiddleware, allow_origins=origins)
+    install_login_routes(app, login, origins)
+    bearer = HTTPBearer(auto_error=False, scheme_name="Bearer", description="Neon session token, or a configured legacy library key during migration.")
 
     @app.middleware("http")
     async def request_metadata(request, call_next):
@@ -151,7 +154,13 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
         for token, user_id in tokens.items():
             if secrets.compare_digest(provided, token):
                 return user_id
-        raise APIError(401, "unauthorized", "A valid bearer token is required")
+        try:
+            subject = login.subject(provided)
+            return login.account_links.get(subject, "neon:" + subject)
+        except LoginUnavailable:
+            raise APIError(503, "login_unavailable", "Sign-in is temporarily unavailable. Please retry.")
+        except InvalidLogin:
+            raise APIError(401, "unauthorized", "Please sign in to access your library")
 
     def database(request: Request, user_id=Depends(user)):
         with factory.begin() as db:
@@ -265,17 +274,26 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
     def health():
         return {"status": "ok", "demo_mode": demo_mode, "inference_provider": provider.version}
 
+    @app.get("/v1/auth/config", response_model=schema.LoginConfig, tags=["System"])
+    def auth_config():
+        return login.public_config()
+
+    @app.get("/v1/sync", response_model=schema.SyncState, tags=["System"])
+    def sync_state(user_id=Depends(user), db=Depends(database)):
+        state = db.get(UserState, user_id)
+        return {"user_id": user_id, "revision": state.version if state else 0, "poll_interval_ms": 15000}
+
     @app.get("/v1/me", response_model=schema.Identity, tags=["System"])
     def me(user_id=Depends(user)):
         return {"user_id": user_id, "demo_mode": demo_mode, "inference_provider": provider.version}
 
     @app.get("/v1/capabilities", response_model=schema.Capabilities, tags=["System"])
     def capabilities(user_id=Depends(user)):
-        return {"api_version": "v1", "contract_version": "0.4.0", "authentication": "development_bearer",
+        return {"api_version": "v1", "contract_version": "0.4.0", "authentication": "neon_session" if login.enabled else "development_bearer",
             "capture": {"clients": ["web", "chrome_extension", "ios_app", "ios_share_extension"], "content_types": ["url", "selected_text", "note", "image"], "max_url_length": 2048, "max_title_length": 300, "max_selected_text_length": 12000, "max_note_length": 2000, "max_image_bytes": min(4194304, int(os.getenv("CAPTURE_IMAGE_BYTES", "4194304")))},
             "data_modes": {"annotations": getattr(provider, "data_mode", "demo_rules"), "catalog": "fixture", "tracking": "simulated"},
             "features": {"annotations": True, "predictive_prompts": hasattr(provider, "understand_capture"), "product_analysis": getattr(provider, "supports_product_analysis", False), "library_search": True, "explore": True, "discovery": True, "watches": True, "price_simulation": demo_mode, "demo_reset": demo_mode, "image_upload": True, "live_price_monitoring": False, "push_notifications": False, "merchant_handoff": False, "personal_agent_connector": False, "reminder_scheduling": False},
-            "currencies": ["SGD"], "refresh": {"strategy": "poll_on_foreground", "pending_save_interval_ms": 1500, "pending_save_timeout_ms": 30000, "incremental_sync": False}}
+            "currencies": ["SGD"], "refresh": {"strategy": "poll_while_visible", "pending_save_interval_ms": 1500, "pending_save_timeout_ms": 30000, "incremental_sync": False}}
 
     @app.get("/v1/commerce/sources", response_model=catalog_schema.CatalogSources, tags=["Catalog integration"])
     def commerce_sources(user_id=Depends(user), db=Depends(database)):
