@@ -367,7 +367,7 @@ function applyAppearance() {
     (appearance === "system" &&
       matchMedia("(prefers-color-scheme: dark)").matches);
   document.documentElement.dataset.theme = dark ? "dark" : "light";
-  $('meta[name="theme-color"]').content = dark ? "#101012" : "#ffffff";
+  $('meta[name="theme-color"]').content = dark ? "#101012" : "#d9eef7";
 }
 function render() {
   document.querySelectorAll(".nav-item").forEach((button) => {

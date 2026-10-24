@@ -6,7 +6,8 @@
   --ink: #161618;
   --muted: #66666d;
   --line: #dedee3;
-  --blue: #0071e3;
+  --accent: #2b708a;
+  --accent-soft: #d9eef7;
   --primary: #111;
   --on-primary: #fff;
   --danger: #b72c37;
@@ -23,7 +24,8 @@
   --ink: #f5f5f7;
   --muted: #aaaab3;
   --line: #39393f;
-  --blue: #6aafff;
+  --accent: #9dd5e9;
+  --accent-soft: #203b46;
   --primary: #f4f4f6;
   --on-primary: #111;
   --danger: #ff8e98;
@@ -64,7 +66,7 @@ button {
   background: none;
 }
 a {
-  color: var(--blue);
+  color: var(--accent);
   text-decoration: none;
 }
 a:hover {
@@ -78,7 +80,7 @@ button:hover:not(:disabled) {
   filter: brightness(0.96);
 }
 :focus-visible {
-  outline: 3px solid var(--blue);
+  outline: 3px solid var(--accent);
   outline-offset: 4px;
 }
 button,
@@ -185,7 +187,7 @@ a.primary:hover {
   background: var(--surface);
 }
 .text-button {
-  color: var(--blue);
+  color: var(--accent);
   padding-inline: 8px;
 }
 .danger {
@@ -265,8 +267,8 @@ a.primary:hover {
   font-weight: 600;
 }
 .nav-item.active {
-  color: var(--ink);
-  background: var(--surface);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 .nav-caption {
   margin-top: auto;
@@ -336,7 +338,7 @@ a.primary:hover {
   padding: 12px 0;
 }
 .search-field:focus-within {
-  box-shadow: 0 0 0 2px var(--blue);
+  box-shadow: 0 0 0 2px var(--accent);
 }
 input::placeholder,
 textarea::placeholder {
@@ -460,7 +462,7 @@ textarea::placeholder {
 .cover .inline-icon {
   width: 40px;
   height: 40px;
-  color: var(--blue);
+  color: var(--accent);
 }
 .source-article {
   --photo: #fff0da;
@@ -660,7 +662,7 @@ textarea::placeholder {
 .idea-top svg {
   width: 32px;
   height: 32px;
-  color: var(--blue);
+  color: var(--accent);
 }
 .idea-top > div {
   min-width: 0;
@@ -686,7 +688,7 @@ textarea::placeholder {
   font-size: 14px;
 }
 .idea-bottom span {
-  color: var(--blue);
+  color: var(--accent);
 }
 .idea-card small {
   color: var(--muted);
@@ -800,7 +802,7 @@ textarea::placeholder {
   min-height: 40px;
   border: 0;
   background: none;
-  color: var(--blue);
+  color: var(--accent);
   font-size: 14px;
   text-align: right;
 }
@@ -907,7 +909,7 @@ dialog select {
 }
 dialog input:focus,
 dialog textarea:focus {
-  border-color: var(--blue);
+  border-color: var(--accent);
   outline: none;
 }
 dialog textarea {
@@ -941,7 +943,7 @@ details {
 }
 summary {
   cursor: pointer;
-  color: var(--blue);
+  color: var(--accent);
   padding-block: 8px;
   min-height: 40px;
 }
@@ -1145,7 +1147,7 @@ summary {
   }
   .nav-item.active {
     background: none;
-    color: var(--blue);
+    color: var(--accent);
   }
   .nav-caption {
     display: none;
