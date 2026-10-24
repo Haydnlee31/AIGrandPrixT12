@@ -3,33 +3,59 @@ import Security
 import CommonThreadKit
 
 enum SetupError: Error, LocalizedError {
-    case missingConfiguration, keychain(OSStatus), accountChanged
+    case missingConfiguration, sharedContainerUnavailable, keychain(OSStatus), accountChanged
     var errorDescription: String? {
         switch self {
-        case .missingConfiguration: return "Open Mymah Finds and connect your account in Profile first."
+        case .missingConfiguration: return "Open Mynah Finds and connect your account in Profile first."
+        case .sharedContainerUnavailable: return "This build declares an App Group that is unavailable. Check App Group signing for both targets, or use the local device build."
         case .keychain(let status): return "Secure credential storage failed (\(status)). Check signing and Keychain Sharing."
         case .accountChanged: return "The signed-in account changed. Reconnect before syncing this account’s saves."
         }
     }
 }
 
-/// App Group holds nonsecret configuration and queued captures; Keychain holds only the token.
+/// A fully provisioned build uses the App Group for nonsecret cloud configuration
+/// and queued captures. The explicitly group-free local device build uses its host
+/// sandbox instead. Credentials always remain in the shared Keychain access group.
+/// Local Share Extension captures use LocalShareInbox, independently of cloud login.
 struct SharedEnvironment: Codable {
     let baseURL: URL
     let accountId: String
     static var group: String { Bundle.main.object(forInfoDictionaryKey: "CommonThreadAppGroup") as? String ?? "" }
     static var keychainGroup: String { Bundle.main.object(forInfoDictionaryKey: "CommonThreadKeychainGroup") as? String ?? "" }
+    /// An absent App Group is an explicit local-build choice. A configured but
+    /// unavailable group is an error; it must never silently split a shared queue.
+    static var usesSharedAppGroup: Bool { !group.isEmpty }
+    private static func sharedContainerRoot() throws -> URL {
+        guard !group.isEmpty,
+              let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else {
+            throw SetupError.sharedContainerUnavailable
+        }
+        return root
+    }
+    private static func configurationDefaults() throws -> UserDefaults {
+        if !usesSharedAppGroup { return .standard }
+        _ = try sharedContainerRoot()
+        guard let defaults = UserDefaults(suiteName: group) else { throw SetupError.sharedContainerUnavailable }
+        return defaults
+    }
     static func read() throws -> Self {
-        guard !group.isEmpty, let data = UserDefaults(suiteName: group)?.data(forKey: "connection") else { throw SetupError.missingConfiguration }
+        guard let data = try configurationDefaults().data(forKey: "connection") else { throw SetupError.missingConfiguration }
         return try JSONDecoder().decode(Self.self, from: data)
     }
     func store() throws {
-        guard !Self.group.isEmpty, FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.group) != nil,
-              let defaults = UserDefaults(suiteName: Self.group) else { throw SetupError.missingConfiguration }
+        let defaults = try Self.configurationDefaults()
         defaults.set(try JSONEncoder().encode(self), forKey: "connection")
     }
     static func outbox() throws -> CaptureOutbox {
-        guard let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else { throw SetupError.missingConfiguration }
+        let root: URL
+        if usesSharedAppGroup {
+            root = try sharedContainerRoot()
+        } else {
+            root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                              appropriateFor: nil, create: true)
+                .appendingPathComponent("MynahFinds", isDirectory: true)
+        }
         return CaptureOutbox(directory: root.appendingPathComponent("CaptureOutbox", isDirectory: true))
     }
     private var credentialQuery: [String: Any] {
@@ -53,9 +79,16 @@ struct SharedEnvironment: Codable {
         guard status == errSecSuccess else { throw SetupError.keychain(status) }
     }
     func signOut() throws {
+        let defaults = try Self.configurationDefaults()
         let status = SecItemDelete(credentialQuery as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw SetupError.keychain(status) }
-        UserDefaults(suiteName: Self.group)?.removeObject(forKey: "connection")
+        // Clear only this account's connection. Queued captures remain scoped by
+        // both accountId and baseURL in CaptureOutbox when another account connects.
+        if let data = defaults.data(forKey: "connection"),
+           let stored = try? JSONDecoder().decode(Self.self, from: data),
+           stored.accountId == accountId, stored.baseURL == baseURL {
+            defaults.removeObject(forKey: "connection")
+        }
         // Pending drafts remain account-scoped for recovery. A production account-deletion flow must erase them.
     }
     func client() throws -> CommonThreadClient {

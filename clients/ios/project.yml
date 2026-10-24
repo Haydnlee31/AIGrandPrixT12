@@ -10,8 +10,8 @@ settings:
     SWIFT_VERSION: "5.0"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
-    CURRENT_PROJECT_VERSION: 1
-    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: 2
+    MARKETING_VERSION: "0.2.0"
     COMMON_THREAD_BUNDLE_PREFIX: com.aigrandprix.mymahfinds
     COMMON_THREAD_APP_GROUP: group.com.aigrandprix.mymahfinds
     COMMON_THREAD_KEYCHAIN_GROUP: "$(AppIdentifierPrefix)com.aigrandprix.mymahfinds.shared"
@@ -32,11 +32,12 @@ targets:
     info:
       path: Configuration/App-Info.plist
       properties:
-        CFBundleDisplayName: Mymah Finds
+        CFBundleDisplayName: Mynah Finds
         UILaunchScreen: {}
         CommonThreadAppGroup: "$(COMMON_THREAD_APP_GROUP)"
         CommonThreadKeychainGroup: "$(COMMON_THREAD_KEYCHAIN_GROUP)"
         NSLocalNetworkUsageDescription: Connect to your chosen server to sync your saved content.
+        NSCameraUsageDescription: Take a photo to save something that caught your eye.
         NSMicrophoneUsageDescription: Record your voice to add an editable note to a saved find.
         NSSpeechRecognitionUsageDescription: Turn your voice into an editable note about why you are saving this find.
         UIApplicationSceneManifest:
@@ -70,7 +71,7 @@ targets:
     info:
       path: Configuration/Share-Info.plist
       properties:
-        CFBundleDisplayName: Save to Mymah Finds
+        CFBundleDisplayName: Mynah Finds
         CommonThreadAppGroup: "$(COMMON_THREAD_APP_GROUP)"
         CommonThreadKeychainGroup: "$(COMMON_THREAD_KEYCHAIN_GROUP)"
         NSExtension:
@@ -80,6 +81,9 @@ targets:
             NSExtensionActivationRule:
               NSExtensionActivationSupportsWebURLWithMaxCount: 1
               NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsImageWithMaxCount: 10
+              NSExtensionActivationSupportsMovieWithMaxCount: 10
+              NSExtensionActivationSupportsFileWithMaxCount: 10
     entitlements:
       path: Configuration/Share.entitlements
       properties:

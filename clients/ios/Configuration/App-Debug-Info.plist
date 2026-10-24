@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Mymah Finds</string>
+	<string>Mynah Finds</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -29,6 +29,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photo to save something that caught your eye.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your chosen server to sync your saved content.</string>
 	<key>NSMicrophoneUsageDescription</key>

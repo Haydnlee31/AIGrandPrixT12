@@ -8,12 +8,18 @@ private enum LibraryInteractionError: LocalizedError {
 
 @main
 struct CommonThreadApp: App {
-    var body: some Scene { WindowGroup { FindsAppRoot() } }
+    @AppStorage("finds.appearance") private var appearance = AppAppearance.system.rawValue
+    var body: some Scene {
+        WindowGroup {
+            FindsAppRoot()
+                .preferredColorScheme((AppAppearance(rawValue: appearance) ?? .system).colorScheme)
+        }
+    }
 }
 
 @MainActor
 struct MymahFindsView: View {
-    private enum Tab: Hashable { case library, search, profile }
+    private enum Tab: Hashable { case library, explore, profile }
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var selectedTab: Tab = .library
@@ -30,31 +36,60 @@ struct MymahFindsView: View {
     @State private var busy = false
     @State private var showingCapture = false
     @State private var searchText = ""
-    @State private var selectedSource: String?
-    @State private var showsGrid = true
+    @AppStorage("finds.library.source") private var selectedSourceValue = ""
+    @AppStorage("finds.library.grid") private var showsGrid = true
+    @AppStorage("finds.library.sort") private var sortValue = LibrarySort.newest.rawValue
+    @AppStorage("finds.library.scope") private var scopeValue = LibraryScope.library.rawValue
+    @State private var metadata: [String: LocalFindMetadata] = [:]
+    @State private var localStorageBytes = 0
+    @State private var remoteSearchItems: [SavedItem] = []
+    @State private var searchNextOffset: Int?
+    @State private var searchTotal = 0
+    @State private var searching = false
+    @State private var searchError: String?
+    @State private var searchRequestID = UUID()
     @State private var discardingDraft: PendingCapture?
 
-    private var sources: [String] { Array(Set(items.map(\.source))).sorted() }
-    private var visibleItems: [SavedItem] { items.filter { selectedSource == nil || $0.source == selectedSource } }
-    private var searchResults: [SavedItem] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return [] }
-        return items.filter { item in
-            [item.title, item.note, item.selectedText, item.originalUrl, item.source]
+    private var selectedSource: String? {
+        get { selectedSourceValue.isEmpty ? nil : selectedSourceValue }
+        nonmutating set { selectedSourceValue = newValue ?? "" }
+    }
+    private var query: String { searchText.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var sources: [String] { Array(Set((items + remoteSearchItems).map(\.source))).sorted() }
+    private var scope: LibraryScope { connection == nil ? LibraryScope(rawValue: scopeValue) ?? .library : .library }
+    private var visibleItems: [SavedItem] {
+        let base = connection != nil && !query.isEmpty ? remoteSearchItems : items
+        let filtered = base.filter { item in
+            let flags = metadata[item.id] ?? LocalFindMetadata()
+            let scopeMatches = connection != nil || (scope == .archived ? flags.isArchived : !flags.isArchived && (scope != .favorites || flags.isFavorite))
+            let textMatches = connection != nil || query.isEmpty || [item.title, item.note, item.selectedText, item.originalUrl, item.source, flags.intent ?? ""]
                 .contains { $0.localizedStandardContains(query) }
+            return scopeMatches && textMatches && (selectedSource == nil || item.source == selectedSource)
         }
+        switch LibrarySort(rawValue: sortValue) ?? .newest {
+        case .newest: return filtered.sorted { $0.capturedAt > $1.capturedAt }
+        case .oldest: return filtered.sorted { $0.capturedAt < $1.capturedAt }
+        case .title: return filtered.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        }
+    }
+    private var searchIdentity: String { accountGeneration.uuidString + "|" + query }
+    private var exploreRevision: String {
+        items.map { item in
+            let flags = connection == nil ? metadata[item.id] : nil
+            return "\(item.id):\(item.revision):\(flags?.isArchived ?? false):\(flags?.isFavorite ?? false):\(flags?.intent ?? "")"
+        }.joined(separator: "|")
     }
 
     var body: some View {
         TabView(selection: $selectedTab) {
             library.tabItem { Label("Library", systemImage: "square.grid.2x2") }.tag(Tab.library)
-            search.tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(Tab.search)
+            ExploreScreen(connection: connection, libraryRevision: exploreRevision, onLocalChange: { Task { await refresh() } }).id(accountGeneration).tabItem { Label("Explore", systemImage: "sparkles") }.tag(Tab.explore)
             profile.tabItem { Label("Profile", systemImage: "person.crop.circle") }.tag(Tab.profile)
         }
         .tint(NativeTheme.accent)
         .sheet(isPresented: $showingCapture, onDismiss: { Task { await refresh() } }) {
             CaptureForm(connection: connection) {
-                selectedSource = nil
+                selectedSource = nil; scopeValue = LibraryScope.library.rawValue; searchText = ""; selectedTab = .library
                 Task { await refresh() }
             }
         }
@@ -69,7 +104,16 @@ struct MymahFindsView: View {
                 connection = saved; apiURL = saved.baseURL.absoluteString
             }
             await refresh()
+            #if DEBUG
+            // Deterministic visual acceptance on a connected physical iPhone.
+            let arguments = ProcessInfo.processInfo.arguments
+            if arguments.contains("-showExplore") { selectedTab = .explore }
+            if arguments.contains("-showProfile") { selectedTab = .profile }
+            if arguments.contains("-showCapture") { showingCapture = true }
+            #endif
         }
+        .task(id: searchIdentity) { await searchLibrary() }
+        .onChange(of: selectedTab) { _, _ in FindsHaptics.selection() }
         .onChange(of: scenePhase) { _, phase in
             // Foreground reads never silently replay a permanently rejected capture.
             if phase == .active && !busy { Task { await refresh() } }
@@ -84,33 +128,26 @@ struct MymahFindsView: View {
                         VStack(alignment: .leading, spacing: 7) {
                             Text(items.isEmpty ? "Keep what catches your eye." : "Your little collection of good finds.")
                                 .font(.subheadline).foregroundStyle(.secondary)
-                            if connection == nil {
-                                Label("On this iPhone", systemImage: "iphone").font(.caption).foregroundStyle(.secondary)
-                            }
+                            Label(connection == nil ? "On this iPhone" : "Shared library", systemImage: connection == nil ? "iphone" : "cloud")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 8)
-                        if !items.isEmpty {
-                            Button { showsGrid.toggle() } label: {
-                                Image(systemName: showsGrid ? "list.bullet" : "square.grid.2x2")
-                                    .frame(minWidth: 44, minHeight: 44)
-                            }
-                            .accessibilityLabel(showsGrid ? "Show as list" : "Show as grid")
+                        Button { showsGrid.toggle(); FindsHaptics.selection() } label: {
+                            Image(systemName: showsGrid ? "list.bullet" : "square.grid.2x2")
+                                .frame(minWidth: 44, minHeight: 44)
                         }
+                        .accessibilityLabel(showsGrid ? "Show as list" : "Show as grid")
                     }
                     feedback
-                    if items.isEmpty {
-                        LibraryEmptyState(symbol: "bookmark.fill", title: "A home for\nyour finds.", detail: "An idea. A lovely object. Something for later. Save your first link and make it yours.")
-                        NativePrimaryButton(title: "Save your first link") {
-                            showingCapture = true
-                        }.disabled(busy)
-                        if connection != nil {
-                            Label("You can also share a link from another app.", systemImage: "square.and.arrow.up")
-                                .font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity)
-                        }
+                    if items.isEmpty && query.isEmpty && !busy {
+                        LibraryEmptyState(symbol: "bookmark.fill", title: "A home for\nyour finds.", detail: "A photo. A lovely object. Something for later. Add your first find and make it yours.")
+                        NativePrimaryButton(title: "Save your first find") { showingCapture = true }
+                        Label("You can also share from Safari, Instagram or Photos.", systemImage: "square.and.arrow.up")
+                            .font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity)
                     } else {
+                        libraryControls
                         sourceFilters
-                        savedItems(visibleItems, grid: showsGrid && !typeSize.isAccessibilitySize)
-                        moreItemsButton
+                        libraryResults
                     }
                     if busy { ProgressView("Updating your library").frame(maxWidth: .infinity).padding() }
                 }
@@ -118,59 +155,90 @@ struct MymahFindsView: View {
             }
             .background(NativeTheme.bg)
             .navigationTitle("Library")
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search finds, notes, categories")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { showingCapture = true } label: { Image(systemName: "plus") }
-                        .accessibilityLabel("Save a link").accessibilityIdentifier("addSave")
+                    Button { showingCapture = true; FindsHaptics.selection() } label: { Image(systemName: "plus") }
+                        .accessibilityLabel("Save a find").accessibilityIdentifier("addSave")
                         .disabled(busy)
                 }
             }
-            .refreshable { await refresh() }
+            .refreshable {
+                await refresh()
+                if !query.isEmpty { await searchLibrary(debounce: false) }
+            }
         }.id(accountGeneration)
+    }
+
+    private var libraryControls: some View {
+        HStack(spacing: 12) {
+            if connection == nil {
+                Menu {
+                    Picker("Collection", selection: $scopeValue) {
+                        ForEach(LibraryScope.allCases) { Label($0.title, systemImage: $0.symbol).tag($0.rawValue) }
+                    }
+                } label: {
+                    Label(scope.title, systemImage: scope.symbol).font(.headline)
+                        .frame(minHeight: 44)
+                }.accessibilityLabel("Collection: \(scope.title)")
+            } else {
+                Text(query.isEmpty ? "Your finds" : "\(searchTotal) results").font(.headline)
+            }
+            Spacer()
+            Menu {
+                Picker("Sort finds", selection: $sortValue) {
+                    ForEach(LibrarySort.allCases) { Text($0.title).tag($0.rawValue) }
+                }
+            } label: {
+                Label("Sort", systemImage: "arrow.up.arrow.down").font(.subheadline.weight(.semibold))
+                    .frame(minHeight: 44)
+            }
+            .accessibilityLabel("Sort: \((LibrarySort(rawValue: sortValue) ?? .newest).title)")
+        }
+    }
+
+    @ViewBuilder private var libraryResults: some View {
+        if let searchError, !query.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(searchError, systemImage: "exclamationmark.circle").font(.subheadline)
+                Button("Retry search") { Task { await searchLibrary(debounce: false) } }.disabled(searching)
+            }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 20))
+        }
+        if searching && remoteSearchItems.isEmpty {
+            ProgressView("Searching your shared library").frame(maxWidth: .infinity).padding(30)
+        } else if visibleItems.isEmpty && !busy {
+            LibraryEmptyState(symbol: scope == .favorites ? "heart" : scope == .archived ? "archivebox" : "text.magnifyingglass",
+                              title: scope == .favorites && query.isEmpty ? "Your favorites,\nall together." : scope == .archived && query.isEmpty ? "A little room\nfor later." : "No matches yet.",
+                              detail: scope == .favorites && query.isEmpty ? "Open a find or touch and hold a card to add it to Favorites." : scope == .archived && query.isEmpty ? "Archive a find to keep it without showing it in your main library." : "Try another word, or clear your filters to see more finds.")
+            if !query.isEmpty || selectedSource != nil {
+                Button("Clear search and filters") { searchText = ""; selectedSource = nil; FindsHaptics.selection() }
+            }
+        } else {
+            savedItems(visibleItems, grid: showsGrid && !typeSize.isAccessibilitySize)
+        }
+        if connection != nil && !query.isEmpty {
+            if let offset = searchNextOffset {
+                Button("Load more search results") { Task { await searchLibrary(offset: offset, debounce: false) } }
+                    .font(.headline).frame(maxWidth: .infinity, minHeight: 48).disabled(searching)
+            }
+        } else { moreItemsButton }
     }
 
     private var sourceFilters: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                sourceButton(nil, label: "All finds")
+                sourceButton(nil, label: "All sources")
                 ForEach(sources, id: \.self) { source in sourceButton(source, label: source.capitalized) }
             }
         }
     }
     private func sourceButton(_ source: String?, label: String) -> some View {
-        Button { selectedSource = source } label: {
+        Button { selectedSource = source; FindsHaptics.selection() } label: {
             Text(label).font(.subheadline.weight(.semibold)).padding(.horizontal, 17).padding(.vertical, 11)
                 .foregroundStyle(selectedSource == source ? NativeTheme.bg : Color.primary)
                 .background(selectedSource == source ? Color.primary : NativeTheme.surface, in: Capsule())
         }.buttonStyle(.plain).accessibilityAddTraits(selectedSource == source ? .isSelected : [])
-    }
-
-    private var search: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    feedback
-                    if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        LibraryEmptyState(symbol: "magnifyingglass", title: "Find that\nthing again.", detail: "A word from your note, the name of a website, or the title you remember.")
-                    } else if searchResults.isEmpty {
-                        LibraryEmptyState(symbol: "text.magnifyingglass", title: "No matches yet.", detail: "Try a different word or phrase in your saved content.")
-                    } else {
-                        Text("\(searchResults.count) \(searchResults.count == 1 ? "find" : "finds")")
-                            .font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-                        savedItems(searchResults, grid: false)
-                    }
-                    if nextOffset != nil {
-                        Text("Searching \(items.count) loaded saves. Include older finds by loading more.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                        moreItemsButton
-                    }
-                    if busy { ProgressView().frame(maxWidth: .infinity) }
-                }.padding(20)
-            }
-            .background(NativeTheme.bg).navigationTitle("Search")
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search your library")
-            .refreshable { await refresh() }
-        }.id(accountGeneration)
     }
 
     @ViewBuilder private func savedItems(_ saved: [SavedItem], grid: Bool) -> some View {
@@ -184,11 +252,22 @@ struct MymahFindsView: View {
     }
     private func itemLink(_ item: SavedItem, grid: Bool) -> some View {
         NavigationLink {
-            SavedContentView(item: item, stillSaved: items.contains { $0.id == item.id }, localOnly: connection == nil) { id, key in
+            SavedContentView(item: item, stillSaved: (items + remoteSearchItems).contains { $0.id == item.id }, localOnly: connection == nil,
+                             connection: connection, onChanged: { Task { await refresh(); if !query.isEmpty { await searchLibrary(debounce: false) } } }) { id, key in
                 try await removeSave(id, key: key)
             }
-        } label: { SavedContentCard(item: item, compact: !grid) }
+        } label: { SavedContentCard(item: item, compact: !grid, connection: connection) }
         .buttonStyle(.plain).accessibilityIdentifier("savedItem-\(item.id)")
+        .contextMenu {
+            if connection == nil {
+                Button { Task { await changeFavorite(item) } } label: {
+                    Label(metadata[item.id]?.isFavorite == true ? "Remove from Favorites" : "Add to Favorites", systemImage: metadata[item.id]?.isFavorite == true ? "heart.slash" : "heart")
+                }
+                Button { Task { await changeArchive(item) } } label: {
+                    Label(metadata[item.id]?.isArchived == true ? "Move to Library" : "Archive find", systemImage: metadata[item.id]?.isArchived == true ? "tray.and.arrow.up" : "archivebox")
+                }
+            }
+        }
     }
 
     private var profile: some View {
@@ -196,10 +275,10 @@ struct MymahFindsView: View {
             Form {
                 Section {
                     HStack(spacing: 16) {
-                        Image(systemName: "bookmark.fill").font(.title2).foregroundStyle(NativeTheme.accent)
-                            .frame(width: 60, height: 60).background(NativeTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 20))
+                        FindsMark(size: 60)
+                            .background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 20))
                         VStack(alignment: .leading, spacing: 5) {
-                            Text("Mymah Finds").font(.title2.bold())
+                            Text("Mynah Finds").font(.title2.bold())
                             Text("All the things you come back to.").font(.subheadline).foregroundStyle(.secondary)
                         }
                     }.padding(.vertical, 8)
@@ -208,12 +287,10 @@ struct MymahFindsView: View {
                     Section("Your library") {
                         LabeledContent("Account", value: connection.accountId)
                         LabeledContent("Connection", value: connection.baseURL.host ?? connection.baseURL.absoluteString)
-                        LabeledContent("Loaded finds", value: String(items.count))
                     }
                 } else {
                     Section("On this iPhone") {
                         Label("Local library", systemImage: "iphone")
-                        LabeledContent("Saved finds", value: String(items.count))
                         Text("Save, browse and search right here. Your finds stay on this device. Connecting a shared library keeps these local finds separate.")
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
@@ -233,6 +310,9 @@ struct MymahFindsView: View {
                 }
                 Section(connection == nil ? "Storage" : "Sync") {
                     Text(status).font(.subheadline).foregroundStyle(.secondary).accessibilityIdentifier("connectionStatus")
+                    if connection == nil {
+                        LabeledContent("App library storage", value: ByteCountFormatter.string(fromByteCount: Int64(localStorageBytes), countStyle: .file))
+                    }
                     if let errorMessage { Label(errorMessage, systemImage: "exclamationmark.circle").font(.footnote).foregroundStyle(.red) }
                     if busy { ProgressView() }
                     if connection != nil { Button("Sync library") { Task { await sync() } }.disabled(busy) }
@@ -251,6 +331,9 @@ struct MymahFindsView: View {
                         Text("These requests have not been confirmed. Sync library retries them with their original notes. Discard a rejected request to save an edited version.")
                     }
                 }
+                ProfileSettingsSections(items: items, localOnly: connection == nil,
+                                        favoriteCount: metadata.values.filter { $0.isFavorite }.count,
+                                        archivedCount: metadata.values.filter { $0.isArchived }.count)
                 if connection != nil {
                     Section {
                         Button("Sign out", role: .destructive) { signOut() }.disabled(busy)
@@ -258,7 +341,7 @@ struct MymahFindsView: View {
                 }
             }
             .scrollContentBackground(.hidden).background(NativeTheme.bg).navigationTitle("Profile")
-        }
+        }.id(accountGeneration)
     }
 
     @ViewBuilder private var feedback: some View {
@@ -284,6 +367,52 @@ struct MymahFindsView: View {
         if let offset = nextOffset {
             Button("Load more saved items") { Task { await refresh(offset: offset) } }
                 .font(.headline).frame(maxWidth: .infinity, minHeight: 48).disabled(busy)
+        }
+    }
+
+    private func changeFavorite(_ item: SavedItem) async {
+        guard connection == nil, !busy else { return }
+        do {
+            try await LocalLibrary.shared.setFavorite(item.id, !(metadata[item.id]?.isFavorite ?? false))
+            metadata = try await LocalLibrary.shared.metadata(); FindsHaptics.success()
+        } catch { errorMessage = error.localizedDescription }
+    }
+    private func changeArchive(_ item: SavedItem) async {
+        guard connection == nil, !busy else { return }
+        do {
+            try await LocalLibrary.shared.setArchived(item.id, !(metadata[item.id]?.isArchived ?? false))
+            metadata = try await LocalLibrary.shared.metadata(); FindsHaptics.success()
+        } catch { errorMessage = error.localizedDescription }
+    }
+    private func searchLibrary(offset: Int = 0, debounce: Bool = true) async {
+        if offset > 0 && searching { return }
+        let requestID = UUID(); searchRequestID = requestID
+        let requestedQuery = query
+        let generation = accountGeneration
+        guard let environment = connection, !requestedQuery.isEmpty else {
+            remoteSearchItems = []; searchError = nil; searchNextOffset = nil; searchTotal = 0; searching = false
+            return
+        }
+        if offset == 0 { remoteSearchItems = []; searchNextOffset = nil; searchError = nil }
+        searching = true
+        defer { if searchRequestID == requestID { searching = false } }
+        do {
+            if debounce { try await Task.sleep(for: .milliseconds(250)) }
+            try Task.checkCancellation()
+            let client = try environment.client()
+            try await environment.verify(client)
+            let page = try await client.searchLibrary(query: requestedQuery, offset: offset)
+            try Task.checkCancellation()
+            guard searchRequestID == requestID, sameAccount(environment, generation: generation), query == requestedQuery else { return }
+            if offset == 0 { remoteSearchItems = page.items } else {
+                var existing = Set(remoteSearchItems.map(\.id))
+                remoteSearchItems += page.items.filter { existing.insert($0.id).inserted }
+            }
+            searchNextOffset = page.nextOffset; searchTotal = page.total; searchError = nil
+        } catch is CancellationError { return }
+        catch {
+            guard !Task.isCancelled, searchRequestID == requestID, sameAccount(environment, generation: generation), query == requestedQuery else { return }
+            searchError = error.localizedDescription
         }
     }
 
@@ -321,12 +450,19 @@ struct MymahFindsView: View {
         busy = true; errorMessage = nil; defer { busy = false }
         let generation = accountGeneration
         guard let environment = connection else {
+            var importError: String?
+            do { _ = try await LocalLibrary.shared.importPendingShares() }
+            catch { importError = "A shared find could not be imported yet. Your existing library is still available. " + error.localizedDescription }
             do {
                 let saved = try await LocalLibrary.shared.collection()
+                let localMetadata = try await LocalLibrary.shared.metadata()
+                let bytes = await LocalLibrary.shared.storageBytes()
                 guard connection == nil, accountGeneration == generation else { return }
-                items = saved; nextOffset = nil; pendingSaves = []; pendingErrors = [:]
+                items = saved; metadata = localMetadata; localStorageBytes = bytes
+                nextOffset = nil; pendingSaves = []; pendingErrors = [:]
                 if let selectedSource, !sources.contains(selectedSource) { self.selectedSource = nil }
-                status = "Your finds are saved on this iPhone."
+                errorMessage = importError
+                status = importError == nil ? "Your finds are saved on this iPhone." : "Your library is open. A pending share needs attention."
             } catch {
                 guard connection == nil, accountGeneration == generation else { return }
                 errorMessage = error.localizedDescription; status = "Your local library could not be opened."
@@ -415,7 +551,8 @@ struct MymahFindsView: View {
         guard let environment = connection else {
             try await LocalLibrary.shared.delete(id)
             guard connection == nil, accountGeneration == generation else { return }
-            items.removeAll { $0.id == id }
+            items.removeAll { $0.id == id }; metadata.removeValue(forKey: id)
+            localStorageBytes = await LocalLibrary.shared.storageBytes()
             if let selectedSource, !sources.contains(selectedSource) { self.selectedSource = nil }
             status = "Removed from this iPhone."
             return
@@ -423,7 +560,7 @@ struct MymahFindsView: View {
         let client = try environment.client(); try await environment.verify(client)
         _ = try await client.deleteSavedItem(id, key: key)
         guard sameAccount(environment, generation: generation) else { throw SetupError.accountChanged }
-        items.removeAll { $0.id == id }
+        items.removeAll { $0.id == id }; remoteSearchItems.removeAll { $0.id == id }
         do {
             let page = try await client.collection()
             guard sameAccount(environment, generation: generation) else { return }
@@ -439,6 +576,7 @@ struct MymahFindsView: View {
         do {
             try connection?.signOut()
             accountGeneration = UUID(); connection = nil; items = []; pendingSaves = []; pendingErrors = [:]
+            remoteSearchItems = []; searchNextOffset = nil; searchError = nil
             nextOffset = nil; selectedSource = nil; searchText = ""; token = ""; errorMessage = nil; status = "Opening your local library."
             Task { await refresh() }
         } catch { errorMessage = error.localizedDescription }

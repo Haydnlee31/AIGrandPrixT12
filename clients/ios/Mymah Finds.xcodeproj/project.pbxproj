@@ -13,14 +13,25 @@
 		1F7208DDF716C0B63AB76400 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFCA19337324824EC87C80F9 /* ShareViewController.swift */; };
 		201D088E2156310EEC5787FD /* CommonThreadKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5F2AD18524C86B58857DAF84 /* CommonThreadKit */; };
 		2C3E70589E74F68905267EB0 /* SharedEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFBDAB5909186036DEE2BCC9 /* SharedEnvironment.swift */; };
+		320DEE3275B637264FEE90D7 /* Preferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8322BFAE6E851D1BA8FC18B5 /* Preferences.swift */; };
+		39B0D976EA71792D1679A1B3 /* ShoppingPlanViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF76D69D2745B8BA4195301D /* ShoppingPlanViews.swift */; };
+		3BBAB8F4EF9EB7E19D6C0480 /* LocalShareInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1974E8EFEFEAA9869739E51 /* LocalShareInbox.swift */; };
 		3F149A2DD40E8D8B9D9C30B1 /* LocalLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE070D02235ED86A1E0991A /* LocalLibrary.swift */; };
 		4FEF38495FFD4131DD0BC41D /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A37129F5DDEAF336E6DD4CB /* OnboardingView.swift */; };
+		67F9CBE61630508991D501FB /* IntelligenceMutationKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = E144240FE076B72D13710D59 /* IntelligenceMutationKeys.swift */; };
+		6D6CAED895AF3B3625F88D7F /* ProfileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52CB0EBE03F96EB551086E17 /* ProfileSettingsView.swift */; };
 		83CB78A59E0B98BBE3D2DD8D /* CommonThreadApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4569D5244B4D817F992E9900 /* CommonThreadApp.swift */; };
+		84988BF9C794ACDCA27662EA /* FindMediaViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44AF70019E6425DCBF509A79 /* FindMediaViews.swift */; };
 		8BF185192150548EDF7E098E /* VoiceNoteRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 367F2423A7181351F2217769 /* VoiceNoteRecorder.swift */; };
 		96374764C9A581579FDBDB9A /* CommonThreadShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = ABB2BDA80676D8F8411CAC46 /* CommonThreadShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		9BCA1202FEBDD0C2316B70C4 /* IntelligenceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B15658BA182DF2C518C82EB0 /* IntelligenceViews.swift */; };
 		C20D748D62447CBE4EE2AEDC /* NativeTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CBDF56D1EBA655CFB77BF37 /* NativeTheme.swift */; };
 		C73DF63B54F84F069338BE58 /* LibraryPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B286E7C423A5202102A0AE95 /* LibraryPresentation.swift */; };
+		DEFE2FC49E0ECDD659663620 /* CaptureMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71619F1A734E5CF35100589D /* CaptureMedia.swift */; };
 		EA4496620678AE57DF19FC34 /* CommonThreadKit in Frameworks */ = {isa = PBXBuildFile; productRef = CDAC4C0235399D9FA5033D9F /* CommonThreadKit */; };
+		EB60E23C7DE42084A5E94D07 /* PreviewIntelligenceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87867C667A92465A2C1E40B1 /* PreviewIntelligenceViews.swift */; };
+		F01E120E9463DC0B32BBA6CD /* LocalShareInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1974E8EFEFEAA9869739E51 /* LocalShareInbox.swift */; };
+		FE8F813021201968706149F3 /* LocalShareImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EB419D30C8F0D68B6299A60 /* LocalShareImport.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -51,16 +62,26 @@
 		1A31D99C6DEF7611FED6E2C7 /* CommonThread.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CommonThread.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1DE070D02235ED86A1E0991A /* LocalLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalLibrary.swift; sourceTree = "<group>"; };
 		367F2423A7181351F2217769 /* VoiceNoteRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNoteRecorder.swift; sourceTree = "<group>"; };
+		44AF70019E6425DCBF509A79 /* FindMediaViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindMediaViews.swift; sourceTree = "<group>"; };
 		4569D5244B4D817F992E9900 /* CommonThreadApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommonThreadApp.swift; sourceTree = "<group>"; };
 		4A37129F5DDEAF336E6DD4CB /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		52CB0EBE03F96EB551086E17 /* ProfileSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSettingsView.swift; sourceTree = "<group>"; };
+		71619F1A734E5CF35100589D /* CaptureMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureMedia.swift; sourceTree = "<group>"; };
+		8322BFAE6E851D1BA8FC18B5 /* Preferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Preferences.swift; sourceTree = "<group>"; };
+		87867C667A92465A2C1E40B1 /* PreviewIntelligenceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewIntelligenceViews.swift; sourceTree = "<group>"; };
 		8CBDF56D1EBA655CFB77BF37 /* NativeTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTheme.swift; sourceTree = "<group>"; };
 		8DB0DCFAABC8D5FB56F56981 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		8EB419D30C8F0D68B6299A60 /* LocalShareImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalShareImport.swift; sourceTree = "<group>"; };
 		A13F9A2FB8637A369285F286 /* CaptureForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureForm.swift; sourceTree = "<group>"; };
 		ABB2BDA80676D8F8411CAC46 /* CommonThreadShare.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = CommonThreadShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B15658BA182DF2C518C82EB0 /* IntelligenceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntelligenceViews.swift; sourceTree = "<group>"; };
 		B286E7C423A5202102A0AE95 /* LibraryPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryPresentation.swift; sourceTree = "<group>"; };
 		BD9D9FA35ED1E82755878AB5 /* ios */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ios; path = .; sourceTree = SOURCE_ROOT; };
 		BFCA19337324824EC87C80F9 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		E144240FE076B72D13710D59 /* IntelligenceMutationKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntelligenceMutationKeys.swift; sourceTree = "<group>"; };
+		E1974E8EFEFEAA9869739E51 /* LocalShareInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalShareInbox.swift; sourceTree = "<group>"; };
 		EFBDAB5909186036DEE2BCC9 /* SharedEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedEnvironment.swift; sourceTree = "<group>"; };
+		FF76D69D2745B8BA4195301D /* ShoppingPlanViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShoppingPlanViews.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -106,6 +127,7 @@
 		3B57AB88CCB7C3584EED14A0 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				E1974E8EFEFEAA9869739E51 /* LocalShareInbox.swift */,
 				EFBDAB5909186036DEE2BCC9 /* SharedEnvironment.swift */,
 			);
 			name = Shared;
@@ -125,11 +147,20 @@
 			children = (
 				8DB0DCFAABC8D5FB56F56981 /* Assets.xcassets */,
 				A13F9A2FB8637A369285F286 /* CaptureForm.swift */,
+				71619F1A734E5CF35100589D /* CaptureMedia.swift */,
 				4569D5244B4D817F992E9900 /* CommonThreadApp.swift */,
+				44AF70019E6425DCBF509A79 /* FindMediaViews.swift */,
+				E144240FE076B72D13710D59 /* IntelligenceMutationKeys.swift */,
+				B15658BA182DF2C518C82EB0 /* IntelligenceViews.swift */,
 				B286E7C423A5202102A0AE95 /* LibraryPresentation.swift */,
 				1DE070D02235ED86A1E0991A /* LocalLibrary.swift */,
+				8EB419D30C8F0D68B6299A60 /* LocalShareImport.swift */,
 				8CBDF56D1EBA655CFB77BF37 /* NativeTheme.swift */,
 				4A37129F5DDEAF336E6DD4CB /* OnboardingView.swift */,
+				8322BFAE6E851D1BA8FC18B5 /* Preferences.swift */,
+				87867C667A92465A2C1E40B1 /* PreviewIntelligenceViews.swift */,
+				52CB0EBE03F96EB551086E17 /* ProfileSettingsView.swift */,
+				FF76D69D2745B8BA4195301D /* ShoppingPlanViews.swift */,
 				367F2423A7181351F2217769 /* VoiceNoteRecorder.swift */,
 			);
 			name = CommonThreadApp;
@@ -247,6 +278,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F01E120E9463DC0B32BBA6CD /* LocalShareInbox.swift in Sources */,
 				1F7208DDF716C0B63AB76400 /* ShareViewController.swift in Sources */,
 				1B3FD8A25D82D6C125527CD3 /* SharedEnvironment.swift in Sources */,
 			);
@@ -257,12 +289,22 @@
 			buildActionMask = 2147483647;
 			files = (
 				037E33BA0CC71004538ACB06 /* CaptureForm.swift in Sources */,
+				DEFE2FC49E0ECDD659663620 /* CaptureMedia.swift in Sources */,
 				83CB78A59E0B98BBE3D2DD8D /* CommonThreadApp.swift in Sources */,
+				84988BF9C794ACDCA27662EA /* FindMediaViews.swift in Sources */,
+				67F9CBE61630508991D501FB /* IntelligenceMutationKeys.swift in Sources */,
+				9BCA1202FEBDD0C2316B70C4 /* IntelligenceViews.swift in Sources */,
 				C73DF63B54F84F069338BE58 /* LibraryPresentation.swift in Sources */,
 				3F149A2DD40E8D8B9D9C30B1 /* LocalLibrary.swift in Sources */,
+				FE8F813021201968706149F3 /* LocalShareImport.swift in Sources */,
+				3BBAB8F4EF9EB7E19D6C0480 /* LocalShareInbox.swift in Sources */,
 				C20D748D62447CBE4EE2AEDC /* NativeTheme.swift in Sources */,
 				4FEF38495FFD4131DD0BC41D /* OnboardingView.swift in Sources */,
+				320DEE3275B637264FEE90D7 /* Preferences.swift in Sources */,
+				EB60E23C7DE42084A5E94D07 /* PreviewIntelligenceViews.swift in Sources */,
+				6D6CAED895AF3B3625F88D7F /* ProfileSettingsView.swift in Sources */,
 				2C3E70589E74F68905267EB0 /* SharedEnvironment.swift in Sources */,
+				39B0D976EA71792D1679A1B3 /* ShoppingPlanViews.swift in Sources */,
 				8BF185192150548EDF7E098E /* VoiceNoteRecorder.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -316,7 +358,7 @@
 				COMMON_THREAD_BUNDLE_PREFIX = com.aigrandprix.mymahfinds;
 				COMMON_THREAD_KEYCHAIN_GROUP = "$(AppIdentifierPrefix)com.aigrandprix.mymahfinds.shared";
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -336,7 +378,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.2.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -438,7 +480,7 @@
 				COMMON_THREAD_BUNDLE_PREFIX = com.aigrandprix.mymahfinds;
 				COMMON_THREAD_KEYCHAIN_GROUP = "$(AppIdentifierPrefix)com.aigrandprix.mymahfinds.shared";
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
@@ -452,7 +494,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.2.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";

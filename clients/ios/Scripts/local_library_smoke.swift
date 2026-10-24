@@ -48,22 +48,39 @@ struct LocalLibrarySmoke {
         try check(beforeInvalid == afterInvalid, "invalid link leaves persisted file byte-for-byte intact")
         print("PASS invalid link rejected without changing the saved library")
 
-        for imageRequest in [
-            CaptureRequest(title: "Image only", imageDataUrl: "data:image/png;base64,aW1hZ2U="),
-            CaptureRequest(url: "https://example.org/image", title: "Link and image", imageDataUrl: "data:image/png;base64,aW1hZ2U=")
-        ] {
-            do {
-                _ = try await library.capture(imageRequest)
-                throw SmokeFailure.assertion("local URL store silently accepted image data")
-            } catch LocalLibrary.LocalError.imageRequiresConnection {}
-        }
+        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")!
+        let imageReceipt = try await library.capture(CaptureRequest(title: "A local photo", imageDataUrl: "data:image/png;base64," + png.base64EncodedString()))
+        let images = try await reopened.collection()
+        try check(images.first?.id == imageReceipt.id && images.first?.hasImage == true, "image-only find persists")
+        let metadata = try await reopened.metadata()
+        let attachment = metadata[imageReceipt.id]!.attachments[0]
+        let restoredImage = try await reopened.attachmentData(attachment)
+        try check(restoredImage == png, "photo bytes survive reopening")
+        try await reopened.setFavorite(imageReceipt.id, true)
+        try await reopened.setArchived(imageReceipt.id, true)
+        try await reopened.update(imageReceipt.id, title: "Edited title", note: "An editable voice transcript", text: "")
+        try await reopened.setIntent(imageReceipt.id, "Compare smaller versions")
+        let edited = try await library.collection().first { $0.id == imageReceipt.id }
+        let editedMetadata = try await library.metadata()[imageReceipt.id]!
+        try check(edited?.title == "Edited title" && edited?.note == "An editable voice transcript" && editedMetadata.isFavorite && editedMetadata.isArchived && editedMetadata.intent == "Compare smaller versions", "editing and organization persist")
+        let mediaURL = await library.attachmentURL(attachment)
+        try await library.delete(imageReceipt.id)
+        try check(!FileManager.default.fileExists(atPath: mediaURL.path), "deleting a find cleans its private files")
+        let noteReceipt = try await library.captureContent(title: "Just an idea", text: "Warm lighting without drilling")
+        let documentReceipt = try await library.captureContent(title: "Files", attachments: [LocalCaptureAttachment(filename: "idea.txt", typeIdentifier: "public.plain-text", data: Data("small space".utf8))])
+        let fixedID = UUID().uuidString
+        _ = try await library.captureContent(title: "Imported share", text: "shared", id: fixedID, deduplicateLink: false)
+        let repeatImport = try await library.captureContent(title: "Imported share", text: "shared", id: fixedID, deduplicateLink: false)
+        try check(repeatImport.duplicate, "shared inbox replay is idempotent")
+        for id in [noteReceipt.id, documentReceipt.id, fixedID] { try await library.delete(id) }
+        let beforeMediaError = try Data(contentsOf: file)
         do {
-            _ = try await library.capture(CaptureRequest(title: "Missing content"))
-            throw SmokeFailure.assertion("local URL store accepted a missing URL")
-        } catch LocalLibrary.LocalError.invalidLink {}
-        let afterUnsupportedMedia = try Data(contentsOf: file)
-        try check(beforeInvalid == afterUnsupportedMedia, "unsupported image or missing URL does not change persisted local content")
-        print("PASS local URL storage rejects unsupported images without losing their content")
+            _ = try await library.capture(CaptureRequest(title: "Invalid image", imageDataUrl: "data:image/png;base64,aW1hZ2U="))
+            throw SmokeFailure.assertion("invalid image accepted")
+        } catch LocalLibrary.LocalError.invalidMedia {}
+        let afterMediaError = try Data(contentsOf: file)
+        try check(beforeMediaError == afterMediaError, "failed media validation is atomic")
+        print("PASS image/file/text capture, persistent edits, favorites/archive, replay and attachment cleanup")
 
         try await library.delete(receipt.id)
         let afterDelete = try await LocalLibrary(fileURL: file).collection()

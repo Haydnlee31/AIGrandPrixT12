@@ -30,4 +30,4 @@ Prompt: Use case: photorealistic-natural. Create one original portrait 2:3 edito
 
 ## App icon
 
-Original vector bookmark icon, rendered with `Scripts/make-app-icon.swift` into `Examples/CommonThreadApp/Assets.xcassets/AppIcon.appiconset/AppIcon.png`. No third-party logo assets are used.
+Mynah app icon and mascot imported from the team branding branch `origin/codex/mynah-ios-branding`, commit `a8032f6`. Assets: `AppIcon.appiconset/AppIcon.png` and `MynahMascot.imageset/MynahMascot.png`. The old `Scripts/make-app-icon.swift` bookmark generator is retained only as historical source and is not run by the build.
