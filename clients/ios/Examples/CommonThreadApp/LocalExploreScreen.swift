@@ -100,11 +100,6 @@ struct LocalExploreScreen: View {
             }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 24)
         }
         .scrollDismissesKeyboard(.interactively)
-        .onAppear {
-            #if DEBUG
-            if sessionBrief == nil && ProcessInfo.processInfo.arguments.contains("-showTasteLab") { showingTasteLab = true }
-            #endif
-        }
         .sheet(isPresented: $showingTasteLab) { TasteLabScreen() }
         .task(id: taskID) { await load() }
     }
@@ -263,13 +258,30 @@ struct LocalRecommendationDetail: View {
     let finds: [SavedItem]
     let onChanged: () -> Void
     @Environment(\.colorScheme) private var colorScheme
+    private var currentOffersURL: URL? {
+        var url = URLComponents(string: "https://www.amazon.sg/s")
+        url?.queryItems = [URLQueryItem(name: "k", value: item.title)]
+        return url?.url
+    }
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 CatalogProductImage(url: item.imageURL.flatMap(URL.init(string:)), height: 330, fit: true)
                     .clipShape(RoundedRectangle(cornerRadius: 28))
                 Text(item.title).font(.title2.bold())
-                if let url = item.exactAmazonURL { LivePricePanel(url: url, title: item.title) }
+                if let url = item.exactAmazonURL {
+                    LivePricePanel(url: url, title: item.title)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Catalog inspiration · Availability unverified")
+                            .font(.subheadline.weight(.semibold))
+                        Text("This historical catalog listing may no longer be sold. Search current offers to check alternatives; results may differ from this product.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        if let searchURL = currentOffersURL {
+                            Link("Search current offers on Amazon SG", destination: searchURL)
+                                .font(.subheadline.bold())
+                        }
+                    }
+                }
                 if !item.reasons.isEmpty {
                     VStack(alignment: .leading, spacing: 16) {
                         Label("Why it fits", systemImage: "sparkles").font(.headline.bold()).foregroundStyle(.purple)
