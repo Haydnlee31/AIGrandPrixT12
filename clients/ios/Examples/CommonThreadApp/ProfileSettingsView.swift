@@ -50,7 +50,7 @@ struct ProfileSettingsSections: View {
                 Label("Introduction", systemImage: "play.rectangle")
             }
             .sheet(isPresented: $showingIntro) {
-                FindsOnboardingView { showingIntro = false }
+                FindsOnboardingView(isReplay: true) { showingIntro = false }
                     .presentationDragIndicator(.visible)
             }
         }
