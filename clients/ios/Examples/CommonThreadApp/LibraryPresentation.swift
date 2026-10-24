@@ -79,14 +79,20 @@ struct SavedContentCard: View {
 }
 
 struct LibraryEmptyState: View {
-    let symbol: String
+    var symbol: String? = nil
     let title: String
     let detail: String
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            Image(systemName: symbol).font(.system(size: 38, weight: .medium)).foregroundStyle(NativeTheme.accent)
-                .frame(width: 88, height: 88).background(NativeTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 30))
-                .accessibilityHidden(true)
+            Group {
+                if let symbol {
+                    Image(systemName: symbol).font(.system(size: 38, weight: .medium)).foregroundStyle(NativeTheme.accent)
+                } else {
+                    FindsMark(size: 80)
+                }
+            }
+            .frame(width: 88, height: 88).background(NativeTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 30))
+            .accessibilityHidden(true)
             Text(title).font(.largeTitle.bold()).fixedSize(horizontal: false, vertical: true)
             Text(detail).font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 26)

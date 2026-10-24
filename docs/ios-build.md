@@ -1,6 +1,8 @@
 # Native iPhone build
 
-Open `clients/ios/Mymah Finds.xcodeproj` in Xcode and select the **Mymah Finds** scheme. The checked-in project contains the iPhone app, embedded **Save to Mymah Finds** Share Extension, and the local `CommonThreadKit` Swift package. The app targets iOS 18 or later. The reusable SDK retains its iOS 16 minimum.
+Open `clients/ios/Mymah Finds.xcodeproj` in Xcode and select the **Mymah Finds** scheme. The checked-in project contains the iPhone app, embedded **Save to Mynah Finds** Share Extension, and the local `CommonThreadKit` Swift package. The app targets iOS 18 or later. The reusable SDK retains its iOS 16 minimum.
+
+The visible app name is **Mynah Finds**. The existing `Mymah Finds.xcodeproj` filename and scheme, bundle/App Group/Keychain identifiers, onboarding preference and `MymahFinds` local-library directory remain unchanged for compatibility with ongoing work and existing installs. This branding update does not migrate or reset saved data.
 
 ## Reproduce the project and build
 

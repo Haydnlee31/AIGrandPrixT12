@@ -99,7 +99,7 @@ struct MymahFindsView: View {
                     }
                     feedback
                     if items.isEmpty {
-                        LibraryEmptyState(symbol: "bookmark.fill", title: "A home for\nyour finds.", detail: "An idea. A lovely object. Something for later. Save your first link and make it yours.")
+                        LibraryEmptyState(title: "A home for\nyour finds.", detail: "An idea. A lovely object. Something for later. Save your first link and make it yours.")
                         NativePrimaryButton(title: "Save your first link") {
                             showingCapture = true
                         }.disabled(busy)
@@ -196,10 +196,10 @@ struct MymahFindsView: View {
             Form {
                 Section {
                     HStack(spacing: 16) {
-                        Image(systemName: "bookmark.fill").font(.title2).foregroundStyle(NativeTheme.accent)
+                        FindsMark(size: 52)
                             .frame(width: 60, height: 60).background(NativeTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 20))
                         VStack(alignment: .leading, spacing: 5) {
-                            Text("Mymah Finds").font(.title2.bold())
+                            Text("Mynah Finds").font(.title2.bold())
                             Text("All the things you come back to.").font(.subheadline).foregroundStyle(.secondary)
                         }
                     }.padding(.vertical, 8)

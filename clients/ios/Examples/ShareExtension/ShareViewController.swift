@@ -33,7 +33,7 @@ struct ShareCaptureView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Save to Mymah Finds") {
+                Section("Save to Mynah Finds") {
                     TextField("Public link", text: $url).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                     TextField("Title", text: $title)
                     TextField("Selected text (optional)", text: $selectedText, axis: .vertical)
@@ -107,9 +107,9 @@ struct ShareCaptureView: View {
             try await outbox.remove(draft); saved = true
             message = receipt.duplicate
                 ? "Already in your library. The existing note and text were kept; this save hasn’t added your changes."
-                : "Saved to your library. Find it in Mymah Finds whenever you need it."
+                : "Saved to your library. Find it in Mynah Finds whenever you need it."
         } catch {
-            message = pending == nil ? error.localizedDescription : "Pending on this device. Retry, or open Mymah Finds later to sync. \(error.localizedDescription)"
+            message = pending == nil ? error.localizedDescription : "Pending on this device. Retry, or open Mynah Finds later to sync. \(error.localizedDescription)"
         }
     }
 }
