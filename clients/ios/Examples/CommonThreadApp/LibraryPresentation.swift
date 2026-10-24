@@ -182,7 +182,8 @@ struct SavedContentView: View {
                 }
                 if let sources = metadata.sourceItems, sources.count > 1 { mergedSources(sources) }
                 if !displayed.selectedText.isEmpty {
-                    DisclosureGroup("Saved text") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Saved text").font(.headline)
                         Text(displayed.selectedText).font(.body).textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 10)
                     }.font(.subheadline.weight(.semibold)).tint(.secondary)

@@ -64,6 +64,7 @@ struct LocalExploreScreen: View {
     var refreshID = UUID()
     var onlyFindID: String? = nil
     var sessionBrief: String? = nil
+    var sessionCategory: String? = nil
     @State private var showingTasteLab = false
     var onChanged: () -> Void = {}
     @State private var finds: [SavedItem] = []
@@ -89,7 +90,7 @@ struct LocalExploreScreen: View {
                             Image(systemName: "slider.horizontal.3").font(.title2).foregroundStyle(.purple)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Taste Lab").font(.headline)
-                                Text("Find what makes a reading corner feel right.").font(.subheadline).foregroundStyle(.secondary)
+                                Text("Discover what draws you in.").font(.subheadline).foregroundStyle(.secondary)
                             }
                             Spacer(); Image(systemName: "chevron.right")
                         }.padding(18).background(.quaternary, in: RoundedRectangle(cornerRadius: 22))
@@ -168,7 +169,7 @@ struct LocalExploreScreen: View {
     }
     @MainActor private func payload() throws -> Data {
         if let sessionBrief {
-            return try JSONSerialization.data(withJSONObject: ["finds": [["id": "taste-lab-session", "title": "Your Taste Lab choices", "intents": [sessionBrief], "analysis": ["product_name": sessionBrief, "category_path": [TasteLabSession.productType(for: sessionBrief) ?? "unknown"], "summary": "User-confirmed brief from an illustrative reading-corner comparison."]]], "query": "", "limit": 24])
+            return try JSONSerialization.data(withJSONObject: ["finds": [["id": "taste-lab-session", "title": "Your Taste Lab choices", "intents": [sessionBrief], "analysis": ["product_name": sessionBrief, "category_path": [sessionCategory ?? TasteLabSession.productType(for: sessionBrief) ?? "unknown"], "summary": "User-confirmed brief from an illustrative reading-corner comparison."]]], "query": "", "limit": 24])
         }
         let input: [[String: Any]] = try finds.filter { (onlyFindID ?? focusedFind) == nil || $0.id == (onlyFindID ?? focusedFind) }.prefix(24).map { find in
             let context = metadata[find.id] ?? LocalFindMetadata()
@@ -184,7 +185,7 @@ struct LocalExploreScreen: View {
         return try JSONSerialization.data(withJSONObject: ["finds": input, "query": String(query.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100)), "limit": 24], options: [.sortedKeys])
     }
     private func filteredPage(_ value: LocalRecommendationPage) -> LocalRecommendationPage {
-        guard let sessionBrief else { return value }
+        guard let sessionBrief, sessionCategory == nil else { return value }
         let items = value.items.filter { TasteLabSession.suitableTitle($0.title, for: TasteLabSession.productType(for: sessionBrief)) }
         return LocalRecommendationPage(status: items.isEmpty ? "no_matches" : "ready", items: items, catalogCount: value.catalogCount)
     }

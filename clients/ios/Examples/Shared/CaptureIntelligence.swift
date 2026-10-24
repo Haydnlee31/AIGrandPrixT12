@@ -262,7 +262,7 @@ enum CaptureIntelligence {
     /// One bounded retry handles a transient tunnel/mobile connection without
     /// requiring a second tap. A server cache coalesces repeated analysis inputs.
     static func post(path: String, body: Data) async throws -> Data {
-        guard ["v1/capture-preview", "v1/recommendations", "v1/discover", "v1/refine-intent", "v1/radar", "v1/price-check", "v1/price-watch"].contains(path),
+        guard ["v1/capture-preview", "v1/recommendations", "v1/discover", "v1/taste-lab", "v1/taste-interpret", "v1/refine-intent", "v1/radar", "v1/price-check", "v1/price-watch"].contains(path),
               let config = try configuration() else { throw Failure.configuration }
         var request = URLRequest(url: config.baseURL.appendingPathComponent(path))
         request.httpMethod = "POST"; request.timeoutInterval = 50
