@@ -1,8 +1,13 @@
 """Actual retrieval against isolated catalogs; no paid provider calls."""
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor
+import json
+import threading
 
 from fastapi.testclient import TestClient
 import pytest
+
+import backend.app.local_recommendations as recommendation_module
 
 from backend.app.catalog.search_index import ensure_index
 from backend.app.catalog.recommendation_index import ensure_recommendation_index
@@ -188,3 +193,187 @@ def test_endpoint_requires_authentication_before_parsing(database):
         assert response.status_code == 200 and response.json()["status"] == "ready"
         assert response.headers["cache-control"] == "no-store"
         assert "unused-provider-key" not in response.text
+
+
+def test_precise_color_preference_outweighs_generic_dial_strap_words(database):
+    factory, _ = database
+    generic = record("generic", "Black digital watch with strap dial face case band display", "WATCH")
+    blue = record("specific-blue", "Blue wristwatch", "WATCH")
+    import_dataset(factory, "abo", [generic, blue], version="precise-color", checksum="e" * 64)
+    saved = find(intents=["I like blue", "dial strap face case band display"])
+    saved["analysis"]["style"] = ["dial strap face case band display digital"]
+    result = recommend(factory, request(saved))
+    assert result.items[0].source_record_id == "specific-blue"
+    assert result.items[0].reasons[0].matched_value == "blue"
+    assert "color you liked" in result.items[0].reasons[0].text
+
+
+def test_watch_preferences_keep_strap_dial_and_stitching_relationships(database):
+    factory, _ = database
+    import_dataset(factory, "abo", [
+        record("black-nylon", "Black nylon strap watch", "WATCH",
+               description="Glossy black dial with silver-tone hands and white Arabic numerals. Black nylon strap."),
+        record("green-nylon", "Green nylon strap watch", "WATCH",
+               description="Glossy white dial with silver-tone hands and black Arabic numerals. Green nylon strap."),
+        record("silver-dial", "Analog silver dial watch", "WATCH",
+               description="Dial Color: Silver, Band Color: Brown, Band Material: Synthetic"),
+        record("black-leather", "Black leather strap watch", "WATCH",
+               description="Black leather strap with white stitching and silver dial."),
+    ], version="part-aware-watch", checksum="7" * 64)
+    saved = find(intents=["I like the black leather strap with white stitching.",
+                         "I appreciate the understated silver dial color."])
+    saved["analysis"].update(brand=None, category_path=["Wristwatches"], style=["classic", "leather strap", "round face"])
+    result = recommend(factory, request(saved))
+    by_id = {item.source_record_id: item for item in result.items}
+    assert result.items[0].source_record_id == "black-leather"
+    assert by_id["black-nylon"].score > by_id["green-nylon"].score
+    assert by_id["silver-dial"].score > by_id["green-nylon"].score
+    assert {reason.matched_value for reason in by_id["black-nylon"].reasons} == {"black strap"}
+    assert {reason.matched_value for reason in by_id["silver-dial"].reasons} == {"silver dial"}
+    assert not {"white", "silver", "black", "leather"}.intersection(
+        reason.matched_value for reason in by_id["green-nylon"].reasons)
+    # Missing exact materials remain alternatives, not a new hard filter.
+    assert len(result.items) == 4
+    assert all(item.price_minor is None and item.availability == "unknown" for item in result.items)
+
+
+def test_part_preferences_accept_structured_source_fields_without_inferring_unqualified_colors(database):
+    factory, _ = database
+    import_dataset(factory, "abo", [
+        record("specified", "Analog watch", "WATCH", attributes={"band_color": "Black", "dial_color": "Silver"}),
+        record("unspecified", "Analog watch", "WATCH", attributes={"color": "Black/Silver"}),
+    ], version="part-attributes", checksum="8" * 64)
+    result = recommend(factory, request(find(intents=["I like a black strap and silver dial"])))
+    assert result.items[0].source_record_id == "specified"
+    assert {reason.matched_value for reason in result.items[0].reasons} == {"black strap", "silver dial"}
+    assert not any(reason.matched_value in {"black", "silver", "black strap", "silver dial"}
+                   for reason in result.items[1].reasons)
+
+
+@pytest.mark.parametrize("negative", ["no black or silver", "don't want black or silver", "avoid black and silver"])
+def test_multiple_negative_preferences_are_not_mistaken_for_positive_choices(database, negative):
+    factory, _ = database
+    result = recommend(factory, request(find(intents=[negative, "I prefer digital blue"])))
+    assert {item.source_record_id for item in result.items} == {"blue-watch"}
+
+
+def test_negative_material_does_not_exclude_every_kind_of_strap(database):
+    factory, _ = database
+    import_dataset(factory, "abo", [
+        record("leather", "Black leather strap watch", "WATCH"),
+        record("nylon", "Black nylon strap watch", "WATCH"),
+    ], version="material-negative", checksum="f" * 64)
+    result = recommend(factory, request(find(intents=["without leather strap", "I like black"])))
+    assert [item.source_record_id for item in result.items] == ["nylon"]
+
+
+def test_nested_source_attributes_match_without_repeated_why_text(database):
+    factory, _ = database
+    import_dataset(factory, "abo", [record("nested-blue", "Digital wristwatch", "WATCH",
+        attributes={"color": [{"value": "Blue", "language_tag": "en_US"}]})], version="nested-color", checksum="1" * 64)
+    saved = find(intents=["I like blue", "Blue is my favorite color"])
+    saved["note"] = "blue"
+    saved["analysis"]["style"] = ["Blue", "blue"]
+    result = recommend(factory, request(saved))
+    reasons = result.items[0].reasons
+    assert sum(reason.matched_value.lower() == "blue" for reason in reasons) == 1
+    assert len({reason.text for reason in reasons}) == len(reasons)
+
+
+def test_small_category_avoids_repeated_broad_text_index_queries(database, monkeypatch):
+    factory, _ = database
+    def unexpected(*args, **kwargs):
+        raise AssertionError("Small categories should be fetched once, not repeatedly text searched")
+    monkeypatch.setattr(recommendation_module, "matching_product_ids", unexpected)
+    assert recommend(factory, request(find())).items
+
+
+def test_identical_request_is_computed_once_and_cache_expires(database, monkeypatch):
+    factory, _ = database
+    clock = [10.0]
+    service = LocalRecommendationService(factory, clock=lambda: clock[0])
+    original = recommendation_module.recommend
+    calls = []
+    def counted(*args, **kwargs):
+        calls.append(True)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(recommendation_module, "recommend", counted)
+    first = service.recommendations(request(find()))
+    second = service.recommendations(request(find()))
+    assert len(calls) == 1
+    assert first.body == second.body and second.headers["x-mynah-cache"] == "hit"
+    assert second.headers["cache-control"] == "no-store"
+    clock[0] += 61
+    assert service.recommendations(request(find())).headers["x-mynah-cache"] == "miss"
+    assert len(calls) == 2
+
+
+def test_cache_is_bounded_and_keys_do_not_retain_private_capture_text(database, monkeypatch):
+    factory, _ = database
+    monkeypatch.setattr(recommendation_module, "CACHE_MAX_ENTRIES", 2)
+    service = LocalRecommendationService(factory)
+    for color in ("blue", "black", "silver"):
+        saved = find(intents=[color])
+        saved["note"] = "private gift note " + color
+        service.recommendations(request(saved))
+    assert len(service.cache) == 2
+    assert all(len(key) == 64 and "private" not in key for key in service.cache)
+
+
+def test_cache_isolated_by_find_identity_notes_intents_and_search(database):
+    factory, _ = database
+    service = LocalRecommendationService(factory)
+    alice = find("alice-watch", intents=["blue"])
+    alice["title"] = "Alice's private find"
+    bob = find("bob-watch", intents=["black"])
+    bob["title"] = "Bob's private find"
+    first = json.loads(service.recommendations(request(alice)).body)
+    second = json.loads(service.recommendations(request(bob)).body)
+    assert first["items"][0]["source_record_id"] == "blue-watch"
+    assert second["items"][0]["source_record_id"] == "black-watch"
+    assert all(reason["find_id"] == "bob-watch" and reason["find_title"] == "Bob's private find" for item in second["items"] for reason in item["reasons"])
+    bob["intents"] = ["blue"]
+    assert json.loads(service.recommendations(request(bob)).body)["items"][0]["source_record_id"] == "blue-watch"
+    bob["note"] = "no blue"
+    assert all(item["source_record_id"] != "blue-watch" for item in json.loads(service.recommendations(request(bob)).body)["items"])
+    assert json.loads(service.recommendations(request(alice, query="silver")).body)["items"][0]["source_record_id"] == "silver-watch"
+    assert json.loads(service.recommendations(request()).body)["status"] == "needs_saves"
+
+
+def test_catalog_replacement_and_revocation_invalidate_cached_results_immediately(database):
+    factory, _ = database
+    service = LocalRecommendationService(factory)
+    assert service.recommendations(request(find())).status_code == 200
+    import_dataset(factory, "abo", [record("fresh", "Blue digital watch", "WATCH")], version="new-catalog", checksum="2" * 64)
+    updated = service.recommendations(request(find()))
+    assert updated.headers["x-mynah-cache"] == "miss"
+    payload = json.loads(updated.body)
+    assert payload["catalog_count"] == 1
+    assert [item["source_record_id"] for item in payload["items"]] == ["fresh"]
+    revoke_feed(factory, "abo", "local-dataset")
+    withdrawn = json.loads(service.recommendations(request(find())).body)
+    assert withdrawn["status"] == "catalog_unavailable" and not withdrawn["items"]
+
+
+def test_concurrent_identical_refreshes_share_one_retrieval(database, monkeypatch):
+    factory, _ = database
+    service = LocalRecommendationService(factory)
+    original = recommendation_module.recommend
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+    def delayed(*args, **kwargs):
+        calls.append(True)
+        entered.set()
+        assert release.wait(timeout=5)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(recommendation_module, "recommend", delayed)
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        one = executor.submit(service.recommendations, request(find()))
+        assert entered.wait(timeout=5)
+        two = executor.submit(service.recommendations, request(find()))
+        three = executor.submit(service.recommendations, request(find()))
+        release.set()
+        results = [future.result(timeout=5) for future in (one, two, three)]
+    assert len(calls) == 1
+    assert all(response.status_code == 200 for response in results)
+    assert len({response.body for response in results}) == 1

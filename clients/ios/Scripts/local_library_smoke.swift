@@ -53,6 +53,8 @@ struct LocalLibrarySmoke {
         let migratedItems = try await migrated.collection()
         let migratedIntents = try await migrated.metadata()[receipt.id]?.selectedIntents
         try check(migratedItems.map(\.id) == [receipt.id] && migratedIntents == ["I like the small dial"], "known samples removed and legacy user intention survives migration")
+        let legacyPin = try await migrated.metadata()[receipt.id]?.pinned
+        try check(legacyPin == false, "older metadata without pin field remains readable and unpinned")
         let migratedFile = try JSONSerialization.jsonObject(with: Data(contentsOf: migrationFile)) as! [String: Any]
         try check(migratedFile["version"] as? Int == 3, "migration is persisted")
         var matchingID = originalObject; matchingID["id"] = "sample-reading"
@@ -80,6 +82,23 @@ struct LocalLibrarySmoke {
         let attachment = metadata[imageReceipt.id]!.attachments[0]
         let restoredImage = try await reopened.attachmentData(attachment)
         try check(restoredImage == png, "photo bytes survive reopening")
+        try await reopened.setPinned(imageReceipt.id, true)
+        let pinned = try await LocalLibrary(fileURL: file).metadata()[imageReceipt.id]?.pinned
+        try check(pinned == true, "pin survives reopening")
+        let pinnedBytes = try Data(contentsOf: file)
+        try await reopened.setPinned(imageReceipt.id, true)
+        let repinnedBytes = try Data(contentsOf: file)
+        try check(pinnedBytes == repinnedBytes, "unchanged pin does not rewrite or bump revision")
+        try await reopened.setArchived(imageReceipt.id, true)
+        let archivedPin = try await library.metadata()[imageReceipt.id]!
+        try check(archivedPin.pinned && archivedPin.isArchived, "archiving retains pin metadata")
+        try await reopened.setArchived(imageReceipt.id, false)
+        let restoredPin = try await library.metadata()[imageReceipt.id]!
+        try check(restoredPin.pinned && !restoredPin.isArchived, "unarchiving restores pinned find without recreating it")
+        try await reopened.setPinned(imageReceipt.id, false)
+        let unpinned = try await LocalLibrary(fileURL: file).metadata()[imageReceipt.id]?.pinned
+        try check(unpinned == false, "unpin persists")
+        print("PASS pin persistence, archive restoration and backward-compatible pin decoding")
         try await reopened.setFavorite(imageReceipt.id, true)
         try await reopened.setArchived(imageReceipt.id, true)
         try await reopened.update(imageReceipt.id, title: "Edited title", note: "An editable voice transcript", text: "")

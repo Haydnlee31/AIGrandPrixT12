@@ -287,11 +287,12 @@ struct ExploreScreen: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    if connection == nil {
-                        LocalExploreScreen(query: query, libraryRevision: libraryRevision + refreshID.uuidString, onChanged: onLocalChange)
-                    } else {
+            Group {
+                if connection == nil {
+                    LocalExploreScreen(query: query, libraryRevision: libraryRevision, refreshID: refreshID, onChanged: onLocalChange)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 22) {
                         Text(query.isEmpty ? "Ideas shaped by what you’ve saved." : "Explore the details that matter to you.").font(.subheadline).foregroundStyle(.secondary)
                         if !results.isEmpty {
                             ForEach(results) { item in
@@ -312,10 +313,11 @@ struct ExploreScreen: View {
                         if let next = page?.nextOffset, !busy {
                             Button("Show more ideas") { requestedOffset = next }.frame(maxWidth: .infinity).padding()
                         }
+                        }.padding(20)
                     }
-                }.padding(20)
+                }
             }
-            .background(NativeTheme.bg).navigationTitle("Explore")
+            .background(NativeTheme.bg).navigationTitle("Explore").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if let connection {
                     ToolbarItem(placement: .navigationBarTrailing) {
@@ -323,7 +325,7 @@ struct ExploreScreen: View {
                     }
                 }
             }
-            .searchable(text: $query, prompt: "Search products, styles, ideas")
+            .searchable(text: $query, prompt: "Search")
             .autocorrectionDisabled()
             .onChange(of: query) { _, _ in requestedOffset = 0; results = []; page = nil }
             .onChange(of: libraryRevision) { _, _ in requestedOffset = 0; results = []; page = nil }

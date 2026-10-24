@@ -13,6 +13,7 @@ struct CaptureForm: View {
     @State private var title = ""
     @State private var titleWasEdited = false
     @State private var selectedIntents: [String] = []
+    @State private var refinement: IntentRefinementContext?
     @State private var note = ""
     @State private var savedText = ""
     @State private var attachments: [DraftAttachment] = []
@@ -128,6 +129,14 @@ struct CaptureForm: View {
         .onChange(of: currentAnalysisInput) { _, _ in
             analysis = nil; analysisInput = nil; analysisError = nil; analyzing = false
             if !titleWasEdited { title = "" }
+        }
+        .sheet(item: $refinement) { context in
+            IntentRefinementSheet(context: context) { choice in
+                guard selectedIntents.count < 8 || selectedIntents.contains(choice) else { return false }
+                if !selectedIntents.contains(choice) { selectedIntents.append(choice) }
+                FindsHaptics.selection()
+                return true
+            }
         }
         .onDisappear { stopVoice() }
         .onChange(of: scenePhase) { _, phase in if phase != .active { stopVoice() } }
@@ -286,9 +295,7 @@ struct CaptureForm: View {
                 }.accessibilityIdentifier("captureAnalysisLoading")
             } else if let analysis = currentAnalysis {
                 if !analysis.prompts.isEmpty {
-                    Text("Pick anything that feels right. You can choose more than one.")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                    ForEach(Array(analysis.prompts.enumerated()), id: \.element.id) { index, prompt in
+                    ForEach(Array(analysis.prompts.filter { !selectedIntents.contains($0.text) }.prefix(3).enumerated()), id: \.element.id) { index, prompt in
                         intentionButton(prompt.text, index: index)
                     }
                 } else {
@@ -305,11 +312,8 @@ struct CaptureForm: View {
                 Text("Add a link, photo, or text to get suggestions for this find.")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
-            // Retain selected answers if the content changes while the user edits.
-            let extraSelections = selectedIntents.filter { selected in
-                !(currentAnalysis?.prompts.contains { $0.text == selected } ?? false)
-            }
-            ForEach(extraSelections, id: \.self) { text in intentionButton(text, index: 0) }
+            SelectedIntentChips(values: selectedIntents, onRefine: { openRefinement($0) },
+                onRemove: { value in selectedIntents.removeAll { $0 == value } }, disabled: frozen)
             if CaptureIntelligence.isConfigured {
                 Text("Your shared content is sent to OpenAI for these suggestions.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -338,10 +342,17 @@ struct CaptureForm: View {
     }
 
     private func toggleIntention(_ text: String) {
-        if selectedIntents.contains(text) { selectedIntents.removeAll { $0 == text } }
-        else if selectedIntents.count < 8 { selectedIntents.append(text) }
-        else { message = "You can keep up to eight reasons. Deselect one to add another." }
+        if !selectedIntents.contains(text) {
+            guard selectedIntents.count < 8 else { message = "You can keep up to eight details. Hold one to remove it."; return }
+            selectedIntents.append(text)
+        }
         FindsHaptics.selection()
+        openRefinement(text)
+    }
+    private func openRefinement(_ text: String) {
+        guard let analysis = currentAnalysis, analysis.productName != nil, CaptureIntelligence.isConfigured else { return }
+        focused = nil; stopVoice()
+        refinement = IntentRefinementContext(analysis: analysis, selectedIntent: text, existingIntents: selectedIntents)
     }
 
     @MainActor private func analyzeCapture(_ request: AnalysisRequest) async {
@@ -384,7 +395,7 @@ struct CaptureForm: View {
             Text(receipt.duplicate ? "Already in your library" : "Saved!").font(.largeTitle.bold()).multilineTextAlignment(.center)
             Text(receipt.duplicate
                  ? "This link was already saved. Its original note and text have been kept."
-                 : "\(resolvedTitle)\n\(effectiveConnection == nil ? "Saved on this iPhone." : "Ready whenever you want to come back to it.")")
+                 : "\(resolvedTitle)\n\(effectiveConnection == nil ? "Saved on this iPhone." : "Saved to your library.")")
                 .foregroundStyle(.secondary).multilineTextAlignment(.center)
             if let message { Text(message).font(.footnote).foregroundStyle(.secondary) }
             Spacer()

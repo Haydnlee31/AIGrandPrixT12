@@ -32,3 +32,18 @@ struct CaptureIntelligenceResult: Codable, Sendable {
         case brand, style, summary, uncertainties, prompts, evidence
     }
 }
+
+
+struct IntentRefinementResult: Decodable, Sendable {
+    let question: String
+    let choices: [String]
+    let schemaVersion: Int
+    enum CodingKeys: String, CodingKey { case question, choices; case schemaVersion = "schema_version" }
+}
+
+struct IntentRefinementContext: Identifiable {
+    let id = UUID()
+    let analysis: CaptureIntelligenceResult
+    let selectedIntent: String
+    let existingIntents: [String]
+}

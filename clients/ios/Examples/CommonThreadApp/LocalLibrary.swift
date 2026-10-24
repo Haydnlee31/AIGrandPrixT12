@@ -12,6 +12,8 @@ struct LocalAttachment: Codable, Identifiable, Sendable {
 struct LocalFindMetadata: Codable, Sendable {
     var isFavorite = false
     var isArchived = false
+    var isPinned: Bool? = nil
+    var pinned: Bool { isPinned ?? false }
     var attachments: [LocalAttachment] = []
     var intent: String? = nil
     var intents: [String]? = nil
@@ -229,6 +231,14 @@ actor LocalLibrary {
     func setFavorite(_ id: String, _ value: Bool) throws {
         var document = try document(); guard document.items.contains(where: { $0.id == id }) else { throw LocalError.missingItem }
         document.metadata[id, default: LocalFindMetadata()].isFavorite = value; try persist(document)
+    }
+    func setPinned(_ id: String, _ value: Bool) throws {
+        var document = try document()
+        guard let index = document.items.firstIndex(where: { $0.id == id }) else { throw LocalError.missingItem }
+        guard document.metadata[id, default: LocalFindMetadata()].pinned != value else { return }
+        document.metadata[id, default: LocalFindMetadata()].isPinned = value
+        document.items[index] = try Self.revised(document.items[index])
+        try persist(document)
     }
     func setArchived(_ id: String, _ value: Bool) throws {
         var document = try document(); guard document.items.contains(where: { $0.id == id }) else { throw LocalError.missingItem }

@@ -1,17 +1,6 @@
 import SwiftUI
 import CommonThreadKit
 
-private func sampleAsset(for item: SavedItem) -> String? {
-    guard item.client == "sample" else { return nil }
-    switch item.id {
-    case "sample-reading": return "reading-corner"
-    case "sample-lamp": return "sculptural-lamp"
-    case "sample-balcony": return "balcony"
-    case "sample-ceramics": return "ceramics"
-    default: return nil
-    }
-}
-
 private struct SourceStyle {
     let symbol: String
     let color: Color
@@ -30,61 +19,60 @@ struct SavedContentCard: View {
     let item: SavedItem
     var compact = false
     var connection: SharedEnvironment?
+    var pinned = false
     private var style: SourceStyle { SourceStyle(item.source) }
+    private var originalURL: URL? {
+        guard let url = URL(string: item.originalUrl), ["https", "http"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else { return nil }
+        return url
+    }
     private var domain: String {
-        if let host = URL(string: item.originalUrl)?.host { return host }
+        if let host = originalURL?.host { return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host }
         return item.hasImage ? "Photo" : item.selectedText.isEmpty ? "File" : "Note"
     }
     var body: some View {
         Group {
             if compact {
-                HStack(alignment: .top, spacing: 14) {
-                    if let asset = sampleAsset(for: item) {
-                        Image(asset).resizable().scaledToFill().frame(width: 64, height: 80)
-                            .clipShape(RoundedRectangle(cornerRadius: 15)).accessibilityHidden(true)
-                    } else if item.hasImage {
-                        FindImage(item: item, connection: connection).frame(width: 64, height: 80).clipShape(RoundedRectangle(cornerRadius: 15))
-                    } else { sourceIcon(size: 50) }
+                HStack(spacing: 14) {
+                    thumbnail.frame(width: 68, height: 76).clipShape(RoundedRectangle(cornerRadius: 16))
                     content
-                    Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary).padding(.top, 6)
-                }.padding(18)
-            } else if let asset = sampleAsset(for: item) {
-                VStack(alignment: .leading, spacing: 0) {
-                    Image(asset).resizable().aspectRatio(2.0 / 3.0, contentMode: .fit).accessibilityHidden(true)
-                    content.padding(16)
-                }
-            } else if item.hasImage {
-                VStack(alignment: .leading, spacing: 0) {
-                    FindImage(item: item, connection: connection)
-                    content.padding(16)
-                }
+                }.padding(14)
             } else {
-                VStack(alignment: .leading, spacing: 18) {
-                    HStack { sourceIcon(size: 52); Spacer(); Image(systemName: "bookmark.fill").font(.caption).foregroundStyle(style.color.opacity(0.55)) }
-                    content
-                    Text(item.capturedDate, style: .date).font(.caption2).foregroundStyle(.secondary)
-                }.padding(18)
+                VStack(alignment: .leading, spacing: 0) {
+                    if item.hasImage {
+                        FindImage(item: item, connection: connection).clipShape(RoundedRectangle(cornerRadius: 22))
+                    } else if let originalURL {
+                        WebsitePreview(url: originalURL).clipShape(RoundedRectangle(cornerRadius: 22))
+                    } else { sourceIcon.frame(maxWidth: .infinity).frame(height: 82) }
+                    content.padding(14)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(compact ? NativeTheme.surface : style.color.opacity(0.075), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .accessibilityElement(children: .combine)
     }
+    @ViewBuilder private var thumbnail: some View {
+        if item.hasImage { FindImage(item: item, connection: connection) }
+        else if let originalURL { WebsitePreview(url: originalURL, presentation: .thumbnail) }
+        else { sourceIcon }
+    }
     private var content: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(item.client == "sample" ? "Sample find" : domain).font(.caption.weight(.medium)).foregroundStyle(.secondary).lineLimit(1)
-            Text(item.title).font(.headline.bold()).foregroundStyle(.primary).lineLimit(compact ? 2 : 4).multilineTextAlignment(.leading)
-            if !item.note.isEmpty {
-                Text(item.note).font(.subheadline).foregroundStyle(.secondary).lineLimit(compact ? 2 : 3).multilineTextAlignment(.leading)
-            } else if !item.selectedText.isEmpty {
-                Text(item.selectedText).font(.subheadline).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading)
-            }
+        VStack(alignment: .leading, spacing: 7) {
+            Text(item.title).font(.headline.bold()).foregroundStyle(.primary).lineLimit(2).multilineTextAlignment(.leading)
+            HStack(spacing: 5) {
+                Image(systemName: originalURL == nil ? (item.hasImage ? "photo" : "text.alignleft") : style.symbol)
+                    .foregroundStyle(style.color)
+                Text(item.client == "sample" ? "Sample find" : domain).foregroundStyle(.secondary).lineLimit(1)
+                Spacer(minLength: 0)
+                if pinned { Image(systemName: "pin.fill").foregroundStyle(.orange).accessibilityLabel("Pinned") }
+            }.font(.caption)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
-    private func sourceIcon(size: CGFloat) -> some View {
-        Image(systemName: style.symbol).font(.title3.weight(.semibold)).foregroundStyle(style.color)
-            .frame(width: size, height: size).background(style.color.opacity(0.13), in: RoundedRectangle(cornerRadius: 17))
+    private var sourceIcon: some View {
+        Image(systemName: originalURL == nil ? (item.selectedText.isEmpty ? "doc.fill" : "text.alignleft") : style.symbol)
+            .font(.system(size: 25, weight: .medium)).foregroundStyle(style.color)
+            .frame(width: 52, height: 52).background(style.color.opacity(0.09), in: RoundedRectangle(cornerRadius: 17))
             .accessibilityHidden(true)
     }
 }
@@ -112,6 +100,12 @@ struct SavedContentView: View {
     var onChanged: () -> Void = {}
     @State private var metadata = LocalFindMetadata()
     @State private var showingEditor = false
+    @State private var showingAttachments = false
+    @State private var websiteHasImage = false
+    @State private var refinement: IntentRefinementContext?
+    #if DEBUG
+    @State private var didShowDebugRefinement = false
+    #endif
     @State private var latestItem: SavedItem?
     private var displayed: SavedItem { latestItem ?? item }
     let onDelete: (String, MutationKey) async throws -> Void
@@ -131,15 +125,11 @@ struct SavedContentView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                VStack(alignment: .leading, spacing: 20) {
-                    if let asset = sampleAsset(for: item) {
-                        Image(asset).resizable().aspectRatio(2.0 / 3.0, contentMode: .fit)
-                            .clipShape(RoundedRectangle(cornerRadius: 28)).accessibilityHidden(true)
-                        Label("Sample find", systemImage: "bookmark").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-                    } else if item.hasImage {
-                        FindImage(item: displayed, connection: connection)
+                VStack(alignment: .leading, spacing: 18) {
+                    if displayed.hasImage || originalURL != nil {
+                        hero
                             .overlay(alignment: .bottom) {
-                                if localOnly, let analysis = metadata.analysis, !analysis.prompts.isEmpty {
+                                if localOnly, (displayed.hasImage || websiteHasImage), let analysis = metadata.analysis, !analysis.prompts.isEmpty {
                                     FindIntentOverlay(prompts: analysis.prompts, selected: metadata.selectedIntents,
                                                       busy: updating || deleting) { value in
                                         Task { await toggleIntent(value) }
@@ -147,46 +137,33 @@ struct SavedContentView: View {
                                 }
                             }
                             .clipShape(RoundedRectangle(cornerRadius: 28))
-                    } else {
-                        Image(systemName: style.symbol).font(.system(size: 36, weight: .medium)).foregroundStyle(style.color)
-                            .frame(width: 86, height: 86).background(style.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 28))
-                            .accessibilityHidden(true)
                     }
-                    Text(displayed.title).font(.largeTitle.bold()).fixedSize(horizontal: false, vertical: true)
-                    if item.client == "sample" {
-                        Text("An example to explore your library. The image is illustrative.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    } else {
-                        HStack(spacing: 8) {
-                            Text(originalURL?.host ?? (item.hasImage ? "Photo" : item.selectedText.isEmpty ? "File" : "Note")).lineLimit(1)
-                            Text("·")
-                            Text(item.capturedDate, style: .date)
-                        }.font(.caption).foregroundStyle(.secondary)
-                    }
+                    Text(displayed.title).font(.title.bold()).fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 7) {
+                        Image(systemName: originalURL == nil ? (displayed.hasImage ? "photo" : "text.alignleft") : style.symbol)
+                            .foregroundStyle(style.color)
+                        Text(originalURL?.host?.replacingOccurrences(of: "www.", with: "") ?? (displayed.hasImage ? "Photo" : "Note")).lineLimit(1)
+                        Text("·")
+                        Text(displayed.capturedDate, style: .date)
+                        if metadata.pinned { Image(systemName: "pin.fill").foregroundStyle(.orange).accessibilityLabel("Pinned") }
+                    }.font(.caption).foregroundStyle(.secondary)
                     if let originalURL {
-                        Link(destination: originalURL) {
-                            HStack { Text("Open original").font(.headline); Spacer(); Image(systemName: "arrow.up.right") }
-                                .foregroundStyle(NativeTheme.bg).padding(20).background(Color.primary, in: Capsule())
-                        }.accessibilityIdentifier("openOriginal")
+                        Link(destination: originalURL) { Label("View original", systemImage: "arrow.up.right") }
+                            .font(.subheadline.weight(.semibold)).buttonStyle(.bordered).tint(.blue)
+                            .accessibilityIdentifier("openOriginal")
                     }
                 }
-                if !displayed.note.isEmpty { contentSection(item.client == "sample" ? "A little context" : "Why you saved it", text: displayed.note, symbol: "quote.opening") }
-                if !displayed.selectedText.isEmpty { contentSection("Saved text", text: displayed.selectedText, symbol: "text.alignleft") }
-                if displayed.note.isEmpty && displayed.selectedText.isEmpty {
-                    Text("Saved in your library, ready whenever you need it.").font(.body).foregroundStyle(.secondary)
-                }
-                if localOnly {
-                    HStack(spacing: 12) {
-                        Button { showingEditor = true } label: { Label("Edit note", systemImage: "square.and.pencil") }
-                        Spacer()
-                        Button { Task { await toggleFavorite() } } label: {
-                            Image(systemName: metadata.isFavorite ? "heart.fill" : "heart")
-                        }.accessibilityLabel(metadata.isFavorite ? "Remove favorite" : "Favorite find")
-                    }.buttonStyle(.bordered).disabled(deleting || updating)
-                    if !metadata.attachments.isEmpty { AttachmentGallery(attachments: metadata.attachments) }
+                if !displayed.note.isEmpty { contentSection("Your note", text: displayed.note, symbol: "quote.bubble.fill") }
+                if !displayed.selectedText.isEmpty {
+                    DisclosureGroup("Saved text") {
+                        Text(displayed.selectedText).font(.body).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 10)
+                    }.font(.subheadline.weight(.semibold)).tint(.secondary)
                 }
                 SavedIntelligenceSection(item: displayed, connection: connection, onChanged: intelligenceChanged)
-                    .id("\(displayed.id)|\(metadata.analysis?.analyzedAt ?? 0)|\(metadata.selectedIntents.joined(separator: "|"))")
+                    // Keep editor/refinement sheets alive when a saved choice refreshes metadata.
+                    // The child reloads current values through its revision-keyed task.
+                    .id(displayed.id)
                 if let errorMessage {
                     Text(errorMessage).font(.subheadline).foregroundStyle(.red).accessibilityIdentifier("savedFindError")
                     if deletionFailed {
@@ -204,9 +181,11 @@ struct SavedContentView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
                     if localOnly {
-                        Button { showingEditor = true } label: { Label("Edit find or voice note", systemImage: "square.and.pencil") }
+                        Button { showingEditor = true } label: { Label("Edit find", systemImage: "square.and.pencil") }
+                        Button { Task { await togglePin() } } label: { Label(metadata.pinned ? "Unpin" : "Pin to top", systemImage: metadata.pinned ? "pin.slash" : "pin") }
                         Button { Task { await toggleFavorite() } } label: { Label(metadata.isFavorite ? "Unfavorite" : "Favorite", systemImage: metadata.isFavorite ? "heart.slash" : "heart") }
                         Button { Task { await toggleArchive() } } label: { Label(metadata.isArchived ? "Move to library" : "Archive", systemImage: "archivebox") }
+                        if !metadata.attachments.isEmpty { Button { showingAttachments = true } label: { Label("Original files", systemImage: "paperclip") } }
                     }
                     if !displayed.note.isEmpty { ShareLink(item: displayed.note) { Label("Share note", systemImage: "text.bubble") } }
                     if let originalURL { ShareLink(item: originalURL) { Label("Share original link", systemImage: "square.and.arrow.up") } }
@@ -218,9 +197,33 @@ struct SavedContentView: View {
             Button("Remove from library", role: .destructive) { Task { await delete() } }
             Button("Keep it", role: .cancel) {}
         } message: { Text(localOnly ? "This removes the find and its note from this iPhone." : "This removes the link and its note from your library on all connected devices.") }
-        .task(id: "\(item.id)|\(item.revision)") { await reloadLocal() }
+        .task(id: "\(item.id)|\(item.revision)") {
+            await reloadLocal()
+            #if DEBUG
+            // Opens the real stored context without selecting or changing a preference.
+            if !didShowDebugRefinement, ProcessInfo.processInfo.arguments.contains("-showRefinement"),
+               let analysis = metadata.analysis, let intent = metadata.selectedIntents.first {
+                didShowDebugRefinement = true
+                refinement = IntentRefinementContext(analysis: analysis, selectedIntent: intent, existingIntents: metadata.selectedIntents)
+            }
+            #endif
+        }
         .sheet(isPresented: $showingEditor) { EditFindSheet(item: displayed) { onChanged(); Task { await reloadLocal() } } }
+        .sheet(isPresented: $showingAttachments) {
+            NavigationStack {
+                ScrollView { AttachmentGallery(attachments: metadata.attachments).padding(20) }
+                    .navigationTitle("Original files").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showingAttachments = false } } }
+            }
+        }
+        .sheet(item: $refinement) { context in
+            IntentRefinementSheet(context: context) { value in await appendRefinement(value) }
+        }
         .onChange(of: stillSaved) { _, present in if !present { dismiss() } }
+    }
+    @ViewBuilder private var hero: some View {
+        if displayed.hasImage { FindImage(item: displayed, connection: connection) }
+        else if let originalURL { WebsitePreview(url: originalURL, presentation: .hero, onImageReady: { websiteHasImage = $0 }) }
     }
     private func reloadLocal() async {
         guard localOnly else { return }
@@ -239,13 +242,35 @@ struct SavedContentView: View {
         updating = true; errorMessage = nil; deletionFailed = false
         defer { updating = false }
         var values = metadata.selectedIntents
-        if values.contains(value) { values.removeAll { $0 == value } } else { values.append(value) }
+        let adding = !values.contains(value)
+        if !adding { values.removeAll { $0 == value } } else { values.append(value) }
         guard values.count <= 8 else {
             errorMessage = "You can choose up to 8 details. Remove one to add another."
             return
         }
         do {
             try await LocalLibrary.shared.setIntents(item.id, values)
+            await reloadLocal(); FindsHaptics.selection(); onChanged()
+            if adding, let analysis = metadata.analysis {
+                refinement = IntentRefinementContext(analysis: analysis, selectedIntent: value, existingIntents: metadata.selectedIntents)
+            }
+        } catch { errorMessage = error.localizedDescription }
+    }
+    private func appendRefinement(_ value: String) async -> Bool {
+        do {
+            var values = try await LocalLibrary.shared.metadata()[item.id]?.selectedIntents ?? []
+            if !values.contains(value) { values.append(value) }
+            try await LocalLibrary.shared.setIntents(item.id, values)
+            await reloadLocal(); FindsHaptics.selection(); onChanged()
+            return true
+        } catch { errorMessage = error.localizedDescription; return false }
+    }
+    private func togglePin() async {
+        guard !updating, !deleting else { return }
+        updating = true; errorMessage = nil; deletionFailed = false
+        defer { updating = false }
+        do {
+            try await LocalLibrary.shared.setPinned(item.id, !metadata.pinned)
             await reloadLocal(); FindsHaptics.selection(); onChanged()
         } catch { errorMessage = error.localizedDescription }
     }
@@ -267,9 +292,9 @@ struct SavedContentView: View {
     }
     private func contentSection(_ title: String, text: String, symbol: String) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label(title, systemImage: symbol).font(.headline.bold())
-            Text(text).font(.body).lineSpacing(4).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-        }.padding(22).background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 26))
+            Label(title, systemImage: symbol).font(.subheadline.weight(.semibold)).foregroundStyle(.orange)
+            Text(text).font(.body).lineSpacing(3).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+        }.padding(18).background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 22))
     }
     @MainActor private func delete() async {
         guard !deleting, !updating else { return }

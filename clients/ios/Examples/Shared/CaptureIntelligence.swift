@@ -132,6 +132,21 @@ enum CaptureIntelligence {
         } catch { throw Failure.unreadable }
     }
 
+    static func refineIntent(_ context: IntentRefinementContext) async throws -> IntentRefinementResult {
+        guard let name = context.analysis.productName, !name.isEmpty else { throw Failure.unreadable }
+        var product: [String: Any] = ["product_name": name, "category_path": context.analysis.categoryPath,
+            "style": context.analysis.style, "summary": context.analysis.summary, "evidence": context.analysis.evidence]
+        if let brand = context.analysis.brand { product["brand"] = brand }
+        let payload: [String: Any] = ["context": product, "selected_intent": context.selectedIntent,
+            "existing_intents": context.existingIntents]
+        let data = try await post(path: "v1/refine-intent", body: JSONSerialization.data(withJSONObject: payload))
+        let result = try JSONDecoder().decode(IntentRefinementResult.self, from: data)
+        guard result.schemaVersion == 1, !result.question.isEmpty, result.question.count <= 140,
+              (2...3).contains(result.choices.count), result.choices.allSatisfy({ !$0.isEmpty && $0.count <= 160 }),
+              Set(result.choices).count == result.choices.count else { throw Failure.unreadable }
+        return result
+    }
+
     /// NSItemProvider callbacks are not guaranteed to arrive after cancellation.
     /// One protected continuation is completed by the first callback/timeout/cancel.
     private final class MetadataImageRead: @unchecked Sendable {
@@ -184,7 +199,7 @@ enum CaptureIntelligence {
     /// One bounded retry handles a transient tunnel/mobile connection without
     /// requiring a second tap. A server cache coalesces repeated analysis inputs.
     static func post(path: String, body: Data) async throws -> Data {
-        guard ["v1/capture-preview", "v1/recommendations"].contains(path),
+        guard ["v1/capture-preview", "v1/recommendations", "v1/refine-intent"].contains(path),
               let config = try configuration() else { throw Failure.configuration }
         var request = URLRequest(url: config.baseURL.appendingPathComponent(path))
         request.httpMethod = "POST"; request.timeoutInterval = 50

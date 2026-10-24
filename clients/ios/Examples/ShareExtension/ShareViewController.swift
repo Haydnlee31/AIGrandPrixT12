@@ -6,7 +6,10 @@ import ImageIO
 final class ShareViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
-        let host = UIHostingController(rootView: ShareCaptureView(items: extensionContext?.inputItems as? [NSExtensionItem] ?? []) { [weak self] in
+        let host = UIHostingController(rootView: ShareCaptureView(items: extensionContext?.inputItems as? [NSExtensionItem] ?? [], openApp: { [weak self] url, completion in
+            guard let context = self?.extensionContext else { completion(false); return }
+            context.open(url) { opened in DispatchQueue.main.async { completion(opened) } }
+        }) { [weak self] in
             self?.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
         })
         addChild(host)
@@ -22,6 +25,7 @@ final class ShareViewController: UIViewController {
 
 struct ShareCaptureView: View {
     let items: [NSExtensionItem]
+    let openApp: (URL, @escaping (Bool) -> Void) -> Void
     let close: () -> Void
     @State private var draft = LocalShareDraft(title: "", url: nil, text: "", note: "", attachments: [])
     @State private var loading = true
@@ -33,6 +37,10 @@ struct ShareCaptureView: View {
     @State private var titleWasEdited = false
     @State private var sourceTitle = ""
     @State private var selectedIntents: [String] = []
+    @State private var refinement: IntentRefinementContext?
+    @State private var openingApp = false
+    @State private var openRequestID: UUID?
+    @State private var showingOpenHelp = false
     @State private var intelligence: CaptureIntelligenceResult?
     @State private var intelligenceSourceContext = ""
     @State private var intelligenceLoading = false
@@ -63,9 +71,6 @@ struct ShareCaptureView: View {
                             Text("Saved!").font(.system(.largeTitle, weight: .bold))
                             Text("Your find and everything that caught your eye are saved on this iPhone.")
                                 .font(.body).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                            Label("Tap Done, then switch to Mynah Finds. Your Library and Explore will update when the app opens.", systemImage: "rectangle.on.rectangle")
-                                .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                                .padding(16).background(Color.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
                             if !draft.title.isEmpty {
                                 Text(draft.title).font(.headline).lineLimit(3).multilineTextAlignment(.center)
                                     .padding(16).frame(maxWidth: .infinity)
@@ -143,8 +148,27 @@ struct ShareCaptureView: View {
                     }
                     .disabled(!saved && !canSave)
                     .accessibilityIdentifier(saved ? "shareDone" : "shareSave")
+                    if saved {
+                        Button { openSavedFind() } label: {
+                            Label(openingApp ? "Opening…" : "Open Mynah", systemImage: "arrow.up.forward.app")
+                                .font(.subheadline.weight(.semibold)).frame(minHeight: 36)
+                        }.disabled(openingApp).accessibilityIdentifier("shareOpenApp")
+                    }
                 }
                 .padding(.horizontal, 24).padding(.vertical, 12).background(.bar)
+            }
+            .sheet(item: $refinement) { context in
+                IntentRefinementSheet(context: context) { choice in
+                    guard selectedIntents.count < 8 || selectedIntents.contains(choice) else { return false }
+                    if !selectedIntents.contains(choice) { selectedIntents.append(choice) }
+                    return true
+                }
+            }
+            .alert("Your find is saved", isPresented: $showingOpenHelp) {
+                Button("Done", action: close)
+                Button("Stay here", role: .cancel) {}
+            } message: {
+                Text("iOS can’t open Mynah from this share sheet. Tap Done, then switch to Mynah Finds. Your new find will be in Library.")
             }
             .task { await loadItems() }
             .task(id: intelligenceContext) { await loadIntelligence() }
@@ -158,11 +182,7 @@ struct ShareCaptureView: View {
                     ProgressView("Finding what makes this interesting…").font(.subheadline)
                         .accessibilityIdentifier("shareIntelligenceLoading")
                 } else if let intelligence, intelligenceSourceContext == intelligenceContext {
-                    if !intelligence.prompts.isEmpty {
-                        Text("Pick anything that feels right. You can choose more than one.")
-                            .font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    ForEach(Array(intelligence.prompts.enumerated()), id: \.element.id) { index, prompt in
+                    ForEach(Array(intelligence.prompts.filter { !selectedIntents.contains($0.text) }.prefix(3).enumerated()), id: \.element.id) { index, prompt in
                         intentionButton(prompt.text, index: index)
                             .accessibilityIdentifier("sharePredictivePrompt_\(prompt.id)")
                     }
@@ -176,10 +196,8 @@ struct ShareCaptureView: View {
                     Button("Try suggestions again") { intelligenceRetryID = UUID() }
                         .font(.subheadline.weight(.semibold))
                 }
-                let extraSelections = selectedIntents.filter { selected in
-                    !(intelligence?.prompts.contains { $0.text == selected } ?? false)
-                }
-                ForEach(extraSelections, id: \.self) { text in intentionButton(text, index: 0) }
+                SelectedIntentChips(values: selectedIntents, onRefine: { openRefinement($0) },
+                    onRemove: { value in selectedIntents.removeAll { $0 == value } })
                 Text("Your shared content is sent to OpenAI for these suggestions.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -204,10 +222,33 @@ struct ShareCaptureView: View {
             .accessibilityAddTraits(selected ? .isSelected : [])
     }
     private func toggleIntention(_ text: String) {
-        if selectedIntents.contains(text) { selectedIntents.removeAll { $0 == text } }
-        else if selectedIntents.count < 8 { selectedIntents.append(text) }
-        else { message = "You can keep up to eight reasons. Deselect one to add another." }
+        if !selectedIntents.contains(text) {
+            guard selectedIntents.count < 8 else { message = "You can keep up to eight details. Hold one to remove it."; return }
+            selectedIntents.append(text)
+        }
         UISelectionFeedbackGenerator().selectionChanged()
+        openRefinement(text)
+    }
+    private func openRefinement(_ text: String) {
+        guard intelligenceSourceContext == intelligenceContext, let intelligence,
+              intelligence.productName != nil, CaptureIntelligence.isConfigured else { return }
+        noteFocused = false
+        refinement = IntentRefinementContext(analysis: intelligence, selectedIntent: text, existingIntents: selectedIntents)
+    }
+    private func openSavedFind() {
+        guard saved, !openingApp else { return }
+        let requestID = UUID()
+        openRequestID = requestID; openingApp = true
+        openApp(MynahDeepLink.libraryURL(savedFindID: draft.id)) { opened in
+            guard openRequestID == requestID else { return }
+            openRequestID = nil; openingApp = false
+            if opened { close() } else { showingOpenHelp = true }
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            guard openRequestID == requestID else { return }
+            openRequestID = nil; openingApp = false; showingOpenHelp = true
+        }
     }
 
     private var attachmentPreviews: some View {

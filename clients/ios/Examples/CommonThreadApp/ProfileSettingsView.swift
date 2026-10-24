@@ -17,15 +17,15 @@ struct ProfileSettingsSections: View {
     var body: some View {
         Section("Shopping intelligence") {
             NavigationLink { IntelligenceSettingsView() } label: {
-                Label("AI connection & privacy", systemImage: "sparkles")
+                Label { Text("AI & privacy") } icon: { Image(systemName: "sparkles").foregroundStyle(.purple) }
             }
         }
-        Section("Make it yours") {
+        Section("Preferences") {
             Picker(selection: $appearance) {
                 ForEach(AppAppearance.allCases) { Text($0.title).tag($0.rawValue) }
-            } label: { Label("Appearance", systemImage: "circle.lefthalf.filled") }
+            } label: { Label { Text("Appearance") } icon: { Image(systemName: "circle.lefthalf.filled").foregroundStyle(.indigo) } }
             .accessibilityIdentifier("appearancePicker")
-            Toggle(isOn: $haptics) { Label("Haptic feedback", systemImage: "hand.tap") }
+            Toggle(isOn: $haptics) { Label { Text("Haptics") } icon: { Image(systemName: "hand.tap.fill").foregroundStyle(.orange) } }
                 .accessibilityIdentifier("hapticsToggle")
             Picker(selection: $showsGrid) {
                 Text("Grid").tag(true)
@@ -35,15 +35,7 @@ struct ProfileSettingsSections: View {
                 ForEach(LibrarySort.allCases) { Text($0.title).tag($0.rawValue) }
             } label: { Label("Sort finds", systemImage: "arrow.up.arrow.down") }
         }
-        Section(localOnly ? "Your collection" : "Loaded collection") {
-            LabeledContent("Finds", value: String(items.count))
-            LabeledContent("With images", value: String(items.filter(\.hasImage).count))
-            if localOnly {
-                LabeledContent("Favorites", value: String(favoriteCount))
-                LabeledContent("Archived", value: String(archivedCount))
-            }
-        }
-        Section("A little help") {
+        Section("Help") {
             NavigationLink { ShareGuideView() } label: {
                 Label("Save from other apps", systemImage: "square.and.arrow.up")
             }
@@ -51,7 +43,7 @@ struct ProfileSettingsSections: View {
                 Label("Your data & permissions", systemImage: "hand.raised")
             }
             Button { showingIntro = true; FindsHaptics.selection() } label: {
-                Label("See the introduction again", systemImage: "play.rectangle")
+                Label("Introduction", systemImage: "play.rectangle")
             }
             .sheet(isPresented: $showingIntro) {
                 FindsOnboardingView { showingIntro = false }
@@ -60,9 +52,6 @@ struct ProfileSettingsSections: View {
         }
         Section {
             LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
-        } footer: {
-            Text("Mynah Finds · Keep what catches your eye.")
-                .frame(maxWidth: .infinity).multilineTextAlignment(.center)
         }
         .onChange(of: appearance) { _, _ in FindsHaptics.selection() }
         .onChange(of: haptics) { _, enabled in if enabled { FindsHaptics.selection() } }

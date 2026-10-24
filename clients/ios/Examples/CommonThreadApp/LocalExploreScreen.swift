@@ -34,146 +34,193 @@ struct LocalRecommendation: Decodable, Identifiable {
 /// Local saves remain on the device. Only the selected shopping context is sent
 /// to the configured relay to retrieve real, attributed catalog records.
 struct LocalExploreScreen: View {
+    enum Segment: String, CaseIterable, Identifiable {
+        case explore = "Explore", yours = "Your finds"
+        var id: String { rawValue }
+    }
     let query: String
     let libraryRevision: String
+    var refreshID = UUID()
     var onChanged: () -> Void = {}
+    @State private var segment: Segment = {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-showYourFinds") { return .yours }
+        #endif
+        return .explore
+    }()
     @State private var finds: [SavedItem] = []
     @State private var metadata: [String: LocalFindMetadata] = [:]
     @State private var page: LocalRecommendationPage?
     @State private var focusedFind: String?
     @State private var busy = false
-    @State private var statusText = "Finding your next good find…"
+    @State private var analyzing = false
     @State private var errorMessage: String?
     @State private var retryID = UUID()
-    private var taskID: String { libraryRevision + "|" + query + "|" + (focusedFind ?? "all") + "|" + retryID.uuidString }
-
+    @State private var previousRefresh: UUID?
+    @State private var forceNext = false
+    @State private var lastPayload: Data?
+    @Environment(\.dynamicTypeSize) private var typeSize
+    private var taskID: String { libraryRevision + "|" + query + "|" + segment.rawValue + "|" + (focusedFind ?? "all") + "|" + retryID.uuidString + "|" + refreshID.uuidString }
+    private var visibleFinds: [SavedItem] {
+        finds.filter { find in
+            query.isEmpty || ([find.title, find.note, find.selectedText, metadata[find.id]?.analysis?.searchableText ?? ""] + (metadata[find.id]?.selectedIntents ?? [])).contains { $0.localizedStandardContains(query) }
+        }.sorted { a, b in
+            let first = metadata[a.id]?.pinned ?? false, second = metadata[b.id]?.pinned ?? false
+            return first != second ? first : a.capturedAt > b.capturedAt
+        }
+    }
+    private var columns: [GridItem] { Array(repeating: GridItem(.flexible(), spacing: 12), count: typeSize.isAccessibilitySize ? 1 : 2) }
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("More like you.").font(.system(.largeTitle, design: .default, weight: .bold))
-                Text("Real finds, inspired by what caught your eye.").font(.body).foregroundStyle(.secondary)
-            }
-            if !finds.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 9) {
-                        focusChip("All your finds", id: nil, symbol: "sparkles")
-                        ForEach(finds) { find in
-                            focusChip(find.title, id: find.id, symbol: find.hasImage ? "photo" : "link")
-                        }
-                    }.padding(.vertical, 2)
-                }
-            }
-            if busy {
-                HStack(spacing: 12) {
-                    ProgressView().tint(.purple)
-                    Text(statusText).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
-                }.padding(.vertical, 8)
-            }
-            if let errorMessage {
-                IntelligenceCard(title: "Let’s try that again", symbol: "arrow.clockwise") {
-                    Text(errorMessage).font(.subheadline).foregroundStyle(.secondary)
-                    Button("Reload recommendations") { retryID = UUID() }.font(.headline)
-                }
-            }
-            if let page, !page.items.isEmpty {
-                HStack {
-                    Label("Inspired by your saves", systemImage: "sparkles").font(.subheadline.bold()).foregroundStyle(.purple)
-                    Spacer()
-                    Text("\(page.items.count) finds").font(.caption).foregroundStyle(.secondary)
-                }
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], alignment: .leading, spacing: 20) {
-                    ForEach(page.items) { item in
-                        NavigationLink {
-                            LocalRecommendationDetail(item: item, finds: finds, onChanged: onChanged)
-                        } label: { LocalRecommendationCard(item: item) }.buttonStyle(.plain)
-                    }
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Product catalog · \(page.catalogCount.formatted()) records").font(.caption.weight(.medium))
-                    Text("Catalog inspiration. Check current price and availability with the seller.").font(.caption)
-                }.foregroundStyle(.secondary).padding(.vertical, 8)
-            } else if !busy, errorMessage == nil {
-                emptyState
-            }
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 18) {
+                if segment == .yours { yourFinds }
+                else { recommendations }
+            }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 24)
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            glassTabs.padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 12)
         }
         .task(id: taskID) { await load() }
+        .onChange(of: segment) { _, _ in FindsHaptics.selection() }
     }
-
-    private func focusChip(_ title: String, id: String?, symbol: String) -> some View {
-        Button { focusedFind = id } label: {
-            Label(title, systemImage: symbol).font(.subheadline.weight(.semibold)).lineLimit(1)
-                .padding(.horizontal, 15).padding(.vertical, 12)
-                .foregroundStyle(focusedFind == id ? Color.white : Color.primary)
-                .background(focusedFind == id ? Color.purple : NativeTheme.surface, in: Capsule())
-        }.buttonStyle(.plain).accessibilityAddTraits(focusedFind == id ? .isSelected : [])
+    @ViewBuilder private var glassTabs: some View {
+        if #available(iOS 26.0, *) {
+            tabs.padding(6).glassEffect(.regular, in: Capsule())
+        } else { tabs.padding(6).background(.ultraThinMaterial, in: Capsule()) }
+    }
+    private var tabs: some View {
+        Picker("Explore view", selection: $segment) {
+            ForEach(Segment.allCases) { Text($0.rawValue).tag($0) }
+        }.pickerStyle(.segmented).labelsHidden().controlSize(.large)
+            .accessibilityIdentifier("exploreSegments")
+    }
+    @ViewBuilder private var yourFinds: some View {
+        if visibleFinds.isEmpty {
+            LibraryEmptyState(symbol: "bookmark", title: query.isEmpty ? "No finds yet." : "No matches.", detail: query.isEmpty ? "Save a photo, link or note." : "Try another search.")
+        } else {
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
+                ForEach(visibleFinds) { find in
+                    NavigationLink {
+                        SavedContentView(item: find, stillSaved: true, localOnly: true, onChanged: reloadLibrary,
+                            onDelete: { id, _ in try await LocalLibrary.shared.delete(id); reloadLibrary() })
+                    } label: {
+                        SavedContentCard(item: find, pinned: metadata[find.id]?.pinned ?? false)
+                    }.buttonStyle(.plain)
+                        .contextMenu {
+                            Button("Explore similar", systemImage: "sparkles") { focusedFind = find.id; segment = .explore }
+                            Button(metadata[find.id]?.pinned == true ? "Unpin" : "Pin", systemImage: "pin.fill") {
+                                Task {
+                                    do { try await LocalLibrary.shared.setPinned(find.id, !(metadata[find.id]?.pinned ?? false)); reloadLibrary() }
+                                    catch { errorMessage = error.localizedDescription }
+                                }
+                            }
+                        }
+                }
+            }
+        }
+        if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.secondary) }
+    }
+    @ViewBuilder private var recommendations: some View {
+        if let id = focusedFind, let find = finds.first(where: { $0.id == id }) {
+            HStack(spacing: 8) {
+                Label(find.title, systemImage: "sparkles").font(.subheadline.weight(.semibold)).lineLimit(1).foregroundStyle(.purple)
+                Spacer()
+                Button { focusedFind = nil } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary).frame(minWidth: 44, minHeight: 44) }
+                    .accessibilityLabel("Explore all finds")
+            }
+        }
+        if let page, !page.items.isEmpty {
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 22) {
+                ForEach(page.items) { item in
+                    NavigationLink { LocalRecommendationDetail(item: item, finds: finds, onChanged: reloadLibrary) }
+                    label: { LocalRecommendationCard(item: item) }.buttonStyle(.plain)
+                }
+            }
+        } else if busy || analyzing {
+            ProgressView(analyzing ? "Understanding your find…" : "Finding matches…")
+                .font(.subheadline).frame(maxWidth: .infinity).padding(.vertical, 65)
+        } else if errorMessage == nil { emptyState }
+        if (busy || analyzing), page?.items.isEmpty == false {
+            HStack { Spacer(); ProgressView().controlSize(.small); Spacer() }.padding(6)
+        }
+        if let errorMessage {
+            HStack {
+                Text(errorMessage).font(.footnote).foregroundStyle(.secondary)
+                Spacer()
+                Button("Retry") { forceNext = true; retryID = UUID() }.font(.subheadline.bold())
+            }.padding(.vertical, 12)
+        }
     }
     @ViewBuilder private var emptyState: some View {
         if finds.isEmpty {
-            LibraryEmptyState(symbol: "bookmark", title: "It starts with your eye.", detail: "Save a photo or link in Library. Explore will find products inspired by the details you love.")
+            LibraryEmptyState(symbol: "bookmark", title: "Start with a find.", detail: "Save something you like in Library.")
         } else if !CaptureIntelligence.isConfigured {
-            LibraryEmptyState(symbol: "sparkles", title: "Connect your inspiration.", detail: "Connect shopping intelligence in Profile to find real products from your saves.")
+            LibraryEmptyState(symbol: "sparkles", title: "Connect AI.", detail: "Open AI & privacy in Profile.")
         } else if page?.status == "catalog_unavailable" {
-            LibraryEmptyState(symbol: "shippingbox", title: "The catalog is getting ready.", detail: "Your finds are safe. Pull down to try again once the product catalog is available.")
+            LibraryEmptyState(symbol: "shippingbox", title: "Catalog unavailable.", detail: "Pull down to try again.")
         } else if page?.status == "needs_analysis" {
-            LibraryEmptyState(symbol: "photo.badge.magnifyingglass", title: "A little more to go on.", detail: "Add a product photo or a descriptive note to your find, then try again.")
+            LibraryEmptyState(symbol: "photo", title: "Add a little context.", detail: "A product photo or description helps.")
         } else {
-            LibraryEmptyState(symbol: "magnifyingglass", title: "Nothing quite right yet.", detail: "Try another saved find or a broader search. We only show products that match your saved context.")
+            LibraryEmptyState(symbol: "magnifyingglass", title: "No close matches.", detail: "Try another search or saved find.")
         }
     }
-
+    private func reloadLibrary() { retryID = UUID(); onChanged() }
+    @MainActor private func readLibrary() async throws {
+        metadata = try await LocalLibrary.shared.metadata()
+        finds = try await LocalLibrary.shared.collection().filter { $0.client != "sample" && !(metadata[$0.id]?.isArchived ?? false) }
+        if let focusedFind, !finds.contains(where: { $0.id == focusedFind }) { self.focusedFind = nil }
+    }
+    @MainActor private func payload() throws -> Data {
+        let input: [[String: Any]] = try finds.filter { focusedFind == nil || $0.id == focusedFind }.prefix(24).map { find in
+            let context = metadata[find.id] ?? LocalFindMetadata()
+            var value: [String: Any] = ["id": find.id, "title": find.title, "note": find.note, "text": find.selectedText, "intents": context.selectedIntents]
+            if let analysis = context.analysis { value["analysis"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(analysis)) }
+            return value
+        }
+        return try JSONSerialization.data(withJSONObject: ["finds": input, "query": String(query.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100)), "limit": 24], options: [.sortedKeys])
+    }
+    @MainActor private func requestRecommendations(force: Bool) async throws {
+        let body = try payload()
+        if lastPayload != body { page = nil }
+        lastPayload = body
+        if let cached = try RecommendationCache.cached(body) { page = try JSONDecoder().decode(LocalRecommendationPage.self, from: cached) }
+        let data = try await RecommendationCache.fetch(body, force: force)
+        try Task.checkCancellation()
+        page = try JSONDecoder().decode(LocalRecommendationPage.self, from: data)
+    }
     @MainActor private func load() async {
-        busy = true; errorMessage = nil; page = nil
-        defer { if !Task.isCancelled { busy = false } }
+        busy = true; errorMessage = nil
+        defer { if !Task.isCancelled { busy = false; analyzing = false } }
         do {
-            try await Task.sleep(for: .milliseconds(280))
-            var flags = try await LocalLibrary.shared.metadata()
-            var actual = try await LocalLibrary.shared.collection().filter { $0.client != "sample" && !(flags[$0.id]?.isArchived ?? false) }
-            finds = actual; metadata = flags
-            guard !actual.isEmpty, CaptureIntelligence.isConfigured else { return }
-            let candidates = actual.filter { focusedFind == nil || $0.id == focusedFind }.prefix(24)
-            var analyzed = false
-            // A bounded first pass prepares older saves. Already understood finds
-            // reuse their persisted analysis; changing a preference costs no model call.
-            for find in candidates.filter({ find in
-                guard let analysis = flags[find.id]?.analysis else { return true }
-                return analysis.schemaVersion != 2
-            }).prefix(4) {
-                try Task.checkCancellation()
-                statusText = "Understanding your saved \(find.hasImage ? "photo" : "link")…"
-                let image = flags[find.id]?.attachments.first(where: \.isImage)
-                let bytes = try await image.mapAsync { try await LocalLibrary.shared.attachmentData($0) }
+            try await readLibrary()
+            if finds.isEmpty || !CaptureIntelligence.isConfigured { page = nil; lastPayload = nil; return }
+            guard segment == .explore else { return }
+            try await Task.sleep(for: .milliseconds(query.isEmpty ? 60 : 230))
+            let force = forceNext || (previousRefresh != nil && previousRefresh != refreshID)
+            forceNext = false
+            previousRefresh = refreshID
+            // Show available recommendations before doing any additional model work.
+            try await requestRecommendations(force: force)
+            busy = false
+            guard query.isEmpty else { return }
+            let missing = finds.filter { (focusedFind == nil || $0.id == focusedFind) && metadata[$0.id]?.analysis?.schemaVersion != 2 }.prefix(2)
+            var changed = false
+            for find in missing {
+                try Task.checkCancellation(); analyzing = true
                 do {
-                    let analysis = try await CaptureIntelligence.analyze(url: find.originalUrl.isEmpty ? nil : find.originalUrl,
+                    var bytes: Data?
+                    if let image = metadata[find.id]?.attachments.first(where: \.isImage) { bytes = try await LocalLibrary.shared.attachmentData(image) }
+                    let result = try await CaptureIntelligence.analyze(url: find.originalUrl.isEmpty ? nil : find.originalUrl,
                         title: find.title, text: find.selectedText, note: find.note, imageData: bytes)
                     try Task.checkCancellation()
-                    try await LocalLibrary.shared.setAnalysis(find.id, analysis)
-                    analyzed = true
+                    try await LocalLibrary.shared.setAnalysis(find.id, result); changed = true
                 } catch is CancellationError { throw CancellationError() }
-                catch { /* Other understood saves can still produce recommendations. */ }
+                catch { if page?.items.isEmpty != false { errorMessage = error.localizedDescription } }
             }
-            flags = try await LocalLibrary.shared.metadata()
-            actual = try await LocalLibrary.shared.collection().filter { $0.client != "sample" && !(flags[$0.id]?.isArchived ?? false) }
-            finds = actual; metadata = flags
-            statusText = "Finding products for your eye…"
-            let input: [[String: Any]] = try actual.filter { focusedFind == nil || $0.id == focusedFind }.prefix(24).map { find in
-                let context = flags[find.id] ?? LocalFindMetadata()
-                var value: [String: Any] = ["id": find.id, "title": find.title, "note": find.note, "text": find.selectedText, "intents": context.selectedIntents]
-                if let analysis = context.analysis { value["analysis"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(analysis)) }
-                return value
+            if changed {
+                try await readLibrary(); try await requestRecommendations(force: false); onChanged()
             }
-            let payload = try JSONSerialization.data(withJSONObject: ["finds": input, "query": String(query.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100)), "limit": 24])
-            let data = try await CaptureIntelligence.post(path: "v1/recommendations", body: payload)
-            let result = try JSONDecoder().decode(LocalRecommendationPage.self, from: data)
-            try Task.checkCancellation()
-            page = result
-            if analyzed { onChanged() }
         } catch is CancellationError {} catch { if !Task.isCancelled { errorMessage = error.localizedDescription } }
-    }
-}
-
-private extension Optional {
-    func mapAsync<T>(_ transform: (Wrapped) async throws -> T) async rethrows -> T? {
-        guard let value = self else { return nil }; return try await transform(value)
     }
 }
 
@@ -198,7 +245,6 @@ private struct LocalRecommendationCard: View {
                 Label(reason.text, systemImage: "sparkles").font(.caption.weight(.medium)).foregroundStyle(.purple)
                     .lineLimit(3).multilineTextAlignment(.leading)
             }
-            Text("See why this fits").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
@@ -213,24 +259,25 @@ private struct LocalRecommendationDetail: View {
             VStack(alignment: .leading, spacing: 26) {
                 CatalogImage(url: item.imageURL).frame(height: 330).clipShape(RoundedRectangle(cornerRadius: 28))
                 Text(item.title).font(.title.bold())
-                IntelligenceCard(title: "Why it caught our eye", symbol: "sparkles") {
-                    ForEach(Array(item.reasons.prefix(3).enumerated()), id: \.offset) { index, reason in
+                IntelligenceCard(title: "Why this fits", symbol: "sparkles") {
+                    ForEach(Array(item.reasons.prefix(2).enumerated()), id: \.offset) { index, reason in
                         FindInsightRow(text: reason.text, index: index)
-                        if let find = finds.first(where: { $0.id == reason.findID }) {
-                            NavigationLink {
-                                SavedContentView(item: find, stillSaved: true, localOnly: true, onChanged: onChanged,
-                                    onDelete: { id, _ in try await LocalLibrary.shared.delete(id); onChanged() })
-                            } label: { Label("From: " + find.title, systemImage: "bookmark.fill").font(.subheadline.weight(.semibold)) }
-                        }
+                    }
+                    ForEach(finds.filter { find in item.reasons.contains { $0.findID == find.id } }) { find in
+                        NavigationLink {
+                            SavedContentView(item: find, stillSaved: true, localOnly: true, onChanged: onChanged,
+                                onDelete: { id, _ in try await LocalLibrary.shared.delete(id); onChanged() })
+                        } label: { Label(find.title, systemImage: "bookmark.fill").font(.subheadline.weight(.semibold)) }
                     }
                 }
+
                 if let url = shoppingSearchURL {
                     Link(destination: url) {
-                        Label("Look for it on Amazon", systemImage: "arrow.up.right").font(.headline.bold())
+                        Label("Find on Amazon", systemImage: "arrow.up.right").font(.headline.bold())
                             .frame(maxWidth: .infinity).padding(19).foregroundStyle(.white)
                             .background(Color.purple, in: RoundedRectangle(cornerRadius: 22))
                     }
-                    Text("Opens a search. This catalog record does not confirm a current offer, price, or stock.")
+                    Text("Opens a search. Check current price and availability on Amazon.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 DisclosureGroup("Source & attribution") {

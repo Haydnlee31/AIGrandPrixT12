@@ -8,6 +8,10 @@ No fixture/synthetic product, current offer or price is fabricated as a fallback
 from __future__ import annotations
 
 from pathlib import Path
+from collections import OrderedDict
+from concurrent.futures import Future, TimeoutError as FutureTimeout
+import hashlib
+import json
 import re
 import sqlite3
 import threading
@@ -15,7 +19,7 @@ import time
 from typing import Annotated, Literal
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from sqlalchemy import create_engine, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -25,7 +29,7 @@ from .catalog.registry import SOURCES
 from .catalog.schemas import public_url
 from .catalog.search_index import matching_product_ids
 from .catalog.recommendation_index import category_product_ids
-from .db import CatalogFeed, CatalogProduct
+from .db import CatalogFeed, CatalogImport, CatalogProduct
 from .explore import Facet, Profile, _candidate_queries, _catalog_fields, _match, _profile_match, _tokens
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -35,9 +39,30 @@ SOURCE_URLS = {"abo": "https://registry.opendata.aws/amazon-berkeley-objects/", 
                "open_beauty_facts": "https://world.openbeautyfacts.org/", "open_products_facts": "https://world.openproductsfacts.org/",
                "open_food_facts": "https://world.openfoodfacts.org/", "uci_retail": "https://archive.ics.uci.edu/dataset/502/online+retail+ii"}
 MAX_FINDS = 24
+CACHE_TTL_SECONDS = 60
+CACHE_MAX_ENTRIES = 64
+SMALL_CATEGORY_LIMIT = 1000
 _GENERIC = {"product", "item", "object", "accessory", "accessories", "fashion", "home", "garden", "electronic", "electronics", "goods", "other"}
 _STOP = {"i", "my", "a", "an", "the", "this", "that", "it", "like", "love", "want", "need", "looking", "look", "for", "and", "or", "to", "of", "with", "would", "something", "similar", "one", "find", "save", "as", "is", "are", "me", "more", "prefer", "please", "color", "colour", "design", "style", "quality", "price"}
 _NOUNS = {"wristwatch": "watch", "wristwatches": "watch", "watches": "watch", "smartphone": "phone", "smartphones": "phone", "mobilephone": "phone", "couch": "sofa", "couches": "sofa", "sneakers": "shoe", "sneaker": "shoe", "headphone": "headphone", "earbuds": "earbud"}
+_COLORS = {"black", "white", "blue", "brown", "silver", "gold", "red", "green", "pink", "purple", "yellow", "orange", "beige", "cream", "grey", "gray", "navy", "rose", "rose gold"}
+_MATERIALS = {"leather", "steel", "titanium", "nylon", "resin", "ceramic", "silicone", "linen", "cotton", "wood", "wooden", "glass", "metal", "suede", "stainless steel"}
+_STYLES = {"analog", "digital", "mechanical", "automatic", "vintage", "classic", "retro", "minimalist", "sporty", "rectangular", "square", "compact"}
+_LOW_SIGNAL = {"dial", "strap", "face", "case", "display", "band", "wear", "everyday", "gift", "present", "round", "detail", "time", "timeless", "collection"}
+_PARTS = {"strap": r"(?:strap|band|bracelet)", "dial": r"(?:dial|face)",
+          "stitching": r"(?:stitching|stitches)", "case": r"case", "hands": r"hands?",
+          "numerals": r"(?:numerals?|markers?)"}
+_PART_MODIFIERS = "|".join(sorted(_COLORS | _MATERIALS | {
+    "tone", "textured", "matte", "glossy", "synthetic", "polished", "brushed", "sunray", "arabic", "luminous"
+}, key=len, reverse=True))
+
+
+def _preference_weight(term):
+    if term in _COLORS or term in _MATERIALS:
+        return 12
+    if term in _STYLES:
+        return 8
+    return 0.25 if term in _LOW_SIGNAL else 3
 
 
 class Contract(BaseModel):
@@ -140,7 +165,10 @@ def _profile(find):
         return None
     anchors = [Facet("product_name", product_type, "category_match", 8)]
     if categories:
-        anchors.append(Facet("category_path", categories[-1], "category_match", 10))
+        # The primary product type is a gate. A finer subtype is useful but
+        # must not double-count the same words enough to override explicit
+        # color/material choices made by the person.
+        anchors.append(Facet("category_path", categories[-1], "category_match", 4))
     facets = list(anchors)
     if analysis.brand:
         facets.append(Facet("brand", analysis.brand, "brand_match", 5))
@@ -149,18 +177,88 @@ def _profile(find):
         # or shape match; each reason cites only the word actually present.
         for word in _tokens(style):
             if word not in _STOP and word not in _GENERIC and len(word) > 2:
-                facets.append(Facet("style", word, "attribute_match", 3))
+                facets.append(Facet("style", word, "attribute_match", _preference_weight(word) / 3))
     return Profile(find.id, find.title, 1, tuple(anchors), tuple(facets))
 
 
 def _intent_terms(find):
-    text = " ".join([find.note, *find.intents]).casefold()
+    text = "; ".join([find.note, *find.intents]).casefold()
     excluded = set()
-    for match in re.finditer(r"\b(?:no|not|without|avoid|exclude)\s+([\w-]+)", text):
-        excluded.update(_tokens(match.group(1)))
+    negative = r"\b(?:(?:don['’]?t|do not)\s+(?:want|like)|anything but|no|not|without|avoid|exclude)\s+([^,;.!?]+)"
+    for match in re.finditer(negative, text):
+        phrase = re.split(r"\b(?:but|instead|prefer)\b", match.group(1), maxsplit=1)[0]
+        if re.match(r"(?:only|just)\b", phrase):
+            continue
+        words = [word for word in _tokens(phrase) if word not in _STOP and word not in _GENERIC and not word.isdigit()]
+        # "No leather strap" excludes leather, not every watch with any strap.
+        precise = [word for word in words if word not in _LOW_SIGNAL]
+        excluded.update(precise or words)
     terms = [term for term in _tokens(text) if term not in _STOP and term not in _GENERIC
-             and term not in excluded and term not in {"no", "not", "without", "avoid", "exclude"} and len(term) > 2 and not term.isdigit()]
-    return list(dict.fromkeys(terms))[:16], excluded
+             and term not in excluded and term not in {"no", "not", "without", "avoid", "exclude", "don", "but", "anything", "instead"} and len(term) > 2 and not term.isdigit()]
+    return sorted(dict.fromkeys(terms), key=lambda term: -_preference_weight(term))[:16], excluded
+
+
+def _mentions_part(text, term, part):
+    # Keep the relationship in "black leather strap" / "Dial Color: Silver".
+    # Nearby black numerals are not evidence of a black strap. Only bounded
+    # adjective sequences are allowed, never arbitrary text between attributes.
+    attribute, component = re.escape(term), _PARTS[part]
+    before = rf"\b{attribute}\b(?:[\s-]+(?:{_PART_MODIFIERS})){{0,3}}[\s-]+{component}\b"
+    after = rf"\b{component}(?:\s+(?:color|colour|material))?\s*(?::|\bis\b|\bin\b|\bof\b)\s*{attribute}\b"
+    return bool(re.search(before, text, re.IGNORECASE) or re.search(after, text, re.IGNORECASE))
+
+
+def _preference_context(find, terms):
+    text = "; ".join([find.note, *find.intents])
+    return {term: parts for term in terms if term in _COLORS or term in _MATERIALS
+            if (parts := tuple(part for part in _PARTS if _mentions_part(text, term, part)))}
+
+
+def _matched_parts(term, parts, fields):
+    matched = []
+    for part in parts:
+        for name, value, _ in fields:
+            # Structured source attributes may separate the part from its
+            # value; an unqualified color field cannot identify a watch part.
+            label = name.removeprefix("attributes.").split(".")[0].replace("_", " ")
+            text = f"{label}: {value}" if name.startswith("attributes.") else value
+            if _mentions_part(text, term, part):
+                matched.append(part)
+                break
+    return matched
+
+
+def _reason_text(term, *, confirmed=False, kind="attribute_match"):
+    value = term.lower()
+    if kind == "brand_match":
+        return f"From {term}, the brand in your saved find."
+    if kind == "category_match":
+        return f"A similar {value} to explore from your find."
+    if value in _COLORS:
+        return f"A {value} option for the color you liked." if confirmed else f"A {value} option, like your saved find."
+    if value in _MATERIALS:
+        return f"Its product details mention {value}, a detail you liked."
+    if value in _STYLES:
+        style = value + "-inspired" if value in {"vintage", "retro"} else value
+        article = "An" if style[0] in "aeiou" else "A"
+        return f"{article} {style} style that matches your preference." if confirmed else f"{article} {style} style, like your saved find."
+    return f"Matches your interest in {value}." if confirmed else "Echoes details in your saved find."
+
+
+def _fields(record):
+    fields = _catalog_fields(record)
+    # ABO keeps some factual attributes in localized {value: ...} arrays. Read
+    # only these bounded source values, preserving their original wording.
+    for name in ("color", "material", "style", "finish_type", "item_shape", "display_type"):
+        entries = record.get("attributes", {}).get(name)
+        if isinstance(entries, dict):
+            entries = [entries]
+        if isinstance(entries, list):
+            for index, entry in enumerate(entries[:16]):
+                value = entry.get("value") if isinstance(entry, dict) else None
+                if isinstance(value, str) and value.strip():
+                    fields.append((f"attributes.{name}.{index}.value", value[:512], set(_tokens(value[:512]))))
+    return fields
 
 
 def _matches_query(query, fields):
@@ -196,6 +294,17 @@ def _candidates(db, profiles, queries, now):
     anchors = list(dict.fromkeys(profile.anchor[0].value for profile in profiles))
     category_ids = category_product_ids(db, anchors)
     compatible = CatalogProduct.id.in_(category_ids) if category_ids is not None else or_(*(category.contains(anchor, autoescape=True) for anchor in anchors))
+    identities = db.scalars(select(CatalogProduct.id).join(CatalogFeed).where(
+        CatalogFeed.source_id.in_(ELIGIBLE_SOURCES), CatalogFeed.enabled.is_(True), compatible
+    ).limit(SMALL_CATEGORY_LIMIT + 1)).all()
+    if len(identities) <= SMALL_CATEGORY_LIMIT:
+        # Read a small category once. Intersecting a broad text FTS set (65k
+        # phone-case hits) separately for every preference is much slower than
+        # ranking the few hundred actual phones/watches already identified.
+        if not identities:
+            return {}
+        rows = db.execute(select(CatalogProduct.id, CatalogProduct.record).where(CatalogProduct.id.in_(identities))).all()
+        return {identity: record for identity, record in rows}
     candidates = {}
     per_query = max(20, 500 // max(1, len(queries)))
     for query in queries:
@@ -215,7 +324,21 @@ def _visible():
     return select(CatalogProduct).join(CatalogFeed).where(CatalogFeed.source_id.in_(ELIGIBLE_SOURCES), CatalogFeed.enabled.is_(True))
 
 
-def recommend(factory, request: RecommendationRequest, now=None) -> RecommendationResult:
+def _catalog_snapshot(factory):
+    if factory is None:
+        return ("unavailable", 0, False)
+    with factory() as db:
+        rows = db.execute(select(CatalogFeed.id, CatalogFeed.enabled, CatalogFeed.last_import_id,
+                                 CatalogImport.digest, CatalogImport.row_count).outerjoin(
+            CatalogImport, CatalogImport.id == CatalogFeed.last_import_id
+        ).where(CatalogFeed.source_id.in_(ELIGIBLE_SOURCES)).order_by(CatalogFeed.id)).all()
+    signature = hashlib.sha256(json.dumps([tuple(row) for row in rows], separators=(",", ":")).encode()).hexdigest()
+    # Import row counts belong to the same atomic catalog snapshot. Counting six
+    # metadata rows avoids walking all 263k products on every Explore refresh.
+    return (signature, sum(row.row_count or 0 for row in rows if row.enabled), any(row.enabled for row in rows))
+
+
+def recommend(factory, request: RecommendationRequest, now=None, *, catalog_snapshot=None) -> RecommendationResult:
     now = time.time() if now is None else now
     result = dict(items=[], catalog_count=0, query=request.query, generated_at=now)
     if not request.finds:
@@ -224,12 +347,13 @@ def recommend(factory, request: RecommendationRequest, now=None) -> Recommendati
         return RecommendationResult(status="catalog_unavailable", **result)
     profiles = [(find, _profile(find)) for find in request.finds]
     profiles = [(find, profile) for find, profile in profiles if profile is not None]
+    preferences = {find.id: _intent_terms(find) for find, _ in profiles}
+    contexts = {find.id: _preference_context(find, preferences[find.id][0]) for find, _ in profiles}
+    _, catalog_count, configured = catalog_snapshot or _catalog_snapshot(factory)
     with factory() as db:
-        enabled = db.scalar(select(func.count()).select_from(CatalogFeed).where(CatalogFeed.source_id.in_(ELIGIBLE_SOURCES),
-                                                                              CatalogFeed.enabled.is_(True)))
-        if not enabled:
+        if not configured:
             return RecommendationResult(status="catalog_unavailable", **result)
-        result["catalog_count"] = db.scalar(select(func.count()).select_from(_visible().subquery())) or 0
+        result["catalog_count"] = catalog_count
         if not profiles:
             return RecommendationResult(status="needs_analysis", **result)
         queries, _ = _candidate_queries([profile for _, profile in profiles], "")
@@ -237,8 +361,8 @@ def recommend(factory, request: RecommendationRequest, now=None) -> Recommendati
         # not only reranking an arbitrary slice of the broad product category.
         preference_queries = []
         for find, profile in profiles:
-            terms, _ = _intent_terms(find)
-            for term in terms[:4]:
+            terms, _ = preferences[find.id]
+            for term in [word for word in terms if _preference_weight(word) >= 3][:4]:
                 preference_queries.append(f"{profile.anchor[0].value} {term}"[:100])
         queries = list(dict.fromkeys([*preference_queries[:6], *queries]))[:16]
         if request.query:
@@ -249,28 +373,52 @@ def recommend(factory, request: RecommendationRequest, now=None) -> Recommendati
         for identity, record in candidates.items():
             if record.get("data_kind") != "open_dataset" or record.get("source_id") not in ELIGIBLE_SOURCES:
                 continue
-            fields = _catalog_fields(record)
+            fields = _fields(record)
             if not _matches_query(request.query, fields):
                 continue
             matches = []
             for find, profile in profiles:
                 if not _category_compatible(profile, record):
                     continue
-                terms, excluded = _intent_terms(find)
+                terms, excluded = preferences[find.id]
                 if any(_match(word, fields) for word in excluded):
                     continue
                 score, evidence = _profile_match(profile, fields)
                 if not evidence:
                     continue
-                reasons = [RecommendationReason(find_id=find.id, find_title=find.title,
-                    text=f"Similar to the {reason.matched_value.lower()} in your find.", matched_value=reason.matched_value)
-                    for reason in evidence[:3]]
+                reason_options = {}
+                for reason in evidence:
+                    # Internal taxonomy paths stay internal; the fallback is
+                    # one plain product noun, not multiple category-tag chips.
+                    value = profile.anchor[0].value if reason.kind == "category_match" else reason.matched_value
+                    priority = 0 if reason.kind == "category_match" else 5 if reason.kind == "brand_match" else _preference_weight(value.lower()) / 3
+                    signature = tuple(_tokens(value))
+                    reason_options[signature] = (priority, RecommendationReason(find_id=find.id, find_title=find.title,
+                        text=_reason_text(value, kind=reason.kind), matched_value=value))
                 for term in terms:
+                    if term == profile.anchor[0].value:
+                        continue  # The product type is already a gate, not a distinguishing preference.
                     match = _match(term, fields)
+                    parts = contexts[find.id].get(term)
+                    matched_parts = _matched_parts(term, parts, fields) if parts else []
+                    if parts and not matched_parts:
+                        continue
                     if match:
-                        score += 5
-                        reasons.insert(0, RecommendationReason(find_id=find.id, find_title=find.title,
-                            text=f"Matches your interest in {term}.", matched_value=term))
+                        priority = _preference_weight(term)
+                        score += priority
+                        value = f"{term} {matched_parts[0]}" if matched_parts else term
+                        text = f"The {value} matches a detail you liked." if matched_parts else _reason_text(term, confirmed=True)
+                        reason_options[tuple(_tokens(term))] = (priority, RecommendationReason(find_id=find.id, find_title=find.title,
+                            text=text, matched_value=value))
+                meaningful = [entry for entry in reason_options.values() if entry[0] > 0.5]
+                ordered = sorted(meaningful or list(reason_options.values()), key=lambda entry: -entry[0])
+                reasons, seen_text = [], set()
+                for _, reason in ordered:
+                    if reason.text not in seen_text:
+                        reasons.append(reason)
+                        seen_text.add(reason.text)
+                    if len(reasons) == 3:
+                        break
                 matches.append((score, reasons))
             if not matches:
                 continue
@@ -314,36 +462,121 @@ def recommend(factory, request: RecommendationRequest, now=None) -> Recommendati
 
 
 class LocalRecommendationService:
-    def __init__(self, factory=None, path=CATALOG_PATH):
+    def __init__(self, factory=None, path=CATALOG_PATH, *, clock=time.monotonic):
         self.factory = factory
         self.path = Path(path)
         self.engine = None
         self.lock = threading.Lock()
         self.capacity = threading.BoundedSemaphore(4)
+        self.clock = clock
+        self.cache: OrderedDict[str, tuple[float, bytes]] = OrderedDict()
+        self.inflight: dict[str, Future] = {}
+        self.opened_identity = None
 
     def _factory(self):
         # A catalog downloaded while the relay is running becomes available on
         # the next request; no server reboot or app rebuild is necessary.
         with self.lock:
+            if self.factory is not None and self.engine is None:
+                return self.factory  # Explicit test/host database factory.
+            identity = None
+            try:
+                stat = self.path.stat()
+                identity = (stat.st_dev, stat.st_ino)
+            except FileNotFoundError:
+                pass
+            if self.engine is not None and identity != self.opened_identity:
+                self.engine.dispose()
+                self.engine, self.factory = None, None
+                self.cache.clear()
             if self.factory is None and self.path.is_file():
                 uri = self.path.resolve().as_uri() + "?mode=ro"
                 self.engine = create_engine("sqlite://", creator=lambda: sqlite3.connect(uri, uri=True, check_same_thread=False, timeout=5))
                 self.factory = sessionmaker(self.engine, expire_on_commit=False)
+                self.opened_identity = identity
             return self.factory
 
+    @staticmethod
+    def _response(body, status=200, *, cache="miss"):
+        return Response(body, status_code=status, media_type="application/json",
+                        headers={"Cache-Control": "no-store", "X-Mynah-Cache": cache})
+
+    @staticmethod
+    def _busy():
+        return JSONResponse({"error": {"code": "recommendations_busy", "message": "Recommendations are busy. Try again shortly.", "retryable": True}},
+                            status_code=503, headers={"Cache-Control": "no-store"})
+
     def recommendations(self, request):
-        if not self.capacity.acquire(blocking=False):
-            return JSONResponse({"error": {"code": "recommendations_busy", "message": "Recommendations are busy. Try again shortly.", "retryable": True}},
-                                status_code=503, headers={"Cache-Control": "no-store"})
+        factory = self._factory()
         try:
+            snapshot = _catalog_snapshot(factory)
+        except (SQLAlchemyError, sqlite3.Error):
+            snapshot = ("unavailable", 0, False)
+        # IDs, titles, notes, all chosen intentions, analysis, search and limit
+        # are included. A result from one find/user cannot leak through a cache
+        # keyed only by a product name or generic search. Keys contain no text.
+        fingerprint = hashlib.sha256(request.model_dump_json().encode()).hexdigest()
+        key = hashlib.sha256((snapshot[0] + fingerprint).encode()).hexdigest()
+        with self.lock:
+            now = self.clock()
+            for expired in [entry for entry, (until, _) in self.cache.items() if until <= now]:
+                del self.cache[expired]
+            cached = self.cache.get(key)
+            if cached is not None:
+                self.cache.move_to_end(key)
+                return self._response(cached[1], cache="hit")
+            future = self.inflight.get(key)
+            owner = future is None
+            if owner:
+                future = Future()
+                self.inflight[key] = future
+        if not owner:
             try:
-                result = recommend(self._factory(), request)
-            except (SQLAlchemyError, sqlite3.Error):
-                result = RecommendationResult(status="catalog_unavailable", items=[], catalog_count=0,
-                                              query=request.query, generated_at=time.time())
-            return JSONResponse(result.model_dump(), headers={"Cache-Control": "no-store"})
+                body, status = future.result(timeout=30)
+                return self._response(body, status, cache="coalesced")
+            except FutureTimeout:
+                return self._busy()
+        acquired = self.capacity.acquire(blocking=False)
+        try:
+            if not acquired:
+                response = self._busy()
+                future.set_result((response.body, response.status_code))
+                return response
+            result = recommend(factory, request, catalog_snapshot=snapshot)
+            current = _catalog_snapshot(factory)
+            if current != snapshot:
+                # A source was imported or revoked while ranking. Recompute
+                # once against its new snapshot rather than caching old links.
+                snapshot = current
+                result = recommend(factory, request, catalog_snapshot=snapshot)
+                if _catalog_snapshot(factory) != snapshot:
+                    response = self._busy()
+                    future.set_result((response.body, response.status_code))
+                    return response
+            body = result.model_dump_json().encode()
+            if result.status != "catalog_unavailable":
+                final_key = hashlib.sha256((snapshot[0] + fingerprint).encode()).hexdigest()
+                with self.lock:
+                    self.cache[final_key] = (self.clock() + CACHE_TTL_SECONDS, body)
+                    self.cache.move_to_end(final_key)
+                    while len(self.cache) > CACHE_MAX_ENTRIES:
+                        self.cache.popitem(last=False)
+            future.set_result((body, 200))
+            return self._response(body)
+        except (SQLAlchemyError, sqlite3.Error):
+            result = RecommendationResult(status="catalog_unavailable", items=[], catalog_count=0,
+                                          query=request.query, generated_at=time.time())
+            body = result.model_dump_json().encode()
+            future.set_result((body, 200))
+            return self._response(body)
+        except BaseException as error:
+            future.set_exception(error)
+            raise
         finally:
-            self.capacity.release()
+            if acquired:
+                self.capacity.release()
+            with self.lock:
+                self.inflight.pop(key, None)
 
 
 def register_recommendations(app: FastAPI, factory=None):

@@ -32,53 +32,45 @@ struct LocalIntelligencePreview: View {
     @State private var busy = false
     @State private var errorMessage: String?
     @State private var editor: IntentEdit?
+    @State private var refinement: IntentRefinementContext?
     @State private var analysis: CaptureIntelligenceResult?
     @State private var analyzing = false
     @State private var analysisError: String?
+    @State private var analysisRequestID: UUID?
+    @State private var analysisRetryID = UUID()
     private var choices: [String] { analysis?.prompts.map(\.text) ?? [] }
-    private var customIntents: [String] { intents.filter { !choices.contains($0) } }
+    // Pins and selected details refresh metadata without canceling product analysis.
+    private var analysisTaskID: [String] {
+        [item.id, item.originalUrl, item.title, item.selectedText, item.note, item.client ?? "", analysisRetryID.uuidString]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             PreviewSection(title: "What caught your eye?", symbol: "sparkles") {
-                Text("The look? A little detail? Something you need? Pick everything that feels right.")
-                    .font(.body).foregroundStyle(.secondary)
                 if analyzing { ProgressView("Finding ideas from your save…").font(.subheadline) }
-                ForEach(Array(choices.enumerated()), id: \.element) { index, choice in
-                    HStack(alignment: .center, spacing: 4) {
-                        Button { Task { await toggleIntent(choice) } } label: {
-                            FindIntentRow(text: choice, index: index, selected: intents.contains(choice))
-                        }.buttonStyle(.plain).disabled(busy)
-                        intentMenu(choice, selected: intents.contains(choice))
-                    }
+                ForEach(Array(choices.filter { !intents.contains($0) }.prefix(3).enumerated()), id: \.element) { index, choice in
+                    Button { Task { await selectIntent(choice) } } label: {
+                        FindIntentRow(text: choice, index: index)
+                    }.buttonStyle(.plain).disabled(busy)
                 }
-                ForEach(Array(customIntents.enumerated()), id: \.element) { index, choice in
-                    HStack(alignment: .center, spacing: 4) {
-                        Button { editor = IntentEdit(original: choice, initial: choice) } label: {
-                            FindIntentRow(text: choice, index: index + choices.count, selected: true)
-                        }.buttonStyle(.plain).disabled(busy)
-                        intentMenu(choice, selected: true)
-                    }
-                }
+                SelectedIntentChips(values: intents, onRefine: { openRefinement($0) },
+                    onRemove: { value in Task { _ = await saveIntents(intents.filter { $0 != value }) } },
+                    onEdit: { editor = IntentEdit(original: $0, initial: $0) }, disabled: busy)
                 Button { editor = IntentEdit(original: nil, initial: "") } label: {
                     HStack(spacing: 13) {
                         Image(systemName: "mic.fill").font(.title3).foregroundStyle(.purple)
                             .frame(width: 46, height: 46).background(Color.purple.opacity(0.1), in: RoundedRectangle(cornerRadius: 15))
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Tell us in your own words").font(.body.weight(.semibold))
-                            Text("Type or speak · choose up to 8 details").font(.caption).foregroundStyle(.secondary)
+                            Text("Type or speak").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 0)
                         Image(systemName: "plus").font(.body.bold()).foregroundStyle(.purple)
                     }.padding(14).background(NativeTheme.bg, in: RoundedRectangle(cornerRadius: 19))
                 }.buttonStyle(.plain).disabled(busy)
-                if !intents.isEmpty {
-                    Label("\(intents.count) \(intents.count == 1 ? "detail" : "details") shaping your Explore", systemImage: "checkmark.circle.fill")
-                        .font(.subheadline.weight(.medium)).foregroundStyle(.green)
-                }
                 if let analysisError {
                     Text(analysisError).font(.subheadline).foregroundStyle(.secondary)
-                    Button("Try suggestions again", systemImage: "arrow.clockwise") { Task { await analyzeFind() } }.disabled(analyzing)
+                    Button("Try suggestions again", systemImage: "arrow.clockwise") { analysisRetryID = UUID() }.disabled(analyzing)
                 }
                 if let errorMessage { Text(errorMessage).font(.subheadline).foregroundStyle(.red) }
             }
@@ -111,11 +103,11 @@ struct LocalIntelligencePreview: View {
         .task(id: "\(item.id)|\(item.revision)") {
             do {
                 let saved = try await LocalLibrary.shared.metadata()[item.id]
+                try Task.checkCancellation()
                 intents = saved?.selectedIntents ?? []; analysis = saved?.analysis
-                let needsQuestions = analysis.map { $0.schemaVersion != 2 } ?? false
-                if (analysis == nil || needsQuestions), CaptureIntelligence.isConfigured, item.client != "sample" { await analyzeFind() }
-            } catch { errorMessage = error.localizedDescription }
+            } catch is CancellationError {} catch { if !Task.isCancelled { errorMessage = error.localizedDescription } }
         }
+        .task(id: analysisTaskID) { await analyzeFind() }
         .sheet(item: $editor) { value in
             LocalIntentEditor(initial: value.initial) { text in
                 var updated = intents
@@ -124,37 +116,58 @@ struct LocalIntelligencePreview: View {
                 return await saveIntents(updated)
             }
         }
+        .sheet(item: $refinement) { context in
+            IntentRefinementSheet(context: context) { choice in
+                do {
+                    let current = try await LocalLibrary.shared.metadata()[item.id]?.selectedIntents ?? intents
+                    return await saveIntents(current.contains(choice) ? current : current + [choice])
+                } catch { errorMessage = error.localizedDescription; return false }
+            }
+        }
     }
 
-    private func intentMenu(_ choice: String, selected: Bool) -> some View {
-        Menu {
-            Button("Make it your own", systemImage: "square.and.pencil") { editor = IntentEdit(original: selected ? choice : nil, initial: choice) }
-            if selected { Button("Remove this detail", systemImage: "minus.circle", role: .destructive) { Task { await toggleIntent(choice) } } }
-        } label: {
-            Image(systemName: "ellipsis").font(.body.bold()).frame(width: 32, height: 48).foregroundStyle(.secondary)
-        }.disabled(busy).accessibilityLabel("Edit \(choice)")
+    private func openRefinement(_ value: String) {
+        guard let analysis, analysis.productName != nil, CaptureIntelligence.isConfigured else {
+            editor = IntentEdit(original: value, initial: value); return
+        }
+        refinement = IntentRefinementContext(analysis: analysis, selectedIntent: value, existingIntents: intents)
     }
 
     @MainActor private func analyzeFind() async {
-        guard !analyzing, CaptureIntelligence.isConfigured else { return }
-        analyzing = true; analysisError = nil
-        defer { analyzing = false }
+        guard !Task.isCancelled else { return }
+        let requestID = UUID()
+        let input = SavedAnalysisInput(item)
+        analysisRequestID = requestID; analyzing = false; analysisError = nil
+        defer {
+            if analysisRequestID == requestID { analyzing = false; analysisRequestID = nil }
+        }
+        guard CaptureIntelligence.isConfigured, item.client != "sample" else { return }
         do {
             let metadata = try await LocalLibrary.shared.metadata()[item.id]
+            try Task.checkCancellation()
+            guard analysisRequestID == requestID else { return }
+            analysis = metadata?.analysis
+            guard metadata?.analysis?.schemaVersion != 2 else { return }
+            analyzing = true
             var image: Data?
             if let attachment = metadata?.attachments.first(where: \.isImage) { image = try await LocalLibrary.shared.attachmentData(attachment) }
+            try Task.checkCancellation()
             let result = try await CaptureIntelligence.analyze(url: item.originalUrl.isEmpty ? nil : item.originalUrl,
                 title: item.title, text: item.selectedText, note: item.note, imageData: image)
             try Task.checkCancellation()
-            try await LocalLibrary.shared.setAnalysis(item.id, result)
+            guard analysisRequestID == requestID else { return }
+            guard try await LocalLibrary.shared.setAnalysis(result, matching: input) else { return }
+            try Task.checkCancellation()
+            guard analysisRequestID == requestID else { return }
             analysis = result; onChanged()
-        } catch is CancellationError {} catch { analysisError = error.localizedDescription }
+        } catch is CancellationError {} catch {
+            if analysisRequestID == requestID, !Task.isCancelled { analysisError = error.localizedDescription }
+        }
     }
 
-    @MainActor private func toggleIntent(_ value: String) async {
-        var updated = intents
-        if updated.contains(value) { updated.removeAll { $0 == value } } else { updated.append(value) }
-        _ = await saveIntents(updated)
+    @MainActor private func selectIntent(_ value: String) async {
+        if !intents.contains(value), !(await saveIntents(intents + [value])) { return }
+        openRefinement(value)
     }
 
     @MainActor private func saveIntents(_ values: [String]) async -> Bool {
@@ -171,6 +184,28 @@ struct LocalIntelligencePreview: View {
             intents = unique; onChanged(); FindsHaptics.selection()
             return true
         } catch { errorMessage = error.localizedDescription; return false }
+    }
+}
+
+fileprivate struct SavedAnalysisInput: Equatable, Sendable {
+    let id: String
+    let url: String
+    let title: String
+    let text: String
+    let note: String
+    init(_ item: SavedItem) {
+        id = item.id; url = item.originalUrl; title = item.title; text = item.selectedText; note = item.note
+    }
+}
+
+fileprivate extension LocalLibrary {
+    /// Check the source and commit on the same actor turn so an edited find
+    /// cannot receive a late analysis produced from its previous content.
+    func setAnalysis(_ analysis: CaptureIntelligenceResult, matching input: SavedAnalysisInput) throws -> Bool {
+        try Task.checkCancellation()
+        guard let current = try collection().first(where: { $0.id == input.id }), SavedAnalysisInput(current) == input else { return false }
+        try setAnalysis(input.id, analysis)
+        return true
     }
 }
 

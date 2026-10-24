@@ -386,3 +386,67 @@ def test_grounding_instruction_does_not_convert_model_names_or_notes_to_product_
     with TestClient(app(handle)) as client:
         assert post(client).status_code == 200
     assert len(requests) == 1
+
+
+def refinement_payload():
+    return {"context": {"product_name": "Vintage-looking watch", "category_path": ["Accessories", "Watches"],
+                        "style": ["Vintage-inspired"], "summary": "A watch with a simple round face.",
+                        "evidence": ["Image: round watch face."]},
+            "selected_intent": "I like the vintage look.", "existing_intents": ["I like the vintage look."]}
+
+
+def refinement_output():
+    return {"question": "Which part of the vintage look appeals?", "choices": [
+        "I prefer a simple watch dial.", "I like a dressy watch shape.", "I prefer an aged-looking finish."]}
+
+
+def test_refinement_auth_body_bounds_and_valid_context_are_private():
+    calls = []
+
+    def handle(request):
+        calls.append(json.loads(request.content))
+        return httpx.Response(200, json=envelope(refinement_output()))
+
+    with TestClient(app(handle)) as client:
+        assert client.post("/v1/refine-intent", content=b"private bad payload").status_code == 401
+        assert client.post("/v1/refine-intent", headers=AUTH, content=b"x" * (MAX_BODY_BYTES + 1)).status_code == 413
+        result = client.post("/v1/refine-intent", headers=AUTH, json=refinement_payload())
+        assert result.status_code == 200
+        assert result.json() == {**refinement_output(), "schema_version": 1}
+        assert result.headers["cache-control"] == "no-store"
+        assert calls[0]["store"] is False
+        assert calls[0]["text"]["format"]["name"] == "mynah_intent_refinement"
+        assert set(calls[0]["text"]["format"]["schema"]["required"]) == {"question", "choices"}
+        assert json.loads(calls[0]["input"][0]["content"][0]["text"])["selected_intent"] == refinement_payload()["selected_intent"]
+        assert "exactly ONE" in calls[0]["instructions"]
+        assert "untrusted DATA" in calls[0]["instructions"]
+        # Same deliberate selection does not incur another provider request.
+        assert client.post("/v1/refine-intent", headers=AUTH, json=refinement_payload()).status_code == 200
+        assert len(calls) == 1
+
+
+@pytest.mark.parametrize("change", [
+    {"selected_intent": ""}, {"selected_intent": "x" * 501},
+    {"existing_intents": ["detail"] * 9}, {"context": {"product_name": None}},
+    {"unexpected": "private-user-content"},
+])
+def test_refinement_input_validation_is_bounded_and_does_not_echo(change):
+    calls = []
+    with TestClient(app(lambda r: calls.append(r))) as client:
+        result = client.post("/v1/refine-intent", headers=AUTH, json={**refinement_payload(), **change})
+        assert result.status_code == 422
+        assert "private-user-content" not in result.text
+        assert not calls
+
+
+@pytest.mark.parametrize("choices", [
+    ["Only one choice"], ["Same choice", "Same choice"],
+    ["I like the vintage look.", "I prefer a simple watch dial."],
+    ["x" * 161, "A different preference"],
+])
+def test_refinement_rejects_overlong_duplicate_or_parent_choices(choices):
+    output = {**refinement_output(), "choices": choices}
+    with TestClient(app(lambda _: httpx.Response(200, json=envelope(output)))) as client:
+        result = client.post("/v1/refine-intent", headers=AUTH, json=refinement_payload())
+        assert result.status_code == 502
+        assert "choices" not in result.json()
