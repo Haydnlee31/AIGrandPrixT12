@@ -1,5 +1,11 @@
 # Native iPhone build
 
+For the combined release, use `codex/combined-multimodal-app` and the
+[combined app guide](combined-app.md). The default service is
+`https://mynah-finds.vercel.app`, with Astra multimodal processing enabled.
+The earlier device and standalone-relay records below describe their original
+branch revisions; they are not physical-device acceptance for this combined build.
+
 The app has a local-first iPhone frontend and an optional connection to the team backend. The regular project retains App Group provisioning for shared cloud configuration. A separate local-device generator builds and signs the host plus a working local Share Extension using Keychain Sharing. The [Library / Explore / Profile handoff](ios-ai-handoff.md) describes the backend screen contracts.
 
 Open `clients/ios/Mymah Finds.xcodeproj` in Xcode and select the **Mymah Finds** scheme. The checked-in project contains the iPhone app, embedded **Mynah Finds** Share Extension, and the local `CommonThreadKit` Swift package. The app targets iOS 18 or later. The reusable SDK retains its iOS 16 minimum.
@@ -57,9 +63,20 @@ Apple prohibits direct microphone access in ordinary Share Extensions. The exten
 
 The app starts with an empty on-device library. Upgrades remove only the four exact original starter records; real saves and attachments remain intact. Capture links, photos, camera images, text, or files, with an optional title and typed/voice note. Local saves, search, editing and deletion work without a server or database. Local saves and attachments are persisted in Application Support. The Library uses actual saved images and bounded LinkPresentation website previews; unavailable previews use a compact symbol fallback. Website metadata never replaces a custom saved title.
 
-Profile → Connect a shared library is optional. It switches to the existing backend library and leaves local finds separate; signing out returns to the local library. There is no automatic upload or merge of local saves. The Share Extension always saves locally and requires no login, even when the host has a backend connection. Return to the local library to import and view these shared finds.
+Profile → Sign in with email enables connected intelligence while preserving the
+local Library. Turn on **Show shared Library** to use the shared destination.
+There is no automatic upload or merge of local saves. The Share Extension always
+saves locally and requires no login, even when the host is connected. The host
+imports the inbox and analyzes eligible local captures when opened.
 
-Enter the backend origin and a team-supplied access token in Profile. Tokens are stored in Keychain, not build settings or source control. In the regular build, nonsecret connection configuration and account-scoped cloud pending captures use the shared App Group. In the explicitly group-free local build, Profile can still connect: connection configuration uses the host's standard preferences, and cloud pending captures use the host's Application Support `MynahFinds/CaptureOutbox` directory. Tokens remain in Keychain in both builds. Queued cloud captures preserve account, API origin, and mutation key when retried; signing out leaves them scoped to their original account. The local Share Extension never inherits this cloud connection or uploads content.
+Email sessions and refreshed access tokens are stored in Keychain. An explicit
+development connection also accepts a backend origin and team access token.
+In the regular build, nonsecret configuration and pending captures use the shared
+App Group. In the group-free local build, configuration uses host preferences and
+pending captures use Application Support. Shared multimodal uploads retain a local
+recovery copy and preserve account, origin, payload and mutation key across retry.
+Signing out leaves pending work scoped to its original account. The local Share
+Extension never inherits this cloud connection or uploads content.
 
 See `platform-ios.md` for the SDK, server contract and device acceptance checks. Its earlier workstation limitations describe the original handoff environment; use current build output for this checkout's validation status.
 

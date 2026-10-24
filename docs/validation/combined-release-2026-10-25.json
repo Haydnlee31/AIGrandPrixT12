@@ -1,0 +1,72 @@
+{
+  "date": "2026-10-25",
+  "status": "deployed_and_verified",
+  "branch": "codex/combined-multimodal-app",
+  "native_and_backend_validation_commit": "62be0eb4393fc69dde48779b65daf82f29aca4c0",
+  "web_packaging_fix_commit": "70de14a",
+  "tests": {
+    "backend": 954,
+    "hosted_harness_safety": 10,
+    "javascript": 151,
+    "swift_sdk": 13,
+    "native_capture_recovery_suites": 3,
+    "real_postgresql_migration_and_multimodal": "passed",
+    "installed_chromium_journeys": 2
+  },
+  "native_workflow": "https://github.com/Haydnlee31/AIGrandPrixT12/actions/runs/40143362288",
+  "hosted_journey": "combined-hosted-2026-10-25.json",
+  "native_report": "combined-ios-2026-10-25.json",
+  "chrome_report": "combined-chrome-2026-10-25.json",
+  "production_url": "https://mynah-finds.vercel.app",
+  "final_visual_fix": "Root-only assets exclusion preserves frontend icons and mascot; visible header renamed Mymah. Backend and iOS sources are unchanged from the fully tested commit.",
+  "remaining_manual_acceptance": [
+    "Signed physical iPhone microphone interruption and Share Sheet gestures",
+    "External email-code delivery and managed-login session on physical clients",
+    "Chrome optional-host permission dialog approval/rejection"
+  ],
+  "distribution": {
+    "chrome": "dist/mymah-finds-chrome-extension.zip (load unpacked)",
+    "ios": "Build and sign clients/ios; no App Store/TestFlight publication performed"
+  },
+  "boundaries": [
+    "Local iPhone Library remains separate unless a shared destination is explicitly selected",
+    "No live price tracking, checkout, scheduled reminders, push notifications or Dots integration"
+  ],
+  "production_deployment_id": "dpl_FvjdrFRtVgxBhj2mkpXhvd5JA8MP",
+  "production_deployment_url": "https://mynah-finds-3scny8oa8-4achime-4427s-projects.vercel.app",
+  "production_checks": {
+    "url": "https://mynah-finds.vercel.app",
+    "status": "passed",
+    "checks": [
+      "public_health_json",
+      "live_astra_multimodal_ready",
+      "existing_account_still_authenticated",
+      "production_capture_limits",
+      "native_catalog_available",
+      "managed_login_enabled",
+      "same_origin_email_session_transport",
+      "foreign_origin_session_rejected",
+      "anonymous_rejected_capabilities",
+      "anonymous_rejected_status",
+      "deployed_asset_matches_index.html",
+      "deployed_asset_matches_app.js",
+      "deployed_asset_matches_multimodal.mjs",
+      "deployed_image_matches_mynah.png",
+      "deployed_image_matches_apple-touch-icon.png",
+      "deployed_image_matches_icon-192.png",
+      "deployed_image_matches_favicon-32.png",
+      "deployed_image_matches_icon-512.png",
+      "visible_brand_name",
+      "no_frontend_provider_key_prompt"
+    ],
+    "health": {
+      "status": "ok",
+      "demo_mode": false,
+      "inference_provider": "gpt-6-astra:predictive-v2",
+      "ready": true,
+      "multimodal": true
+    },
+    "catalog_count": 147702
+  },
+  "production_visual_review": "Mymah header, mascot, icons and Library/Explore/Profile navigation rendered; no console errors."
+}

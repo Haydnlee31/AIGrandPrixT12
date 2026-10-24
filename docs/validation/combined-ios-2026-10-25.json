@@ -1,0 +1,17 @@
+{
+  "status": "passed",
+  "device": "iPhone 16 Pro",
+  "share_extension_embedded": true,
+  "scope": "Simulator install and launch; not a physical microphone or share-sheet test",
+  "date": "2026-10-25",
+  "native_commit": "62be0eb4393fc69dde48779b65daf82f29aca4c0",
+  "workflow_run": "https://github.com/Haydnlee31/AIGrandPrixT12/actions/runs/40143362288",
+  "full_app_and_share_build": "passed",
+  "swift_sdk_tests": 13,
+  "capture_recovery_suites": [
+    "multimodal_flow_smoke",
+    "shared_multimodal_smoke",
+    "local_analysis_smoke"
+  ],
+  "visual_review": "Rendered Mymah Finds onboarding with mascot, readable text, Skip and Get started. No crash, error or blank screen."
+}

@@ -1,0 +1,118 @@
+{
+  "status": "passed",
+  "checks": [
+    "combined_health_ready",
+    "account_authenticated",
+    "multimodal_enabled",
+    "native_catalog_route",
+    "shared_and_native_authentication_enforced",
+    "multimodal_grounded_images",
+    "recorded_voice_transcribed",
+    "voice_cited",
+    "predictive_prompts",
+    "correction_invalidates_old_result",
+    "reviewed_transcript_retained",
+    "corrected_context_used",
+    "hosted_response_native_sdk_decode",
+    "publication_idempotent",
+    "shared_library_publication",
+    "shared_contextual_prompts",
+    "platform_source_preserved",
+    "unique_fixture_search",
+    "publication_sync_advanced",
+    "private_content_requires_valid_account",
+    "published_image_readable",
+    "native_ios_preview_live",
+    "fixture_and_media_removed"
+  ],
+  "stages": [
+    "transcribing",
+    "analyzing"
+  ],
+  "cleanup": "verified",
+  "limitations": [
+    "Cross-account isolation requires a second valid account; hosted checks cover unauthenticated/invalid access only."
+  ],
+  "submitted_ai_operations": {
+    "multimodal_analyses": 2,
+    "transcription": 1,
+    "native_preview": 1
+  },
+  "catalog": {
+    "status": "ready",
+    "catalog_count": 147702
+  },
+  "elapsed_seconds": 139.0,
+  "http_requests": 50,
+  "date": "2026-10-25",
+  "deployment_id": "dpl_8yyUG7YJwtENjLo8TnAXedqgnuuG",
+  "application_commit": "62be0eb4393fc69dde48779b65daf82f29aca4c0",
+  "catalog_query": {
+    "status": "passed",
+    "total": 693,
+    "returned": 2,
+    "source_id": "abo",
+    "retrieval": "local_dataset",
+    "with_images": 2,
+    "provenance_keys": [
+      [
+        "attribution",
+        "catalog_id",
+        "dataset_version",
+        "domain_name",
+        "is_current_offer",
+        "license_id",
+        "license_url",
+        "normalization",
+        "normalized_by",
+        "original_item_id",
+        "release_reference",
+        "source_checksum",
+        "source_record_id",
+        "source_url",
+        "title_language"
+      ],
+      [
+        "attribution",
+        "catalog_id",
+        "dataset_version",
+        "domain_name",
+        "is_current_offer",
+        "license_id",
+        "license_url",
+        "normalization",
+        "normalized_by",
+        "original_item_id",
+        "release_reference",
+        "source_checksum",
+        "source_record_id",
+        "source_url",
+        "title_language"
+      ]
+    ],
+    "data_kinds": [
+      "open_dataset"
+    ],
+    "image_hosts": [
+      "amazon-berkeley-objects.s3.us-east-1.amazonaws.com"
+    ],
+    "public_image_checks": [
+      {
+        "status": 200,
+        "content_type": "image/jpeg",
+        "content_length": "16155"
+      },
+      {
+        "status": 200,
+        "content_type": "image/jpeg",
+        "content_length": "26926"
+      }
+    ]
+  },
+  "login_checks": {
+    "public_config": "Neon enabled",
+    "anonymous_session_transport": "200 null with trusted production Origin",
+    "browser_sign_in_modal": "loaded without client console errors",
+    "email_delivery": "not exercised"
+  }
+}

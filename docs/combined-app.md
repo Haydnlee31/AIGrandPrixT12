@@ -38,8 +38,9 @@ files are not silently migrated or hidden.
 
 - Save text, photos and a recorded voice note. iOS records AAC M4A; Chrome records
   PCM WAV. The API accepts up to four photos and one recording of at most 60 seconds.
-- Voice is transcribed, then analyzed with the photos and written context. Review
-  and correct the transcript before publishing voice captures.
+- Voice is transcribed, then analyzed with the photos and written context. Chrome
+  requires transcript review before shared publication. The iOS capture flow
+  allows transcript review and correction before Save.
 - Structured product observations and contextual predictive prompts appear in
   the saved find. Unknown brand/specification information remains unknown.
 - Shared publication makes observations and reviewed voice searchable in the
@@ -84,7 +85,9 @@ image rows for rollback compatibility.
 With a Vercel CLI session authorized for that project, deploy using:
 
 ```sh
-npx vercel deploy --prod --scope 4achime-4427s-projects
+npx vercel deploy --prod --skip-domain --scope 4achime-4427s-projects
+# Validate the returned deployment URL before assigning the live domain:
+npx vercel promote <deployment-url> --scope 4achime-4427s-projects
 ```
 
 Verify the linked project is `mynah-finds` before accepting the deployment. The
@@ -95,6 +98,11 @@ monitoring is unavailable rather than storing watches in ephemeral function disk
 
 ## Validation and remaining acceptance
 
+The [release verification record](validation/combined-release-2026-10-25.json)
+links the hosted, installed Chrome and iPhone simulator results. The full native
+workflow is [run 40143362288](https://github.com/Haydnlee31/AIGrandPrixT12/actions/runs/40143362288).
+The final web packaging correction does not change the tested backend or Swift sources.
+
 Run `make test`, `make smoke-http`, `make smoke-swift`,
 `make smoke-multimodal-swift`, and the native multimodal/shared-outbox scripts.
 The GitHub `Combined app validation` workflow performs a full app + Share
@@ -104,6 +112,11 @@ and installed extension against isolated databases and synthetic media.
 
 The final verification record distinguishes deterministic tests, live provider
 calls, actual browser checks, simulator checks and hosted deployment checks.
+`scripts/validate_hosted_multimodal.py` exercises a disposable synthetic capture
+on an explicit HTTPS origin, with credentials read from a private file. It checks
+two-image/voice understanding, correction, publication, search, native decoding
+and cleanup. It never requests the full existing Library or generates
+recommendations from other saved content. Use a quiet test account when possible.
 Do not equate an app API credential or local test pass with production promotion.
 Physical microphone interruptions and a real Share Sheet gesture still need a
 signed iPhone acceptance pass after deployment.
