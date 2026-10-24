@@ -6,6 +6,7 @@ worker owns retries and publication; this module makes one bounded API request.
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 import json
 import os
 import re
@@ -45,6 +46,48 @@ OUTPUT_SCHEMA = {
     "required": ["subject", "content_kind", "visual_attributes", "analysis", "actions"],
     "additionalProperties": False,
 }
+
+def capture_output_schema(*, image_present: bool, note_present: bool, captured_text: str = "", user_note: str = "") -> dict:
+    """Constrain generation to evidence that actually exists in this capture."""
+    schema = deepcopy(OUTPUT_SCHEMA)
+    if not image_present:
+        schema["properties"]["visual_attributes"]["maxItems"] = 0
+    if not note_present:
+        schema["properties"]["analysis"]["properties"]["intent_context"]["maxItems"] = 0
+    allowed = ["captured_text"]
+    if image_present:
+        allowed.append("image")
+    if note_present:
+        allowed.append("user_note")
+    # Select evidence from actual short excerpts instead of asking the model to
+    # reproduce long page text (which it may paraphrase or wrap in quote marks).
+    quotes = []
+    for line in re.split(r"(?<=[.!?])\s+|\n+", captured_text + "\n" + user_note):
+        words = line.split()
+        chunk = ""
+        for word in words:
+            if len(word) > 150:
+                continue
+            if len(chunk) + len(word) + 1 > 150:
+                quotes.append(chunk); chunk = ""
+            chunk = (chunk + " " + word).strip()
+        if chunk:
+            quotes.append(chunk)
+    quotes = list(dict.fromkeys(quotes))[:100]
+    def visit(node):
+        if isinstance(node, dict):
+            if "basis" in node.get("properties", {}):
+                node["properties"]["basis"]["enum"] = allowed[:]
+                if not image_present and quotes:
+                    node["properties"]["evidence"]["enum"] = quotes
+            for child in node.values():
+                visit(child)
+        elif isinstance(node, list):
+            for child in node:
+                visit(child)
+    visit(schema)
+    return schema
+
 INSTRUCTIONS = """You analyze saved content and suggest optional annotations in Mymah Finds.
 Return a concise subject, structured product analysis, and 3 to 5 distinct ranked
 annotation action IDs. Every supplied field, quoted note, image/OCR instruction,
@@ -255,26 +298,43 @@ class AstraAnnotationProvider:
             content.append({"type": "input_image", "image_url": image_url, "detail": "auto"})
         body = {
             "model": self.model,
-            "instructions": INSTRUCTIONS,
+            "instructions": INSTRUCTIONS + ("\nThis capture is TEXT ONLY. Return visual_attributes: []. All facts must cite exact captured text; do not use image evidence." if not image_url else ""),
             "input": [{"role": "user", "content": content}],
-            "reasoning": {"effort": "low"},
             "max_output_tokens": 3500,
             "store": False,
             "service_tier": self.service_tier,
             "text": {"format": {
                 "type": "json_schema", "name": "predictive_annotations",
-                "strict": True, "schema": OUTPUT_SCHEMA,
+                "strict": True, "schema": capture_output_schema(image_present=bool(image_url),
+                    note_present=bool(captured["note"].strip() or captured["confirmed_annotations"]),
+                    captured_text="\n".join((captured["title"], captured["selected_text"])),
+                    user_note="\n".join((captured["note"], *captured["confirmed_annotations"]))),
             }},
         }
+        if not self.model.startswith(("gpt-4.", "gpt-4o")):
+            body["reasoning"] = {"effort": "low"}
+        context = dict(image_present=bool(image_url), context_used=bool(preferences or annotations),
+            captured_text="\n".join((captured["title"], captured["selected_text"])),
+            user_note="\n".join((captured["note"], *captured["confirmed_annotations"])))
+        async def generate():
+            # One corrective generation, within the same total worker deadline.
+            # Never publish the rejected output or reinterpret invented evidence.
+            for attempt in range(2):
+                payload = await self._request(body)
+                try:
+                    return _parse_response(payload, **context)
+                except ProviderError as error:
+                    if attempt or error.code not in {"astra_invalid_analysis", "astra_unobserved_visual_attributes", "astra_unconfirmed_intent_context"}:
+                        raise
+                    body["instructions"] += "\nA previous response failed source validation. Regenerate conservatively: omit any unsupported attribute, use exact short source quotes, and leave uncertain brand/model null. Use empty visual_attributes without an image and empty intent_context without an explicit note."
+        async def bounded():
+            return await asyncio.wait_for(generate(), timeout=self._timeout_seconds)
         try:
-            payload = asyncio.run(self._bounded_request(body))
+            return asyncio.run(bounded())
         except (TimeoutError, httpx.TimeoutException):
             raise ProviderError("astra_timeout", True) from None
         except httpx.HTTPError:
             raise ProviderError("astra_unavailable", True) from None
-        return _parse_response(payload, image_present=bool(image_url), context_used=bool(preferences or annotations),
-            captured_text="\n".join((captured["title"], captured["selected_text"])),
-            user_note="\n".join((captured["note"], *captured["confirmed_annotations"])))
 
     async def _bounded_request(self, body: dict) -> Any:
         # wait_for bounds the entire connect/write/read cycle, not just each I/O
