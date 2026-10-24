@@ -419,5 +419,6 @@ public struct Capabilities: Codable, Sendable {
     public struct CaptureLimits: Codable, Sendable {
         public let clients: [String]; public let contentTypes: [String]; public let maxUrlLength: Int
         public let maxTitleLength: Int; public let maxSelectedTextLength: Int; public let maxNoteLength: Int
+        public let maxImageBytes: Int?
     }
 }

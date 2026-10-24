@@ -93,7 +93,7 @@ struct MymahFindsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var selectedTab: Tab = .library
-    @State private var apiURL = ""
+    @State private var apiURL = "https://mynah-finds.vercel.app"
     @State private var token = ""
     @State private var items: [SavedItem] = []
     @State private var pendingSaves: [PendingCapture] = []
@@ -121,6 +121,8 @@ struct MymahFindsView: View {
     @State private var searchError: String?
     @State private var searchRequestID = UUID()
     @State private var discardingDraft: PendingCapture?
+    @State private var confirmingLocalCopy = false
+    @State private var localCopyResult: String?
 
     private var selectedSource: String? {
         get { selectedSourceValue.isEmpty ? nil : selectedSourceValue }
@@ -167,6 +169,8 @@ struct MymahFindsView: View {
             return "\(item.id):\(item.revision):\(flags?.isArchived ?? false):\(flags?.isFavorite ?? false):\(flags?.pinned ?? false):\(flags?.selectedIntents.joined(separator: " · ") ?? ""):\(flags?.analysis?.analyzedAt ?? 0)"
         }.joined(separator: "|")
     }
+
+    private var syncLoopIdentity: String { accountGeneration.uuidString + (connection?.accountId ?? "local") + (scenePhase == .active ? "active" : "inactive") }
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -228,10 +232,22 @@ struct MymahFindsView: View {
                 }
             }
         }
+        .confirmationDialog("Copy iPhone finds to this shared account?", isPresented: $confirmingLocalCopy, titleVisibility: .visible) {
+            Button("Copy supported finds") { Task { await copyLocalFinds() } }
+        } message: {
+            Text("Links and single photos, including their notes, will be sent to this account’s server and AI. Local originals stay on this iPhone. Files, multiple attachments and text-only finds stay local.")
+        }
+        .task(id: syncLoopIdentity) {
+            guard scenePhase == .active, connection != nil else { return }
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(15)) } catch { return }
+                if !busy && !showingCapture { await refresh(preserveLoadedPages: true) }
+            }
+        }
         .task(id: searchIdentity) { await searchLibrary() }
         .onChange(of: selectedTab) { _, _ in FindsHaptics.selection(); Task { await refresh() } }
         .onChange(of: scenePhase) { _, phase in
-            // Foreground reads never silently replay a permanently rejected capture.
+            // Retry transient failures on foreground. Permanent rejections wait for explicit retry.
             if phase == .active && !busy { Task { await refresh() } }
         }
     }
@@ -408,6 +424,11 @@ struct MymahFindsView: View {
                     Section("Your library") {
                         LabeledContent("Account", value: connection.accountId)
                         LabeledContent("Connection", value: connection.baseURL.host ?? connection.baseURL.absoluteString)
+                        Text("New supported saves sync automatically. The library refreshes while the app is open.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        Button("Copy iPhone finds to shared library") { confirmingLocalCopy = true }.disabled(busy)
+                            .accessibilityIdentifier("copyLocalFinds")
+                        if let localCopyResult { Text(localCopyResult).font(.footnote).foregroundStyle(.secondary) }
                     }
                 } else {
                     Section {
@@ -420,7 +441,9 @@ struct MymahFindsView: View {
                                 .font(.headline).disabled(busy || token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || apiURL.isEmpty)
                                 .accessibilityIdentifier("connectLibrary")
                         }
-                    } header: { Text("Sync") }
+                    } header: { Text("Sync") } footer: {
+                        Text("Use the same Mynah account key as the web app and Chrome extension. New shared saves use server-side AI. Existing iPhone finds stay local until you choose to copy them.")
+                    }
                 }
                 Section(connection == nil ? "Storage" : "Sync") {
                     if connection != nil { Text(status).font(.subheadline).foregroundStyle(.secondary).accessibilityIdentifier("connectionStatus") }
@@ -442,7 +465,7 @@ struct MymahFindsView: View {
                             }.padding(.vertical, 4)
                         }
                     } header: { Text("Pending on this device") } footer: {
-                        Text("These requests have not been confirmed. Sync library retries them with their original notes. Discard a rejected request to save an edited version.")
+                        Text("Uploads retry automatically while the app is open. Rejected requests wait here; Sync library retries them explicitly. Discard a rejected request to save an edited version.")
                     }
                 }
                 ProfileSettingsSections(items: items, localOnly: connection == nil,
@@ -556,9 +579,13 @@ struct MymahFindsView: View {
             _ = try await client.capabilities()
             let environment = SharedEnvironment(baseURL: url, accountId: account.userId)
             try environment.store(token: suppliedToken); try environment.store()
-            accountGeneration = UUID(); connection = environment; token = ""; apiURL = url.absoluteString
+            accountGeneration = UUID(); connection = environment; localCopyResult = nil; token = ""; apiURL = url.absoluteString
             items = []; pendingSaves = []; nextOffset = nil; selectedSource = nil; pendingErrors = [:]
             let generation = accountGeneration
+            let outbox = try SharedEnvironment.outbox()
+            _ = try await LocalLibrary.shared.importPendingShares(outbox: outbox)
+            let result = try await outbox.sync(using: client, accountId: environment.accountId, baseURL: environment.baseURL)
+            pendingErrors = result.errors
             await loadPending(environment, generation: generation)
             let page = try await client.collection()
             guard sameAccount(environment, generation: generation) else { return }
@@ -566,13 +593,13 @@ struct MymahFindsView: View {
             status = "Your library is connected."; selectedTab = .library
         } catch { errorMessage = error.localizedDescription; status = "Connection needs attention." }
     }
-    private func refresh(offset: Int = 0) async {
+    private func refresh(offset: Int = 0, retryRejected: Bool = false, preserveLoadedPages: Bool = false) async {
         guard !busy else { return }
         busy = true; errorMessage = nil; defer { busy = false }
         let generation = accountGeneration
         guard let environment = connection else {
             var importError: String?
-            do { _ = try await LocalLibrary.shared.importPendingShares() }
+            do { _ = try await LocalLibrary.shared.importPendingShares(outbox: try? SharedEnvironment.outbox()) }
             catch { importError = "A shared find could not be imported yet. Your existing library is still available. " + error.localizedDescription }
             do {
                 let saved = try await LocalLibrary.shared.collection()
@@ -590,61 +617,57 @@ struct MymahFindsView: View {
             }
             return
         }
+        if offset == 0 {
+            do {
+                let outbox = try SharedEnvironment.outbox()
+                _ = try await LocalLibrary.shared.importPendingShares(outbox: outbox)
+                let client = try environment.client()
+                try await environment.verify(client)
+                try environment.publishShareDestination()
+                let result = try await outbox.sync(using: client, accountId: environment.accountId,
+                    baseURL: environment.baseURL, retryRejected: retryRejected)
+                guard sameAccount(environment, generation: generation) else { return }
+                pendingErrors = result.errors
+            } catch { errorMessage = error.localizedDescription }
+        }
         await loadPending(environment, generation: generation)
+        // An upload failure must never prevent reading already-saved content.
         do {
             let client = try environment.client(); try await environment.verify(client)
-            let page = try await client.collection(offset: offset)
+            var page = try await client.collection(offset: offset)
+            var refreshed = page.items
+            // Background refresh must not collapse the pages the reader loaded.
+            while preserveLoadedPages, offset == 0, refreshed.count < items.count, let next = page.nextOffset {
+                try Task.checkCancellation()
+                page = try await client.collection(offset: next)
+                refreshed += page.items
+            }
             guard sameAccount(environment, generation: generation) else { return }
-            if offset == 0 { items = page.items } else {
+            if offset == 0 {
+                var existing = Set<String>(); items = refreshed.filter { existing.insert($0.id).inserted }
+            } else {
                 var existing = Set(items.map(\.id)); items += page.items.filter { existing.insert($0.id).inserted }
             }
             nextOffset = page.nextOffset
             if let selectedSource, !sources.contains(selectedSource) { self.selectedSource = nil }
-            status = "Your library is up to date."
+            status = pendingSaves.isEmpty && errorMessage == nil ? "Your library is up to date." : "Library refreshed. Some saves are waiting to sync."
         } catch {
             guard sameAccount(environment, generation: generation) else { return }
             errorMessage = error.localizedDescription; status = "Your saved content could not be refreshed."
         }
     }
-    private func sync() async {
+    private func sync() async { await refresh(retryRejected: true) }
+    private func copyLocalFinds() async {
         guard let environment = connection, !busy else { return }
-        busy = true; errorMessage = nil; defer { busy = false }
-        let generation = accountGeneration
-        var duplicates = 0
-        var failures = 0
-        var libraryRefreshed = false
+        busy = true; errorMessage = nil
         do {
             let client = try environment.client(); try await environment.verify(client)
-            let outbox = try SharedEnvironment.outbox()
-            let drafts = try await outbox.pending(accountId: environment.accountId, baseURL: environment.baseURL)
-            for draft in drafts {
-                guard sameAccount(environment, generation: generation) else { return }
-                do {
-                    let receipt = try await client.capture(draft.request, key: draft.key)
-                    try await outbox.remove(draft)
-                    if receipt.duplicate { duplicates += 1 }
-                    pendingErrors.removeValue(forKey: draft.id)
-                } catch {
-                    failures += 1; pendingErrors[draft.id] = error.localizedDescription
-                    if let apiError = error as? APIError, apiError.status == 401 { break }
-                }
-            }
+            let limits = try await client.capabilities().capture
+            _ = try await LocalLibrary.shared.importPendingShares(outbox: SharedEnvironment.outbox())
+            localCopyResult = try await LocalLibrary.shared.copyToSharedLibrary(environment, limits: limits)
         } catch { errorMessage = error.localizedDescription }
-        // A rejected pending request must never prevent reading already-saved content.
-        do {
-            let client = try environment.client(); try await environment.verify(client)
-            let page = try await client.collection()
-            guard sameAccount(environment, generation: generation) else { return }
-            items = page.items; nextOffset = page.nextOffset
-            libraryRefreshed = true
-            if let selectedSource, !sources.contains(selectedSource) { self.selectedSource = nil }
-        } catch { errorMessage = error.localizedDescription }
-        guard sameAccount(environment, generation: generation) else { return }
-        await loadPending(environment, generation: generation)
-        if !libraryRefreshed { status = "Your library could not be refreshed. Try again when the connection is ready." }
-        else if failures > 0 { status = "Library refreshed. Some pending saves need attention below." }
-        else if duplicates > 0 { status = "Synced. \(duplicates) links were already saved; their original notes and text were kept." }
-        else if errorMessage == nil { status = "Your library is up to date." }
+        busy = false
+        if errorMessage == nil { await refresh() }
     }
     private func loadPending(_ environment: SharedEnvironment, generation: UUID) async {
         do {
@@ -696,7 +719,7 @@ struct MymahFindsView: View {
     private func signOut() {
         do {
             try connection?.signOut()
-            accountGeneration = UUID(); connection = nil; items = []; pendingSaves = []; pendingErrors = [:]
+            accountGeneration = UUID(); connection = nil; localCopyResult = nil; items = []; pendingSaves = []; pendingErrors = [:]
             remoteSearchItems = []; searchNextOffset = nil; searchError = nil
             nextOffset = nil; selectedSource = nil; searchText = ""; token = ""; errorMessage = nil; status = "Opening your local library."
             Task { await refresh() }
