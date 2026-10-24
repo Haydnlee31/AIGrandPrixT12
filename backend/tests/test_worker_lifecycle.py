@@ -193,10 +193,10 @@ def test_duplicate_suggestions_and_duplicate_jobs_do_not_create_evidence(databas
     {"value": (1, 2)},
     {1: "non-string key"},
     {"value": "x" * 2049},
-    {"value": [[[[[["too deep"]]]]]]},
+    {"value": [[[[[[[["too deep"]]]]]]]]},
     {"value": [None] * 65},
-    {"value": [[None] * 64] * 4},
-    {str(index): "x" * 2048 for index in range(9)},
+    {"value": [[None] * 64] * 17},
+    {str(index): "x" * 2048 for index in range(17)},
 ], ids=["nan", "infinite", "large-number", "object", "tuple", "key-type", "long-text", "deep", "long-list", "many-nodes", "large-json"])
 def test_invalid_structured_features_are_rejected_atomically(database, invalid_features):
     _, factory, item_id, job_id = database

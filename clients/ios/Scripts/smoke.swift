@@ -204,6 +204,70 @@ struct Smoke {
         catch let error as APIError { try check(error.code == "catalog_not_configured" && !error.retryable && error.requestId == "catalog-disabled", "explicit non-retryable catalog error") }
         print("PASS dataset catalog models, source licenses, null offer semantics, exact money, URL encoding and no-cache transport")
 
+        let analysisObject: [String: Any] = [
+            "schema_version":1, "summary":"A rectangular digital watch with vintage-inspired styling.",
+            "products":[["product_type":"watch", "category_path":["Accessories", "Wristwatches", "Digital watches"],
+                "brand":NSNull(), "model":NSNull(), "attributes":[["name":"style", "value":"vintage-inspired", "basis":"image", "evidence":"Rectangular case and segmented display", "certainty":"inferred"]],
+                "use_cases":["Everyday wear"], "search_terms":["digital watch", "vintage-inspired"]]],
+            "intent_context":["Interested in comparing watches"], "uncertainties":["Brand label is unreadable"]
+        ]
+        var analyzedItemObject = try JSONSerialization.jsonObject(with: fixture("saved")) as! [String: Any]
+        analyzedItemObject["analysis"] = analysisObject; analyzedItemObject["analysis_status"] = "ready"
+        let analyzedItemData = try JSONSerialization.data(withJSONObject: analyzedItemObject)
+        let analyzedItem = try CommonThreadClient.decoder().decode(SavedItem.self, from: analyzedItemData)
+        try check(analyzedItem.analysisStatus == .ready && analyzedItem.analysis?.products.first?.categoryPath.last == "Digital watches", "typed category path decode")
+        try check(analyzedItem.analysis?.products.first?.brand == nil && analyzedItem.analysis?.products.first?.model == nil, "unknown brand and model stay nil")
+        try check(analyzedItem.analysis?.products.first?.attributes.first?.certainty == .inferred && analyzedItem.analysis?.uncertainties.first == "Brand label is unreadable", "inferred style retains evidence and uncertainty")
+        let libraryPageData = try JSONSerialization.data(withJSONObject: ["items":[analyzedItemObject], "total":1, "next_offset":NSNull(), "query":"vintage + café", "category":"Wristwatches"])
+        let reason: [String:Any] = ["kind":"attribute_match", "text":"Matches vintage styling in your saved watch", "saved_item_id":analyzedItem.id,
+            "saved_item_title":"My watch", "saved_item_revision":3, "analysis_path":"products.0.attributes.0.value", "evidence_id":NSNull(),
+            "matched_value":"vintage-inspired", "catalog_field":"title", "catalog_value":"Vintage-inspired watch"]
+        let citation: [String:Any] = ["source_id":"uci_retail", "record_id":"sku:123 + café #1?", "title":"Historical source record",
+            "license_id":"CC-BY-4.0", "license_url":"https://creativecommons.org/licenses/by/4.0/", "attribution":"Source attribution", "record_url":NSNull()]
+        var exploreObject: [String:Any] = ["items":[["product":catalogItemJSON, "score":12, "score_kind":"heuristic_match", "reasons":[reason], "catalog_citation":citation, "action":"view_source", "action_url":NSNull()]],
+            "source_id":"uci_retail", "query":"", "mode":"personalized", "status":"ready", "next_offset":NSNull(),
+            "candidate_count":1, "candidate_limit":500, "candidate_window_limited":false, "personalized_from_saves":1,
+            "profile_limit":24, "profile_window_limited":false, "context_version":4, "generated_at":1700000000, "ranking_version":"facet-match-v1", "expires_at":NSNull()]
+        let exploreData = try JSONSerialization.data(withJSONObject: exploreObject)
+        let analyzeData = Data(#"{"id":"save-ai","status":"pending","revision":3,"job_id":"job-ai","queued":true}"#.utf8)
+        var aiRequests: [URLRequest] = []
+        StubProtocol.handler = { request in
+            aiRequests.append(request)
+            if request.url?.path == "/v1/library/search" { return (200,libraryPageData,[:]) }
+            if request.url?.path == "/v1/explore" { return (200,exploreData,[:]) }
+            return (202,analyzeData,[:])
+        }
+        let libraryPage = try await api.searchLibrary(query:"vintage + café",category:"Wristwatches",limit:10,offset:12)
+        try check(libraryPage.total == 1 && libraryPage.items.first?.analysisStatus == .ready && libraryPage.category == "Wristwatches", "server Library search returns typed analyses")
+        let libraryQuery = URLComponents(url:aiRequests[0].url!,resolvingAgainstBaseURL:false)!.queryItems!
+        try check(libraryQuery.first(where:{$0.name == "q"})?.value == "vintage + café" && libraryQuery.first(where:{$0.name == "offset"})?.value == "12", "Library Unicode query and paging preserved")
+        let explorePage = try await api.explore()
+        try check(explorePage.status == .ready && explorePage.mode == .personalized && explorePage.items.first?.reasons.first?.kind == .attributeMatch, "typed Explore reason decode")
+        try check(explorePage.items.first?.reasons.first?.savedItemId == analyzedItem.id && explorePage.items.first?.catalogCitation.licenseId == "CC-BY-4.0", "Explore citations preserve Library and source attribution")
+        try check(explorePage.items.first?.action == .viewSource && explorePage.items.first?.actionUrl == nil && explorePage.items.first?.product.offer.priceMinor == nil, "unknown current offer never becomes buy action")
+        let defaultExploreQuery = URLComponents(url:aiRequests[1].url!,resolvingAgainstBaseURL:false)!.queryItems!
+        try check(!defaultExploreQuery.contains(where:{$0.name == "source"}), "backend source default requires no client provider configuration")
+        _ = try await api.explore(query:"watch + strap", source:.abo,limit:5,offset:10)
+        let sourceExploreQuery = URLComponents(url:aiRequests[2].url!,resolvingAgainstBaseURL:false)!.queryItems!
+        try check(sourceExploreQuery.first(where:{$0.name == "source"})?.value == "abo" && sourceExploreQuery.first(where:{$0.name == "q"})?.value == "watch + strap", "explicit Explore source and query preserved")
+        let analysisKey = MutationKey()
+        let analysisReceipt = try await api.analyzeSave("save-ai",key:analysisKey)
+        _ = try await api.analyzeSave("save-ai",key:analysisKey)
+        try check(analysisReceipt.queued && analysisReceipt.jobId == "job-ai" && analysisReceipt.revision == 3, "analysis queue receipt")
+        try check(aiRequests.suffix(2).allSatisfy { $0.httpMethod == "POST" && $0.httpBody == nil && $0.value(forHTTPHeaderField:"Idempotency-Key") == analysisKey.rawValue }, "reanalysis retries retain key without retransmitting image")
+        try check(aiRequests.allSatisfy { $0.cachePolicy == .reloadIgnoringLocalCacheData && $0.value(forHTTPHeaderField:"Authorization") == "Bearer test-token" }, "AI reads and reanalysis remain account authenticated and uncached")
+        for query in [String(repeating:"q",count:201), "watch\n"] {
+            do { _ = try await api.searchLibrary(query:query); throw SmokeFailure.assertion("invalid Library query accepted") } catch ClientError.invalidLibrarySearch {}
+        }
+        do { _ = try await api.searchLibrary(offset:100001); throw SmokeFailure.assertion("invalid Library offset accepted") } catch ClientError.invalidPagination {}
+        do { _ = try await api.explore(offset:500); throw SmokeFailure.assertion("invalid Explore offset accepted") } catch ClientError.invalidExploreSearch {}
+        do { _ = try await api.analyzeSave("../other",key:analysisKey); throw SmokeFailure.assertion("invalid reanalysis ID accepted") } catch ClientError.invalidSavedItemId {}
+        try check(aiRequests.count == 5, "invalid AI API requests do not reach transport")
+        exploreObject["items"] = []; exploreObject["status"] = "needs_saves"; exploreObject["personalized_from_saves"] = 0
+        let emptyExplore = try CommonThreadClient.decoder().decode(ExplorePage.self,from:JSONSerialization.data(withJSONObject:exploreObject))
+        try check(emptyExplore.items.isEmpty && emptyExplore.status == .needsSaves, "cold start remains an explicit empty state")
+        print("PASS typed product analysis, Library search, cited Explore, cold start, and idempotent reanalysis")
+
         for url in ["http://api.example.org", "https://api.example.org/v1", "https://user:pass@api.example.org", "https://api.example.org?x=1"] {
             do { _ = try CommonThreadClient(baseURL: URL(string: url)!) { "token" }; throw SmokeFailure.assertion("invalid URL accepted") }
             catch ClientError.invalidBaseURL {}

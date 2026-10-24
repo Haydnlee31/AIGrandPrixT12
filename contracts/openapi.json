@@ -39,6 +39,51 @@
         "title": "APIErrorDetail",
         "type": "object"
       },
+      "AnalysisQueued": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "queued": {
+            "title": "Queued",
+            "type": "boolean"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "ready",
+              "enrichment_failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "revision",
+          "job_id",
+          "queued"
+        ],
+        "title": "AnalysisQueued",
+        "type": "object"
+      },
       "AnnotationResponse": {
         "additionalProperties": false,
         "properties": {
@@ -78,6 +123,17 @@
       },
       "AnnotationResult": {
         "properties": {
+          "analysis_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Job Id"
+          },
           "event_id": {
             "title": "Event Id",
             "type": "string"
@@ -101,6 +157,17 @@
               }
             ],
             "title": "Intent"
+          },
+          "saved_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved Revision"
           }
         },
         "required": [
@@ -339,6 +406,79 @@
           "data_mode"
         ],
         "title": "Catalog",
+        "type": "object"
+      },
+      "CatalogCitation": {
+        "additionalProperties": false,
+        "properties": {
+          "attribution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attribution"
+          },
+          "license_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Id"
+          },
+          "license_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Url"
+          },
+          "record_id": {
+            "title": "Record Id",
+            "type": "string"
+          },
+          "record_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record Url"
+          },
+          "source_id": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "record_id",
+          "title",
+          "license_id",
+          "license_url",
+          "attribution",
+          "record_url"
+        ],
+        "title": "CatalogCitation",
         "type": "object"
       },
       "CatalogRecord": {
@@ -1066,6 +1206,288 @@
         "title": "EvidenceView",
         "type": "object"
       },
+      "ExploreItem": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "view_offer",
+              "view_source"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "action_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Url"
+          },
+          "catalog_citation": {
+            "$ref": "#/components/schemas/CatalogCitation"
+          },
+          "product": {
+            "$ref": "#/components/schemas/CatalogRecord"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/ExploreReason"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "score_kind": {
+            "const": "heuristic_match",
+            "default": "heuristic_match",
+            "title": "Score Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "product",
+          "score",
+          "reasons",
+          "catalog_citation",
+          "action",
+          "action_url"
+        ],
+        "title": "ExploreItem",
+        "type": "object"
+      },
+      "ExplorePage": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_count": {
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "candidate_limit": {
+            "default": 500,
+            "title": "Candidate Limit",
+            "type": "integer"
+          },
+          "candidate_window_limited": {
+            "title": "Candidate Window Limited",
+            "type": "boolean"
+          },
+          "context_version": {
+            "title": "Context Version",
+            "type": "integer"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "number"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ExploreItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "mode": {
+            "enum": [
+              "personalized",
+              "search"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "personalized_from_saves": {
+            "title": "Personalized From Saves",
+            "type": "integer"
+          },
+          "profile_limit": {
+            "default": 24,
+            "title": "Profile Limit",
+            "type": "integer"
+          },
+          "profile_window_limited": {
+            "title": "Profile Window Limited",
+            "type": "boolean"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "ranking_version": {
+            "default": "facet-match-v1",
+            "title": "Ranking Version",
+            "type": "string"
+          },
+          "source_id": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "needs_saves",
+              "needs_analysis",
+              "no_matches"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "source_id",
+          "query",
+          "mode",
+          "status",
+          "next_offset",
+          "candidate_count",
+          "candidate_window_limited",
+          "personalized_from_saves",
+          "profile_window_limited",
+          "context_version",
+          "generated_at",
+          "expires_at"
+        ],
+        "title": "ExplorePage",
+        "type": "object"
+      },
+      "ExploreReason": {
+        "additionalProperties": false,
+        "properties": {
+          "analysis_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Path"
+          },
+          "catalog_field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog Field"
+          },
+          "catalog_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog Value"
+          },
+          "evidence_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Id"
+          },
+          "kind": {
+            "enum": [
+              "category_match",
+              "attribute_match",
+              "brand_match",
+              "confirmed_intent",
+              "query_match"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "matched_value": {
+            "title": "Matched Value",
+            "type": "string"
+          },
+          "saved_item_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved Item Id"
+          },
+          "saved_item_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved Item Revision"
+          },
+          "saved_item_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved Item Title"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "text",
+          "matched_value"
+        ],
+        "title": "ExploreReason",
+        "type": "object"
+      },
       "Health": {
         "properties": {
           "demo_mode": {
@@ -1259,6 +1681,55 @@
           "error"
         ],
         "title": "JobView",
+        "type": "object"
+      },
+      "LibrarySearchPage": {
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SavedItemView"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "next_offset",
+          "total",
+          "query"
+        ],
+        "title": "LibrarySearchPage",
         "type": "object"
       },
       "MerchantFact": {
@@ -1576,6 +2047,231 @@
         "title": "Preferences",
         "type": "object"
       },
+      "ProductAnalysis": {
+        "additionalProperties": false,
+        "properties": {
+          "intent_context": {
+            "items": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Intent Context",
+            "type": "array"
+          },
+          "products": {
+            "items": {
+              "$ref": "#/components/schemas/ProductObservation"
+            },
+            "maxItems": 4,
+            "title": "Products",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "summary": {
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          },
+          "uncertainties": {
+            "items": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Uncertainties",
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "summary",
+          "products",
+          "intent_context",
+          "uncertainties"
+        ],
+        "title": "ProductAnalysis",
+        "type": "object"
+      },
+      "ProductAttribute": {
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "enum": [
+              "image",
+              "captured_text",
+              "user_note"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "certainty": {
+            "enum": [
+              "observed",
+              "inferred"
+            ],
+            "title": "Certainty",
+            "type": "string"
+          },
+          "evidence": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Evidence",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "basis",
+          "evidence",
+          "certainty",
+          "name"
+        ],
+        "title": "ProductAttribute",
+        "type": "object"
+      },
+      "ProductFact": {
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "enum": [
+              "image",
+              "captured_text",
+              "user_note"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "certainty": {
+            "enum": [
+              "observed",
+              "inferred"
+            ],
+            "title": "Certainty",
+            "type": "string"
+          },
+          "evidence": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Evidence",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "basis",
+          "evidence",
+          "certainty"
+        ],
+        "title": "ProductFact",
+        "type": "object"
+      },
+      "ProductObservation": {
+        "additionalProperties": false,
+        "properties": {
+          "attributes": {
+            "items": {
+              "$ref": "#/components/schemas/ProductAttribute"
+            },
+            "maxItems": 12,
+            "title": "Attributes",
+            "type": "array"
+          },
+          "brand": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProductFact"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "category_path": {
+            "items": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 6,
+            "minItems": 1,
+            "title": "Category Path",
+            "type": "array"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProductFact"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "product_type": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Product Type",
+            "type": "string"
+          },
+          "search_terms": {
+            "items": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Search Terms",
+            "type": "array"
+          },
+          "use_cases": {
+            "items": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Use Cases",
+            "type": "array"
+          }
+        },
+        "required": [
+          "product_type",
+          "category_path",
+          "brand",
+          "model",
+          "attributes",
+          "use_cases",
+          "search_terms"
+        ],
+        "title": "ProductObservation",
+        "type": "object"
+      },
       "ProductView": {
         "properties": {
           "compact": {
@@ -1813,6 +2509,27 @@
       },
       "SavedItemView": {
         "properties": {
+          "analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProductAnalysis"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "analysis_status": {
+            "default": "unavailable",
+            "enum": [
+              "ready",
+              "pending",
+              "unavailable",
+              "failed"
+            ],
+            "title": "Analysis Status",
+            "type": "string"
+          },
           "canonical_url": {
             "title": "Canonical Url",
             "type": "string"
@@ -2212,7 +2929,7 @@
   "info": {
     "description": "Shared Chrome and iOS backend. Server-configured predictive annotations; integer minor-unit prices; Unix seconds UTC. Mutation requests require Idempotency-Key. Suggestions record intent only; actions require separate confirmation and implementation.",
     "title": "Mymah Finds API",
-    "version": "0.3.0"
+    "version": "0.4.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -3808,6 +4525,166 @@
         ]
       }
     },
+    "/v1/explore": {
+      "get": {
+        "operationId": "explore_v1_explore_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 100,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "exclusiveMaximum": 500,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExplorePage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "DevelopmentBearer": []
+          }
+        ],
+        "summary": "Explore",
+        "tags": [
+          "Explore"
+        ]
+      }
+    },
     "/v1/hypotheses": {
       "get": {
         "operationId": "hypotheses_v1_hypotheses_get",
@@ -4166,6 +5043,167 @@
         "summary": "Job Status",
         "tags": [
           "System"
+        ]
+      }
+    },
+    "/v1/library/search": {
+      "get": {
+        "operationId": "library_search_v1_library_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibrarySearchPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "DevelopmentBearer": []
+          }
+        ],
+        "summary": "Library Search",
+        "tags": [
+          "Library"
         ]
       }
     },
@@ -4770,6 +5808,134 @@
           }
         ],
         "summary": "Get Save",
+        "tags": [
+          "Capture"
+        ]
+      }
+    },
+    "/v1/saves/{item_id}/analyze": {
+      "post": {
+        "operationId": "analyze_save_v1_saves__item_id__analyze_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required for every mutation. Persist before sending; reuse the key and identical body after an uncertain result. Missing/empty keys return 400.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisQueued"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "DevelopmentBearer": []
+          }
+        ],
+        "summary": "Analyze Save",
         "tags": [
           "Capture"
         ]

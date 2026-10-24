@@ -46,7 +46,56 @@ public struct CaptureRequest: Codable, Sendable, Equatable {
 }
 public struct CaptureReceipt: Codable, Sendable { public let id: String; public let status: String; public let duplicate: Bool }
 public struct CollectionPage: Codable, Sendable { public let items: [SavedItem]; public let nextOffset: Int? }
+public struct LibrarySearchPage: Codable, Sendable {
+    public let items: [SavedItem]
+    public let nextOffset: Int?
+    public let total: Int
+    public let query: String
+    public let category: String?
+}
+public struct AnalysisQueued: Codable, Sendable {
+    public let id: String
+    public let status: String
+    public let revision: Int
+    public let jobId: String?
+    public let queued: Bool
+}
 public struct ItemList<Item: Codable & Sendable>: Codable, Sendable { public let items: [Item]; public let nextOffset: Int? }
+public enum AnalysisStatus: String, Codable, Sendable { case pending, ready, unavailable, failed }
+public enum ProductFactBasis: String, Codable, Sendable { case image, capturedText = "captured_text", userNote = "user_note" }
+/// Observed is the model's evidence classification, not an external product verification.
+public enum ProductFactCertainty: String, Codable, Sendable { case observed, inferred }
+public struct ProductFact: Codable, Sendable {
+    public let value: String
+    public let basis: ProductFactBasis
+    public let evidence: String
+    public let certainty: ProductFactCertainty
+}
+public struct ProductAttribute: Codable, Sendable {
+    public let name: String
+    public let value: String
+    public let basis: ProductFactBasis
+    public let evidence: String
+    public let certainty: ProductFactCertainty
+}
+public struct ProductObservation: Codable, Sendable {
+    public let productType: String
+    /// Ordered from broad category to the finest defensible subcategory.
+    public let categoryPath: [String]
+    /// Nil means unrecognized; do not infer a brand or model from style.
+    public let brand: ProductFact?
+    public let model: ProductFact?
+    public let attributes: [ProductAttribute]
+    public let useCases: [String]
+    public let searchTerms: [String]
+}
+public struct ProductAnalysis: Codable, Sendable {
+    public let schemaVersion: Int
+    public let summary: String
+    public let products: [ProductObservation]
+    public let intentContext: [String]
+    public let uncertainties: [String]
+}
 public struct SavedItem: Codable, Sendable, Identifiable {
     public let id: String
     public let originalUrl: String
@@ -65,10 +114,12 @@ public struct SavedItem: Codable, Sendable, Identifiable {
     public let hasImage: Bool
     /// An authenticated API-relative resource; never put an access token in its query string.
     public let imagePath: String?
+    public let analysis: ProductAnalysis?
+    public let analysisStatus: AnalysisStatus
     public var isEnriching: Bool { status == "pending" || status == "processing" }
     public var capturedDate: Date { Date(timeIntervalSince1970: capturedAt) }
     private enum CodingKeys: String, CodingKey {
-        case id, originalUrl, canonicalUrl, title, source, client, selectedText, note, capturedAt, status, features, revision, suggestions, responses, hasImage, imagePath
+        case id, originalUrl, canonicalUrl, title, source, client, selectedText, note, capturedAt, status, features, revision, suggestions, responses, hasImage, imagePath, analysis, analysisStatus
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -81,6 +132,9 @@ public struct SavedItem: Codable, Sendable, Identifiable {
         suggestions = try c.decode([Suggestion].self, forKey: .suggestions); responses = try c.decode([UserEvent].self, forKey: .responses)
         hasImage = try c.decodeIfPresent(Bool.self, forKey: .hasImage) ?? false
         imagePath = try c.decodeIfPresent(String.self, forKey: .imagePath)
+        analysis = try c.decodeIfPresent(ProductAnalysis.self, forKey: .analysis)
+        analysisStatus = try c.decodeIfPresent(AnalysisStatus.self, forKey: .analysisStatus)
+            ?? (status == "pending" ? .pending : status == "enrichment_failed" ? .failed : analysis == nil ? .unavailable : .ready)
     }
 }
 public enum AnnotationIntent: String, Codable, Sendable {
@@ -129,12 +183,16 @@ public struct AnnotationReceipt: Codable, Sendable {
     public let intent: AnnotationIntent?
     /// "annotation_only" records the choice; it does not purchase, monitor, or schedule.
     public let executionStatus: String
-    private enum CodingKeys: String, CodingKey { case eventId, hypothesis, intent, executionStatus }
+    public let analysisJobId: String?
+    public let savedRevision: Int?
+    private enum CodingKeys: String, CodingKey { case eventId, hypothesis, intent, executionStatus, analysisJobId, savedRevision }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         eventId = try c.decode(String.self, forKey: .eventId); hypothesis = try c.decode(Hypothesis.self, forKey: .hypothesis)
         intent = try c.decodeIfPresent(AnnotationIntent.self, forKey: .intent)
         executionStatus = try c.decodeIfPresent(String.self, forKey: .executionStatus) ?? "annotation_only"
+        analysisJobId = try c.decodeIfPresent(String.self, forKey: .analysisJobId)
+        savedRevision = try c.decodeIfPresent(Int.self, forKey: .savedRevision)
     }
 }
 public enum HypothesisFeedback: String, Codable, Sendable { case confirm, dismiss, keepCollecting = "keep_collecting", misunderstood }
@@ -244,6 +302,65 @@ public struct CatalogSearchPage: Codable, Sendable {
     public let environment: String
     public let marketplace: String?
     public let retrieval: String
+}
+public enum ExploreReasonKind: String, Codable, Sendable {
+    case categoryMatch = "category_match", attributeMatch = "attribute_match", brandMatch = "brand_match"
+    case confirmedIntent = "confirmed_intent", queryMatch = "query_match"
+}
+public struct ExploreReason: Codable, Sendable {
+    public let kind: ExploreReasonKind
+    public let text: String
+    public let savedItemId: String?
+    public let savedItemTitle: String?
+    public let savedItemRevision: Int?
+    public let analysisPath: String?
+    public let evidenceId: String?
+    public let matchedValue: String
+    public let catalogField: String?
+    public let catalogValue: String?
+}
+public struct CatalogCitation: Codable, Sendable {
+    public let sourceId: CatalogSource
+    public let recordId: String
+    public let title: String
+    public let licenseId: String?
+    public let licenseUrl: String?
+    public let attribution: String?
+    public let recordUrl: String?
+}
+public enum ExploreAction: String, Codable, Sendable { case viewOffer = "view_offer", viewSource = "view_source" }
+public struct ExploreItem: Codable, Sendable, Identifiable {
+    public var id: String { product.id }
+    public let product: CatalogRecord
+    /// A retrieval heuristic, never a probability of preference or purchase.
+    public let score: Double
+    public let scoreKind: String
+    public let reasons: [ExploreReason]
+    public let catalogCitation: CatalogCitation
+    public let action: ExploreAction
+    public let actionUrl: String?
+}
+public enum ExploreMode: String, Codable, Sendable { case personalized, search }
+public enum ExploreStatus: String, Codable, Sendable {
+    case ready, needsSaves = "needs_saves", needsAnalysis = "needs_analysis", noMatches = "no_matches"
+}
+public struct ExplorePage: Codable, Sendable {
+    public let items: [ExploreItem]
+    public let sourceId: CatalogSource
+    public let query: String
+    public let mode: ExploreMode
+    public let status: ExploreStatus
+    public let nextOffset: Int?
+    public let candidateCount: Int
+    public let candidateLimit: Int
+    public let candidateWindowLimited: Bool
+    public let personalizedFromSaves: Int
+    public let profileLimit: Int
+    public let profileWindowLimited: Bool
+    public let contextVersion: Int
+    public let generatedAt: Double
+    public let rankingVersion: String
+    public let expiresAt: Double?
 }
 public struct CatalogSourceStatus: Codable, Sendable, Identifiable {
     public var id: CatalogSource { sourceId }

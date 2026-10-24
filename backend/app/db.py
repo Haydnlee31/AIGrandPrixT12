@@ -36,6 +36,8 @@ class SavedItem(Base):
     captured_at: Mapped[float] = mapped_column(Float, default=time.time)
     status: Mapped[str] = mapped_column(String, default="pending")
     features: Mapped[dict] = mapped_column(Document, default=dict)
+    search_text: Mapped[str] = mapped_column(String, default="", server_default="")
+    category_text: Mapped[str] = mapped_column(String, default="", server_default="")
     revision: Mapped[int] = mapped_column(Integer, default=1)
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 

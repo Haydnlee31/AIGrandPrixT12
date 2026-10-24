@@ -154,3 +154,55 @@ test('catalog preserves absent current-offer facts and lets the backend reject u
   assert.equal(product.provenance.license_id,'CC-BY-4.0');
   await assert.rejects(client.searchProducts({source:'future_source',query:'lamp'}),e=>e.code==='unknown_source' && !e.retryable && e.requestId==='catalog-source');
 });
+
+test('Library analysis search and Explore preserve query, source citations and unknown offers', async () => {
+  const calls=[];
+  const product={source_id:'abo',source_record_id:'watch-1',offer:{price_minor:null,url:null}};
+  const cited={product,score:12,score_kind:'heuristic_match',reasons:[{kind:'attribute_match',saved_item_id:'mine',saved_item_revision:3,analysis_path:'products.0.attributes.0.value',matched_value:'vintage',catalog_field:'title',catalog_value:'Vintage watch'}],catalog_citation:{source_id:'abo',record_id:'watch-1',license_id:'CC-BY-4.0'},action:'view_source',action_url:null};
+  const client=new CommonThreadClient({token:'account-token',fetchImpl:async (url,options)=>{
+    const parsed=new URL(url); calls.push([parsed,options]);
+    return reply(parsed.pathname==='/v1/library/search'
+      ? {items:[{id:'mine',analysis:null,analysis_status:'pending'}],total:1,next_offset:null,query:parsed.searchParams.get('q'),category:parsed.searchParams.get('category')}
+      : {items:[cited],source_id:'abo',mode:'personalized',status:'ready',next_offset:null});
+  }});
+  const library=await client.searchLibrary({query:'vintage + café watch',category:'Wristwatches',offset:12,limit:10});
+  assert.equal(library.items[0].analysis,null);
+  assert.equal(library.items[0].analysis_status,'pending');
+  assert.equal(calls[0][0].searchParams.get('q'),'vintage + café watch');
+  assert.equal(calls[0][0].searchParams.get('category'),'Wristwatches');
+  assert.equal(calls[0][0].searchParams.get('offset'),'12');
+  const recommendations=await client.explore();
+  assert.equal(calls[1][0].pathname,'/v1/explore');
+  assert.equal(calls[1][0].searchParams.has('source'),false);
+  assert.equal(recommendations.items[0].reasons[0].saved_item_id,'mine');
+  assert.equal(recommendations.items[0].product.offer.price_minor,null);
+  assert.equal(recommendations.items[0].catalog_citation.source_id,'abo');
+  assert.equal(recommendations.items[0].action_url,null);
+  await client.explore({source:'wands',query:'lamp & shade',limit:5,offset:10});
+  assert.equal(calls[2][0].searchParams.get('source'),'wands');
+  assert.equal(calls[2][0].searchParams.get('q'),'lamp & shade');
+  assert.ok(calls.every(([,options])=>options.cache==='no-store' && options.headers.Authorization==='Bearer account-token'));
+});
+
+test('analysis refresh retains mutation identity without reuploading private media', async () => {
+  const requests=[];
+  const client=new CommonThreadClient({fetchImpl:async (url,options)=>{
+    requests.push([new URL(url),options]);return reply({id:'saved-id',status:'pending',revision:2,job_id:'job-id',queued:true});
+  }});
+  await assert.rejects(client.analyzeSave('saved-id'),TypeError);
+  const result=await client.analyzeSave('saved-id',{idempotencyKey:'reanalyze-1'});
+  await client.analyzeSave('saved-id',{idempotencyKey:'reanalyze-1'});
+  assert.equal(result.revision,2);
+  assert.ok(requests.every(([url,options])=>url.pathname==='/v1/saves/saved-id/analyze' && options.method==='POST' && options.body===undefined && options.headers['Idempotency-Key']==='reanalyze-1'));
+  for (const id of ['', '..', '../other', 'a/b', 'id\n']) assert.throws(()=>client.analyzeSave(id,{idempotencyKey:'unused'}),TypeError);
+  assert.equal(requests.length,2);
+});
+
+test('AI search validates bounds and preserves an honest empty Explore state', async () => {
+  let requests=0;
+  const client=new CommonThreadClient({fetchImpl:async ()=>{requests++;return reply({items:[],status:'needs_saves',mode:'personalized',next_offset:null});}});
+  assert.equal((await client.explore()).status,'needs_saves');
+  for (const options of [{query:'q'.repeat(201)},{category:''},{category:'a'.repeat(81)},{query:'x\n'},{offset:100001},{limit:101}]) assert.throws(()=>client.searchLibrary(options),TypeError);
+  for (const options of [{query:'q'.repeat(101)},{query:'x\n'},{source:'../all'},{offset:500},{limit:51}]) assert.throws(()=>client.explore(options),TypeError);
+  assert.equal(requests,1);
+});

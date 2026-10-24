@@ -3,9 +3,9 @@
     "code": "stale_version",
     "message": "Session changed. Refresh before applying your feedback.",
     "retryable": false,
-    "request_id": "48a644c343014dcfb0e46eb7f743a33e",
+    "request_id": "4178b70d9e674daba9eaace86f89e88a",
     "current": {
-      "id": "fabaf3ebb2194af7aa66881084bcac3a",
+      "id": "a5099705a5504a64a3f826757d256946",
       "version": 2,
       "stage": "exploring",
       "preferences": {
@@ -17,20 +17,20 @@
         "selected_variant": null
       },
       "evidence_ids": [
-        "52173384b15a4a2fab1bf38155bca462",
-        "dc8c8bdf64f04b1694ee31d371780953",
-        "f070d979709648f8831ed6db6499b8f2"
+        "c4c5f14064164c6991833ab512df3f5a",
+        "f19a3f8eaaa44a75b78d572acae79c35",
+        "d1e951e471564b349d888793c1172490"
       ],
       "context_version": 3,
-      "created_at": 1792864342.900678,
+      "created_at": 1792865905.384528,
       "context_stale": false,
       "products": [],
       "next_action": {
         "action_type": "choose_direction",
         "evidence_ids": [
-          "52173384b15a4a2fab1bf38155bca462",
-          "dc8c8bdf64f04b1694ee31d371780953",
-          "f070d979709648f8831ed6db6499b8f2"
+          "c4c5f14064164c6991833ab512df3f5a",
+          "f19a3f8eaaa44a75b78d572acae79c35",
+          "d1e951e471564b349d888793c1172490"
         ],
         "missing_information": [],
         "reason_codes": [

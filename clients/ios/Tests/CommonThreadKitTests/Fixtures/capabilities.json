@@ -1,6 +1,6 @@
 {
   "api_version": "v1",
-  "contract_version": "0.3.0",
+  "contract_version": "0.4.0",
   "authentication": "development_bearer",
   "capture": {
     "clients": [
@@ -29,6 +29,9 @@
   "features": {
     "annotations": true,
     "predictive_prompts": false,
+    "product_analysis": false,
+    "library_search": true,
+    "explore": true,
     "discovery": true,
     "watches": true,
     "price_simulation": true,

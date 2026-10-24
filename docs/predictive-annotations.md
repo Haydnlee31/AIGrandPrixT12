@@ -1,8 +1,8 @@
 # Mymah Finds — predictive annotations
 
-The FastAPI backend saves content immediately, then asks GPT-6 Astra to suggest a few short annotations from the saved image and text. Suggestions are optional interpretations of what the person might want. Only an explicit selection or edit becomes confirmed user input. Contract version: **0.3.0**.
+The FastAPI backend saves content immediately, then asks GPT-6 Astra for typed product observations and a few ranked annotation suggestions from the saved image and text. Suggestions are optional interpretations of what the person might want. Only an explicit selection or edit becomes confirmed user input. Contract version: **0.4.0**.
 
-This is the next feature for the Chrome and iOS teammates to connect. Preserve **Library / Search / Profile**, use **Mymah Finds**, and keep provider settings, API keys, internal mode labels, and prototype/demo wording out of product screens.
+Use the [Library / Explore / Profile integration guide](ios-ai-handoff.md) for the full current handoff. Teammates must adapt the older native/browser screens to this new plan; backend/SDK readiness does not mean those screens are already wired. Use **Mymah Finds** and keep provider settings, API keys, internal mode labels and prototype/demo wording out of product screens.
 
 ## Backend configuration
 
@@ -27,9 +27,9 @@ After setting the backend key, run `make smoke-astra` to make **one explicit pai
 
 1. Let the person select content and tap **Save**. Send `POST /v1/saves` with a retained `Idempotency-Key`. `url` is optional when `image_data_url` is present; send a URL, an image, or both. Preserve the same image bytes, payload, and key for an unchanged retry.
 2. Show the saved item as soon as the capture receipt arrives. Enrichment runs independently; a slow or failed provider does not erase the saved content.
-3. Refresh the saved item, or use bounded foreground polling. `status: pending` means suggestions are not ready. `enrichment_failed` means the item remains saved and annotation generation did not complete. Cancel polling when its view or account changes.
+3. Refresh the saved item, or use bounded foreground polling. `analysis_status` distinguishes pending, ready, unavailable and failed analysis; the saved content remains available in each state. `status: enrichment_failed` is not a failed save. Use `POST /v1/saves/{id}/analyze` with a retained key for deliberate reanalysis/retry. Cancel polling when its view or account changes.
 4. Display the returned `suggestions` as optional annotation chips. Each has a server ID, display `text`, `kind`, optional `intent`, and `requires_confirmation`. Keep an edit/skip path. Do not automatically select the highest-ranked suggestion.
-5. Submit the selected server ID through `POST /v1/saves/{id}/responses`, using a new retained key for that explicit user action. The response's `execution_status: annotation_only` confirms the annotation was recorded.
+5. Submit the selected server ID through `POST /v1/saves/{id}/responses`, using a new retained key for that explicit user action. `execution_status: annotation_only` confirms the annotation was recorded. Selection or editing can return `analysis_job_id` for refinement using the new explicit context. Refresh the saved item and dependent Explore results; retain edit/reject controls across regenerated proposals.
 
 Example image-only request:
 
@@ -46,6 +46,18 @@ Example image-only request:
 Use JPEG, PNG, or WebP with at most **4 MiB of decoded input bytes**, within a **6 MiB complete request body**. The backend validates and re-encodes the image without source metadata; an extension or phone should resize and compress selected media before sending. Arbitrary remote image URLs are not an upload mechanism. Image-only saves have an empty `original_url`; the backend supplies their private identity. Hide the original-link affordance when no URL exists, and never open the image's canonical identity as a website.
 
 `has_image` indicates available image content. `image_path` is an API-relative resource served by authenticated `GET /v1/saves/{id}/image`. It is private to the current account. Use the bearer header, avoid persistent shared caches, and discard the displayed image when switching accounts. Do not append an access token to a URL or use an unauthenticated image element with this path.
+
+The backend does not fetch a saved webpage or remote image. A URL-only save analyzes its supplied title, selected text and note. Send actual image bytes for visual recognition. Audio recordings, video URLs and automatic frame extraction are outside this contract.
+
+## Typed product context
+
+`SavedItem.analysis` contains a summary, up to four product observations, explicit current-save intent context and uncertainties. Products expose `product_type`, broad-to-specific `category_path`, nullable brand/model, named attributes, use cases and search terms. Brand/model/attribute facts include `basis`, `evidence` and `certainty`. Text facts must quote supplied source text; image facts require an actual captured image. Brand and model may not be inferred from style or historical preferences.
+
+For a watch, supported facets might include wristwatch, digital display, a rectangular case and vintage-inspired style. An unreadable logo stays unknown; vintage-inspired appearance does not establish age. Stop at the most specific supported subcategory and display unresolved details honestly. Observed model output is not a verified catalog identity or merchant offer.
+
+The server indexes these facets and active explicit annotations for `/v1/library/search`. `/v1/explore` matches current saved observations against a source-scoped catalog and returns reasons with Library/catalog citations. It uses local deterministic matching rather than sending bulk catalog data into Astra. `EXPLORE_CATALOG_SOURCE` defaults to `abo`; historical records do not imply a current price, merchant or purchase link. See the [Explore presentation rules](ios-ai-handoff.md#explore).
+
+## Predictive intent options
 
 The stable intent codes are:
 

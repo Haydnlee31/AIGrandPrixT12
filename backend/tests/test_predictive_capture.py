@@ -266,7 +266,9 @@ def test_published_predictions_retracted_and_regenerated_after_context_revocatio
     assert refreshed["status"] == "ready" and len(refreshed["suggestions"]) == 3
     assert refreshed["features"]["context_evidence_ids"] == []
     assert client.app.state.annotation_provider.snapshots[-1].confirmed_preferences == ()
-    assert {row["id"] for row in refreshed["suggestions"]}.isdisjoint({row["id"] for row in before["suggestions"]})
+    # Intent identity survives regeneration so later rejection can retract a
+    # prior confirmation; all generated context was still rebuilt above.
+    assert {row["id"] for row in refreshed["suggestions"]} == {row["id"] for row in before["suggestions"]}
 
 
 def test_collection_queries_image_presence_without_loading_private_image_bytes(client):

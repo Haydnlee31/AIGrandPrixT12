@@ -84,6 +84,18 @@ export class CommonThreadClient {
   capture(payload, options) { return this.request('/saves', {...options, method:'POST', body:payload}); }
   getSave(id, options) { return this.request(`/saves/${encodeURIComponent(id)}`, options); }
   collection({offset = 0, limit = 30, ...options} = {}) { return this.request(`/collection?offset=${offset}&limit=${limit}`, options); }
+  searchLibrary({query = '', category, limit = 20, offset = 0, ...options} = {}) {
+    if (typeof query !== 'string' || [...query].length > 200 || /[\u0000-\u001f\u007f]/.test(query) ||
+        (category !== undefined && (typeof category !== 'string' || !category.trim() || [...category].length > 80 || /[\u0000-\u001f\u007f]/.test(category)))) throw new TypeError('Use a Library query up to 200 characters and a category up to 80 characters without control characters');
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0 || offset > 100000) throw new TypeError('Use a Library limit of 1–100 and offset of 0–100000');
+    const params = new URLSearchParams({q:query, limit:String(limit), offset:String(offset)});
+    if (category !== undefined) params.set('category', category);
+    return this.request(`/library/search?${params}`, options);
+  }
+  analyzeSave(id, options) {
+    if (typeof id !== 'string' || !id.length || [...id].length > 200 || ['.', '..'].includes(id) || /[\\/\u0000-\u001f\u007f]/.test(id)) throw new TypeError('Use a single saved-item ID returned by the Library');
+    return this.request(`/saves/${encodeURIComponent(id)}/analyze`, {...options, method:'POST'});
+  }
   respond(id, payload, options) { return this.request(`/saves/${encodeURIComponent(id)}/responses`, {...options, method:'POST', body:payload}); }
   deleteSave(id, options) { return this.request(`/saves/${encodeURIComponent(id)}`, {...options, method:'DELETE'}); }
   hypotheses(options) { return this.request('/hypotheses', options); }
@@ -94,6 +106,14 @@ export class CommonThreadClient {
   discoveryEvent(id, payload, options) { return this.request(`/discovery-sessions/${encodeURIComponent(id)}/events`, {...options, method:'POST', body:payload}); }
   catalog(options) { return this.request('/catalog', options); }
   catalogSources(options) { return this.request('/commerce/sources', options); }
+  explore({query = '', source, limit = 20, offset = 0, ...options} = {}) {
+    if (source !== undefined && !validCatalogSource(source)) throw new TypeError('Use a catalog source name returned by the backend');
+    if (typeof query !== 'string' || [...query].length > 100 || /[\u0000-\u001f\u007f]/.test(query) ||
+        !Number.isInteger(limit) || limit < 1 || limit > 50 || !Number.isInteger(offset) || offset < 0 || offset >= 500) throw new TypeError('Use an Explore query up to 100 characters, limit of 1–50, and offset below 500');
+    const params = new URLSearchParams({q:query, limit:String(limit), offset:String(offset)});
+    if (source !== undefined) params.set('source', source);
+    return this.request(`/explore?${params}`, options);
+  }
   searchProducts({source, query, limit = 20, offset = 0, deliveryCountry, ...options} = {}) {
     if (!validCatalogSource(source) || typeof query !== 'string' || !query.trim() || [...query].length > 100 || /[\u0000-\u001f]/.test(query)) throw new TypeError('Choose a catalog source and provide a search query of 1–100 characters without control characters');
     if (!Number.isInteger(limit) || limit < 1 || limit > 50 || !Number.isInteger(offset) || offset < 0 || offset >= 1000000) throw new TypeError('Use a catalog limit of 1–50 and an offset below 1000000');

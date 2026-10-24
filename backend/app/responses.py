@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from .understanding import ProductAnalysis
 
 
 class Response(BaseModel):
@@ -97,11 +98,27 @@ class SavedItemView(Response):
     responses: list[EventView]
     has_image: bool = False
     image_path: str | None = None
+    analysis: ProductAnalysis | None = None
+    analysis_status: Literal["ready", "pending", "unavailable", "failed"] = "unavailable"
 
 
 class CollectionPage(Response):
     items: list[SavedItemView]
     next_offset: int | None
+
+
+class LibrarySearchPage(CollectionPage):
+    total: int
+    query: str
+    category: str | None = None
+
+
+class AnalysisQueued(Response):
+    id: str
+    status: Literal["pending", "ready", "enrichment_failed"]
+    revision: int
+    job_id: str | None
+    queued: bool
 
 
 class EvidenceView(Response):
@@ -142,6 +159,8 @@ class Hypotheses(Response):
 class AnnotationResult(Response):
     intent: str | None = None
     execution_status: Literal["annotation_only"] = "annotation_only"
+    analysis_job_id: str | None = None
+    saved_revision: int | None = None
     event_id: str
     hypothesis: HypothesisView
 

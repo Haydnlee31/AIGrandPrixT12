@@ -1,6 +1,6 @@
 import type { Capture, CaptureResult, Identity, Health, Capabilities, SavedItemView, CollectionPage, AnnotationResponse, AnnotationResult, Hypotheses, HypothesisFeedback, HypothesisView, StartDiscovery, DiscoveryView, Discoveries, DiscoveryEvent, Catalog, CreateWatch, WatchView, Watches, UpdateWatch, SimulatedPrice, QueuedPriceCheck, Notifications, JobView, TraceView, Deleted, Reset } from './types';
 export * from './types';
-import type { CatalogSources, CatalogSearchPage, CatalogRecord } from './types';
+import type { CatalogSources, CatalogSearchPage, CatalogRecord, LibrarySearchPage, AnalysisQueued, ExplorePage } from './types';
 export interface ReadOptions { signal?: AbortSignal; timeoutMs?: number }
 export interface MutationOptions extends ReadOptions { idempotencyKey: string }
 export interface PageOptions extends ReadOptions { offset?: number; limit?: number }
@@ -16,6 +16,8 @@ export class CommonThreadClient {
   capture(payload: Capture, options: MutationOptions): Promise<CaptureResult>;
   getSave(id: string, options?: ReadOptions): Promise<SavedItemView>;
   collection(options?: PageOptions): Promise<CollectionPage>;
+  searchLibrary(options?: PageOptions & {query?: string; category?: string}): Promise<LibrarySearchPage>;
+  analyzeSave(id: string, options: MutationOptions): Promise<AnalysisQueued>;
   /** Records a confirmed annotation. annotation_only does not schedule or purchase. */
   respond(id: string, payload: AnnotationResponse, options: MutationOptions): Promise<AnnotationResult>;
   deleteSave(id: string, options: MutationOptions): Promise<Deleted>;
@@ -27,6 +29,7 @@ export class CommonThreadClient {
   discoveryEvent(id: string, payload: DiscoveryEvent, options: MutationOptions): Promise<DiscoveryView>;
   catalog(options?: ReadOptions): Promise<Catalog>;
   catalogSources(options?: ReadOptions): Promise<CatalogSources>;
+  explore(options?: PageOptions & {query?: string; source?: string}): Promise<ExplorePage>;
   searchProducts(options: PageOptions & {source: string; query: string}): Promise<CatalogSearchPage>;
   catalogItem(source: string, id: string, options?: ReadOptions): Promise<CatalogRecord>;
   createWatch(payload: CreateWatch, options: MutationOptions): Promise<WatchView>;

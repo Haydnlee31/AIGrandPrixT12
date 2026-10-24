@@ -7,10 +7,11 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, delete, or_, select, update
 
 from .db import Evidence, Job, Notification, Observation, SavedItem, Suggestion, UserState, Watch, make_database
 from .predictive import ProviderError, get_annotation_provider
+from .library import update_search_document
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class AnnotationInput:
     note: str = ""
     image_data_url: str | None = None
     confirmed_preferences: tuple[str, ...] = ()
+    confirmed_annotations: tuple[str, ...] = ()
 
 
 def preference_snapshot(db, user_id):
@@ -32,6 +34,13 @@ def preference_snapshot(db, user_id):
         SavedItem.deleted.is_(False), Evidence.origin.in_(["confirmed_annotation", "explicit_statement"])
     ).order_by(Evidence.observed_at.desc(), Evidence.id).limit(8)).all()
     return tuple((e.id, e.claim, e.text[:300]) for e in rows)
+
+
+def annotation_snapshot(db, user_id, item_id):
+    rows = db.scalars(select(Evidence).where(Evidence.user_id == user_id, Evidence.item_id == item_id,
+        Evidence.active.is_(True), Evidence.origin.in_(["confirmed_annotation", "explicit_statement"]))
+        .order_by(Evidence.observed_at.desc(), Evidence.id).limit(12)).all()
+    return tuple((row.id, row.text[:500]) for row in rows)
 
 
 class LostLease(Exception):
@@ -88,7 +97,7 @@ def validate_annotation(result, model_version):
     def check_json(value, depth=0):
         nonlocal nodes
         nodes += 1
-        if nodes > 256 or depth > 5:
+        if nodes > 1024 or depth > 7:
             raise ValueError("invalid_provider_output")
         if type(value) is dict:
             if len(value) > 64:
@@ -116,7 +125,7 @@ def validate_annotation(result, model_version):
 
     check_json(result["features"])
     serialized = json.dumps(result["features"], allow_nan=False, ensure_ascii=False)
-    if len(serialized.encode("utf-8")) > 16384:
+    if len(serialized.encode("utf-8")) > 32768:
         raise ValueError("invalid_provider_output")
     suggestions = result.get("suggestions")
     if type(suggestions) is not list or not 1 <= len(suggestions) <= 5:
@@ -158,14 +167,31 @@ def process_job(db, job, annotation=None, model_version=None):
             raise ValueError("missing_provider_output")
         # The adapter receives captured content as data, has no tools, and may only
         # suggest annotations. No provider output becomes user evidence.
-        existing = set(db.execute(select(Suggestion.kind, Suggestion.text, Suggestion.claim).where(Suggestion.user_id == job.user_id, Suggestion.item_id == item.id)).all())
+        previous = {(s.kind, s.claim): s for s in db.scalars(select(Suggestion).where(Suggestion.user_id == job.user_id, Suggestion.item_id == item.id))}
+        retained = set()
         for suggestion in annotation["suggestions"]:
-            key = (suggestion["kind"], suggestion["text"], suggestion["claim"])
-            if key not in existing:
-                db.add(Suggestion(user_id=job.user_id, item_id=item.id, model_version=model_version, **suggestion))
-                existing.add(key)
+            key = (suggestion["kind"], suggestion["claim"])
+            if key in retained:
+                continue
+            retained.add(key)
+            if key in previous:
+                previous[key].text = suggestion["text"]
+                previous[key].model_version = model_version
+            else:
+                # Stable identity survives manual reanalysis or a temporarily
+                # omitted option; it is not derived from model wording/rank.
+                identity = uuid.uuid5(uuid.NAMESPACE_URL, f"mymah:{item.id}:{key[0]}:{key[1]}").hex
+                db.add(Suggestion(id=identity, user_id=job.user_id, item_id=item.id, model_version=model_version, **suggestion))
+        for key, old in previous.items():
+            if key not in retained:
+                db.delete(old)
         item.features = annotation["features"]
         item.status = "ready"
+        update_search_document(db, item)
+        if isinstance(item.features.get("analysis"), dict):
+            state = db.get(UserState, job.user_id)
+            if state:
+                state.version += 1
     elif job.kind == "price_check":
         data = job.payload
         watch = db.scalar(select(Watch).where(Watch.id == data["watch_id"], Watch.user_id == job.user_id).with_for_update())
@@ -229,8 +255,10 @@ def _run_once(factory, provider):
                 return True
             contextual = hasattr(provider, "understand_capture")
             preferences = preference_snapshot(db, job.user_id) if contextual else ()
+            current_notes = annotation_snapshot(db, job.user_id, item.id) if contextual else ()
             snapshot = AnnotationInput(title=item.title, selected_text=item.selected_text, note=item.note,
-                image_data_url=item.image_data_url, confirmed_preferences=tuple(f"{claim}: {text}" for _, claim, text in preferences))
+                image_data_url=item.image_data_url, confirmed_preferences=tuple(f"{claim}: {text}" for _, claim, text in preferences),
+                confirmed_annotations=tuple(dict.fromkeys(note for _, note in current_notes)))
 
         # No session, transaction, connection or row lock survives this boundary.
         result = provider.understand_capture(snapshot) if contextual else provider.understand(snapshot.title, snapshot.selected_text)
@@ -238,7 +266,7 @@ def _run_once(factory, provider):
         annotation = validate_annotation(result, model_version)
         annotation["features"]["suggestion_order"] = [suggestion["claim"] for suggestion in annotation["suggestions"]]
         if contextual:
-            annotation["features"]["context_evidence_ids"] = [entry[0] for entry in preferences]
+            annotation["features"]["context_evidence_ids"] = list(dict.fromkeys([entry[0] for entry in preferences] + [entry[0] for entry in current_notes]))
 
         with transaction(factory) as db:
             if contextual:
@@ -248,7 +276,7 @@ def _run_once(factory, provider):
             job = leased_job(db, candidate, token)
             if not job:
                 return True
-            if contextual and preference_snapshot(db, job.user_id) != preferences:
+            if contextual and (preference_snapshot(db, job.user_id) != preferences or annotation_snapshot(db, job.user_id, job.payload["item_id"]) != current_notes):
                 # Recompute from current evidence after deletion, rejection or a
                 # concurrent edit; never publish from a revoked preference.
                 raise ProviderError("context_changed", retryable=True)

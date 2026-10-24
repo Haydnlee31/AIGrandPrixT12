@@ -17,6 +17,7 @@ public enum ClientError: Error, LocalizedError {
     case invalidBaseURL, missingToken, invalidMutationKey, invalidResponse, invalidPagination, invalidPollingOptions
     case invalidCatalogSearch, invalidCatalogPagination, invalidCatalogSource, invalidCatalogItemId
     case invalidSavedImageId
+    case invalidLibrarySearch, invalidExploreSearch, invalidSavedItemId
     case pollingTimedOut(lastKnown: SavedItem)
     public var errorDescription: String? {
         switch self {
@@ -31,6 +32,9 @@ public enum ClientError: Error, LocalizedError {
         case .invalidCatalogSource: return "Use a catalog source name returned by the backend."
         case .invalidCatalogItemId: return "Use a bounded single record ID returned by product search."
         case .invalidSavedImageId: return "Use a single saved-item ID returned by the Library."
+        case .invalidSavedItemId: return "Use a single saved-item ID returned by the Library."
+        case .invalidLibrarySearch: return "Use a query up to 200 characters and a category up to 80 characters, without control characters."
+        case .invalidExploreSearch: return "Use a query up to 100 characters, limit 1–50, and offset below 500."
         case .pollingTimedOut: return "Your save is stored. Processing is still pending; refresh later."
         }
     }
@@ -131,7 +135,23 @@ public actor CommonThreadClient {
     public func capabilities() async throws -> Capabilities { try await send("GET", ["v1", "capabilities"]) }
     public func capture(_ request: CaptureRequest, key: MutationKey) async throws -> CaptureReceipt { try await mutation("POST", ["v1", "saves"], request, key: key) }
     public func collection(offset: Int = 0, limit: Int = 30) async throws -> CollectionPage { try await send("GET", ["v1", "collection"], query: page(offset, limit)) }
+    /// Searches the account's Library text and analyzed product facets on the server.
+    public func searchLibrary(query: String = "", category: String? = nil, limit: Int = 20, offset: Int = 0) async throws -> LibrarySearchPage {
+        guard query.unicodeScalars.count <= 200, query.unicodeScalars.allSatisfy({ $0.value >= 32 && $0.value != 127 }),
+              category.map({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.unicodeScalars.count <= 80 && $0.unicodeScalars.allSatisfy({ $0.value >= 32 && $0.value != 127 }) }) ?? true else { throw ClientError.invalidLibrarySearch }
+        guard offset <= 100000 else { throw ClientError.invalidPagination }
+        var parameters = try page(offset, limit)
+        parameters.append(URLQueryItem(name: "q", value: query))
+        if let category { parameters.append(URLQueryItem(name: "category", value: category)) }
+        return try await send("GET", ["v1", "library", "search"], query: parameters, uncached: true)
+    }
     public func savedItem(_ id: String) async throws -> SavedItem { try await send("GET", ["v1", "saves", id]) }
+    /// Request a fresh analysis without re-uploading the save. Retain the mutation key for retries.
+    public func analyzeSave(_ id: String, key: MutationKey) async throws -> AnalysisQueued {
+        guard !id.isEmpty, id.count <= 200, ![".", ".."].contains(id), !id.contains("/"), !id.contains("\\"),
+              id.unicodeScalars.allSatisfy({ $0.value >= 32 && $0.value != 127 }) else { throw ClientError.invalidSavedItemId }
+        return try await send("POST", ["v1", "saves", id, "analyze"], key: key, uncached: true)
+    }
     /// Load private image bytes with the current account's bearer token and no local URL cache.
     public func savedImage(_ id: String) async throws -> Data {
         guard !id.isEmpty, id.count <= 200, ![".", ".."].contains(id), !id.contains("/"), !id.contains("\\"),
@@ -150,6 +170,15 @@ public actor CommonThreadClient {
     /// Source readiness and permitted retrieval modes; never contains provider secrets.
     public func catalogSources() async throws -> CatalogSources {
         try await send("GET", ["v1", "commerce", "sources"], uncached: true)
+    }
+    /// Source-cited recommendations or search results. Omit source to use the backend's configured catalog.
+    public func explore(query: String = "", source: CatalogSource? = nil, limit: Int = 20, offset: Int = 0) async throws -> ExplorePage {
+        if let source { try validateCatalogSource(source) }
+        guard query.unicodeScalars.count <= 100, query.unicodeScalars.allSatisfy({ $0.value >= 32 && $0.value != 127 }),
+              (1...50).contains(limit), (0..<500).contains(offset) else { throw ClientError.invalidExploreSearch }
+        var parameters = [URLQueryItem(name: "q", value: query), URLQueryItem(name: "limit", value: String(limit)), URLQueryItem(name: "offset", value: String(offset))]
+        if let source { parameters.append(URLQueryItem(name: "source", value: source.rawValue)) }
+        return try await send("GET", ["v1", "explore"], query: parameters, uncached: true)
     }
     /// Search one licensed dataset or approved feed. Source data does not guarantee delivery.
     public func searchProducts(source: CatalogSource, query: String, limit: Int = 20, offset: Int = 0) async throws -> CatalogSearchPage {
