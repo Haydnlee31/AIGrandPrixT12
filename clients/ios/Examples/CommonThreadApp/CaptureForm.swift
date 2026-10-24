@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 /// The same immutable request and key survive retries through the shared outbox.
 struct CaptureForm: View {
     let connection: SharedEnvironment?
+    var onLocalSave: ((String) -> Void)? = nil
     let onSave: () -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -398,7 +399,7 @@ struct CaptureForm: View {
                     text: savedText, note: note, source: captureSource, attachments: attachments.map(\.value),
                     intents: selectedIntents, analysis: analysisToSave, userEditedTitle: titleWasEdited)
                 receipt = saved
-                FindsHaptics.success(); onSave()
+                FindsHaptics.success(); onLocalSave?(saved.id); onSave()
                 return
             }
             let draft = pending ?? PendingCapture(
