@@ -298,7 +298,7 @@ class RequestBoundary:
         self.app, self.token = app, token
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or scope["path"] not in {"/v1/capture-preview", "/v1/recommendations", "/v1/refine-intent", "/v1/dictation", "/v1/radar", "/v1/price-check", "/v1/price-watch", "/v1/discover", "/v1/catalog/status"}:
+        if scope["type"] != "http" or scope["path"] not in {"/v1/capture-preview", "/v1/recommendations", "/v1/refine-intent", "/v1/dictation", "/v1/radar", "/v1/price-check", "/v1/price-watch", "/v1/discover", "/v1/taste-lab", "/v1/taste-interpret", "/v1/catalog/status"}:
             return await self.app(scope, receive, send)
         headers = dict(scope.get("headers", []))
         authorization = headers.get(b"authorization", b"")
@@ -612,6 +612,8 @@ def create_app(*, api_key: str | None = None, token: str | None = None, model: s
     register_recommendations(app, factory=recommendation_factory, discovery=discovery)
     from .discovery import register_discovery
     register_discovery(app, app.state.recommendation_service)
+    from .taste_lab import register_taste
+    register_taste(app, app.state.recommendation_service, api_key=key, model=selected_model, transport=transport, clock=clock, wall_clock=wall_clock, timeout=timeout)
     register_radar(app, interpreter=RadarIntentService(api_key=key, model=selected_model, transport=transport,
         clock=clock, wall_clock=wall_clock, rate_limit=min(rate_limit, 12), timeout=timeout),
         recommendation_service=app.state.recommendation_service)

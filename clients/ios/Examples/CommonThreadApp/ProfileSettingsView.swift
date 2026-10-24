@@ -104,7 +104,7 @@ private struct FindsPrivacyView: View {
                 }
             }
             Section("Shared library") {
-                Text("When connected, saves made in your shared library go to the server you chose. AI features may send shared content to the providers configured by that server. Your access key is kept in the iPhone Keychain.")
+                Text("When signed in, shared saves go to your Mynah account and update across your connected devices. AI features may send shared content to the providers configured by that server. Your login session, or legacy demo key, is kept in iPhone Keychain and shared securely with the Mynah Share Extension.")
             }
             Section("Price tracking") {
                 Text("Creating a price watch stores its product link, target and observed prices with the connected service. Checks continue while that service is running; updates appear in Radar. Stop tracking in Radar to remove the watch and its history. Price checks do not send your saved photos or notes to Amazon.")
