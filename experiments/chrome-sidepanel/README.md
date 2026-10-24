@@ -1,4 +1,4 @@
-# Mynah Finds — Chrome extension 0.4
+# Mynah Finds — Chrome extension 0.4.1
 
 Capture a page, screenshot or selected image, understand its products, and explore recommendations from the same shared library as the web app. This is the installed side-panel extension in `experiments/chrome-sidepanel/`; the older `extension/` popup is a separate scaffold.
 
@@ -10,13 +10,19 @@ For an existing installation, replace its files **in the same unpacked folder** 
 
 1. Open the extension's **Library connection settings**.
 2. Use **https://mynah-finds.vercel.app** and the same **Mynah account access key** as the web app. Never use an OpenAI provider key here.
-3. Approve Chrome's permission for that backend hostname. New saves and answers go to the shared account; existing unshared saves remain local until **Share with library**.
+3. Approve Chrome's permission for that backend hostname. New saves and answers go to the shared account; existing unshared saves remain local until **Get AI suggestions for this find** (or **Share with library** on a basic server).
 4. Open a normal page and click the toolbar bird to grant active-tab access. **Save page** captures visible article text/selection; **Screenshot** captures the visible page. Upload accepts JPEG, PNG or WebP. Right-click an image to save that detail.
 5. **Library** combines local finds with the account's shared finds. **Refresh**, reopening the panel or returning to it pulls changes from other clients.
 6. Open a shared find for **Based on your find**: AI summary, products, observed or inferred attributes, supporting evidence and uncertainties. Choose an intent or write a note. **Refresh AI insights** requests a fresh analysis.
 7. **Explore** shows catalog matches based on analyzed shared saves, or an explicit product search. **Why this?** explains the match and opens the saved evidence. Each result retains its source and license attribution.
 
 Unshared local saves do not influence shared recommendations. If iOS still says **On this iPhone / Local Library**, it is not syncing yet: it must use the same URL, account and shared API contract. This branch makes no iOS changes. Native iOS Radar/notifications are not part of this extension update.
+
+## Prompts that match the saved content
+
+Version 0.4.1 recognizes product metadata and named devices such as Apple Watch before incidental activity keywords. Basic prompts no longer infer a topic from arbitrary full-page body text. Existing local basic prompts refresh when reopened; saved images, answers and pending sync requests stay intact.
+
+**On this device · Basic suggestions** uses saved text, not visual AI. Unnamed image uploads receive neutral choices. Use **Connect for AI suggestions**, connect to the shared backend above, then **Get AI suggestions for this find** to share that specific local save for analysis. Connecting alone does not upload existing local finds. Shared AI responses are checked against the find ID and revision before replacing prompts.
 
 ## Shared backend contract
 
@@ -48,7 +54,7 @@ Legacy local 0.3 servers still support capture, intents and sync using their ori
 
 ## Ownership and validation
 
-`panel.js` owns navigation and account refresh; `intelligence.js` renders product insights and Explore; `shared.js` owns durable capture/answer retries; `library-view.js` merges local and remote data; `connection.js` requests host access; `storage.js` remains unchanged.
+`panel.js` owns navigation and account refresh; `intelligence.js` renders product insights and Explore; `shared.js` owns durable capture/answer retries; `library-view.js` merges local and remote data; `connection.js` requests host access; `storage.js` preserves saved originals and answers while refreshing outdated basic prompts.
 
 The transport and feed/presentation helpers in `lib/` were taken from the deployed web branch at `898a6d8`, with a legacy `retrySave` adapter. The generic handoff packager must not overwrite this SDK with the older root SDK. No dependencies were added.
 

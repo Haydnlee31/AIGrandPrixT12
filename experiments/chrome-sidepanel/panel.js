@@ -190,8 +190,11 @@ function renderDetail(item) {
   if (item.excerpt) { find('.source-text').hidden = false; find('.source-text p').textContent = item.excerpt; }
   find('.sync-state').textContent = item.shared ? `Shared library · ${item.shared.remote?.status === 'ready' ? 'Saved' : item.shared.remote?.status === 'enrichment_failed' ? 'Saved; understanding failed' : 'Waiting to finish syncing'}` : 'Saved on this device';
   if (item.shared?.duplicate) find('.sync-state').textContent += ' · Already saved; original details kept';
-  find('.sync-save').textContent = item.shared ? (connection?.productAnalysis ? 'Refresh AI insights' : 'Refresh / retry sync') : 'Share with library';
-  find('.sync-save').addEventListener('click', () => run(() => share(item.id, true)));
+  find('.sync-save').textContent = !connection ? 'Connect for AI suggestions' : item.shared ? (connection.productAnalysis ? 'Refresh AI insights' : 'Refresh / retry sync') : connection.ai ? 'Get AI suggestions for this find' : 'Share with library';
+  find('.sync-save').addEventListener('click', () => {
+    if (!connection) { $('#connection-error').hidden = true; $('#settings-dialog').showModal(); }
+    else run(() => share(item.id, true));
+  });
   const features = item.shared?.remote?.features;
   if (!item.shared?.remote?.analysis && !features?.analysis && features?.summary) { find('.understanding').hidden = false; find('.understanding').textContent = `${['openai', 'astra'].includes(features.data_mode) ? 'AI interpretation: ' : ''}${features.summary}`; }
   for (const evidence of features?.evidence || []) {
@@ -202,6 +205,8 @@ function renderDetail(item) {
   find('.question-block').hidden = !showQuestion;
   find('.answer-block').hidden = showQuestion;
   find('.question-title').textContent = item.question.prompt;
+  const aiQuestion = item.question.engine === 'shared' && (['openai', 'astra'].includes(features?.data_mode) || Boolean(item.shared?.remote?.analysis));
+  find('.question-mode').textContent = aiQuestion ? 'AI suggestions for this saved find' : 'Basic suggestions from saved text only. Image contents have not been analysed for these prompts.';
   find('.question-basis').textContent = `Suggested from ${item.question.basis}. Choose what fits, or skip.`;
   if (item.imageCapture === 'visible-crop') { find('.capture-quality').hidden = false; find('.capture-quality').textContent = 'Saved the visible part of this image. The site did not allow copying the original.'; }
   for (const choice of item.question.options) {

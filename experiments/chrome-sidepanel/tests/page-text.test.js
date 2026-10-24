@@ -27,3 +27,14 @@ test('articles include main text, and an explicit selection takes priority', () 
   globalThis.getSelection = () => 'Only this selected paragraph';
   assert.equal(readPage().excerpt, 'Only this selected paragraph');
 });
+test('explicit product metadata is preserved instead of treating every merchant page as an article', () => {
+  globalThis.location = {hostname: 'shop.example', href: 'https://shop.example/x1'};
+  globalThis.getSelection = () => '';
+  globalThis.document = {title: 'X1 Pro', querySelector(selector) {
+    if (selector === 'meta[property="og:type"]') return {content: 'product'};
+    if (selector === 'main') return {querySelectorAll: () => [{innerText: 'Built for hiking and cycling'}]};
+    return null;
+  }};
+  const result = readPage();
+  assert.equal(result.contentType, 'product'); assert.equal(result.title, 'X1 Pro');
+});
