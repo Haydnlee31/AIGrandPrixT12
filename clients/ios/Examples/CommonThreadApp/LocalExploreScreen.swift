@@ -21,12 +21,14 @@ struct LocalRecommendation: Decodable, Identifiable {
     let sourceName: String
     let sourceRecordID: String
     let sourceURL: String
+    let discoveryHint: String?
     let productURL: String?
     let licenseURL: String?
     let attribution: String?
     let reasons: [Reason]
     enum CodingKeys: String, CodingKey {
         case id, title, reasons, attribution
+        case discoveryHint = "discovery_hint"
         case imageURL = "image_url", sourceName = "source_name", sourceRecordID = "source_record_id"
         case sourceURL = "source_url", licenseURL = "license_url", productURL = "product_url"
     }
@@ -60,7 +62,9 @@ struct LocalExploreScreen: View {
     let query: String
     let libraryRevision: String
     var refreshID = UUID()
+    var onlyFindID: String? = nil
     var onChanged: () -> Void = {}
+    @State private var showingDiscovery = false
     @State private var finds: [SavedItem] = []
     @State private var metadata: [String: LocalFindMetadata] = [:]
     @State private var page: LocalRecommendationPage?
@@ -78,10 +82,21 @@ struct LocalExploreScreen: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
+                Button { showingDiscovery = true } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "sparkles.rectangle.stack.fill").foregroundStyle(.purple).font(.title2)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Show me something interesting").font(.headline)
+                            Text("Follow your curiosity.").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer(); Image(systemName: "arrow.up.right").foregroundStyle(.secondary)
+                    }.padding(18).background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 22))
+                }.buttonStyle(.plain)
                 recommendations
             }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 24)
         }
         .scrollDismissesKeyboard(.interactively)
+        .sheet(isPresented: $showingDiscovery) { DiscoveryScreen() }
         .task(id: taskID) { await load() }
     }
     @ViewBuilder private var recommendations: some View {
@@ -123,7 +138,7 @@ struct LocalExploreScreen: View {
     }
     @ViewBuilder private var emptyState: some View {
         if finds.isEmpty {
-            LibraryEmptyState(symbol: "bookmark", title: "Start with a find.", detail: "Save something you like in Library.")
+            LibraryEmptyState(symbol: "bookmark", title: "Start anywhere.", detail: "Explore something interesting above, or save your own inspiration.")
         } else if !CaptureIntelligence.isConfigured {
             LibraryEmptyState(symbol: "sparkles", title: "Connect AI.", detail: "Open AI & privacy in Profile.")
         } else if page?.status == "catalog_unavailable" {
@@ -144,7 +159,7 @@ struct LocalExploreScreen: View {
         if let focusedFind, !finds.contains(where: { $0.id == focusedFind }) { self.focusedFind = nil }
     }
     @MainActor private func payload() throws -> Data {
-        let input: [[String: Any]] = try finds.filter { focusedFind == nil || $0.id == focusedFind }.prefix(24).map { find in
+        let input: [[String: Any]] = try finds.filter { (onlyFindID ?? focusedFind) == nil || $0.id == (onlyFindID ?? focusedFind) }.prefix(24).map { find in
             let context = metadata[find.id] ?? LocalFindMetadata()
             // Duplicate saves keep their complete notes locally; transport respects
             // the shared recommendation contract instead of rejecting a large group.
@@ -181,7 +196,7 @@ struct LocalExploreScreen: View {
             try await requestRecommendations(force: force)
             busy = false
             guard query.isEmpty else { return }
-            let missing = finds.filter { (focusedFind == nil || $0.id == focusedFind) && metadata[$0.id]?.analysis?.schemaVersion != 2 }.prefix(2)
+            let missing = finds.filter { ((onlyFindID ?? focusedFind) == nil || $0.id == (onlyFindID ?? focusedFind)) && metadata[$0.id]?.analysis?.schemaVersion != 2 }.prefix(2)
             var changed = false
             for find in missing {
                 try Task.checkCancellation(); analyzing = true
@@ -226,7 +241,7 @@ private struct LocalRecommendationCard: View {
     }
 }
 
-private struct LocalRecommendationDetail: View {
+struct LocalRecommendationDetail: View {
     let item: LocalRecommendation
     let finds: [SavedItem]
     let onChanged: () -> Void

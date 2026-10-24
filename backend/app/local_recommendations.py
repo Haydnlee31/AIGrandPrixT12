@@ -172,7 +172,7 @@ def _profile(find):
         # color/material choices made by the person.
         anchors.append(Facet("category_path", categories[-1], "category_match", 4))
     facets = list(anchors)
-    if analysis.brand:
+    if analysis.brand and not any("brand flexible" in value.casefold() for value in find.intents):
         facets.append(Facet("brand", analysis.brand, "brand_match", 5))
     for style in analysis.style:
         # A multiword visual description can still provide an individual color

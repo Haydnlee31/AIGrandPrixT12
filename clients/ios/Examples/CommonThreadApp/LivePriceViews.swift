@@ -66,7 +66,7 @@ private struct PriceSnapshotView: View {
                         Text("\(reduction)% below \(label)").fontWeight(.semibold).foregroundStyle(.green)
                     }.font(.caption)
                 }
-                Text("Item price · Shipping and eligibility checked on Amazon").font(.caption).foregroundStyle(.secondary)
+                Text("Item price · Confirm shipping and eligibility on Amazon").font(.caption).foregroundStyle(.secondary)
             } else {
                 Text("Price unavailable").font(.headline)
                 Text(snapshot.message).font(.footnote).foregroundStyle(.secondary)

@@ -74,7 +74,7 @@ def compatible(find, product):
     record={'title':title,'category':wanted,'description':''}
     if not _category_compatible(profile,record,requires_mobile_phone=_requires_mobile_phone(find),
         requires_smartwatch=_requires_smartwatch(find),requires_digital_watch=_requires_digital_watch(find)): return False
-    if find.analysis and find.analysis.brand and find.analysis.brand.casefold()=='apple' and not re.search(r'\bapple\b',title,re.I): return False
+    if find.analysis and find.analysis.brand and find.analysis.brand.casefold()=='apple' and not any('brand flexible' in v.casefold() for v in find.intents) and not re.search(r'\bapple\b',title,re.I): return False
     # A vintage automatic watch must not become a digital sports chronograph.
     if re.search(r'\b(?:automatic|self.winding|mechanical)\b',' '.join(find.intents)+find.title,re.I) and re.search(r'\bdigital\b',title,re.I): return False
     return True
@@ -136,7 +136,7 @@ class AmazonDiscovery:
             p=_profile(find)
             if not p or find.id in covered: continue
             family=p.anchor[0].value
-            brand=find.analysis.brand or ''
+            brand='' if any('brand flexible' in v.casefold() for v in find.intents) else (find.analysis.brand or '')
             query=(brand+' '+('Watch' if brand.lower()=='apple' and family=='watch' else 'iPhone' if brand.lower()=='apple' and family=='phone' else 'smartwatch' if _requires_smartwatch(find) else 'smartphone' if _requires_mobile_phone(find) else family)).strip()
             if family not in {'watch','phone','lamp','chair','shoe','headphone','bag','camera','laptop'}: continue
             if family in families: continue
