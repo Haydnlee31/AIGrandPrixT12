@@ -157,6 +157,12 @@ struct MymahFindsView: View {
             .navigationTitle("Library")
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search finds, notes, categories")
             .toolbar {
+                if let connection {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        NavigationLink { PriceWatchesView(connection: connection, trackingMode: "unknown") } label: { Image(systemName: "tag") }
+                            .accessibilityLabel("Tracked prices")
+                    }
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button { showingCapture = true; FindsHaptics.selection() } label: { Image(systemName: "plus") }
                         .accessibilityLabel("Save a find").accessibilityIdentifier("addSave")

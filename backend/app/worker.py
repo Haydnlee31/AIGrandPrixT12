@@ -308,10 +308,15 @@ def _run_once(factory, provider):
 
 
 def run_forever(factory, stop=None, provider=None):
+    from .tracking import check_due
     provider = provider if provider is not None else get_annotation_provider()
+    next_catalog_check = 0
     try:
         while stop is None or not stop.is_set():
             try:
+                if time.monotonic() >= next_catalog_check:
+                    next_catalog_check = time.monotonic() + 30
+                    check_due(factory)
                 worked = run_once(factory, provider)
             except Exception as error:
                 logger.error("worker_iteration_failed error_type=%s", type(error).__name__)

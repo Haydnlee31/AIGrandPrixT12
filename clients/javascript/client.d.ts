@@ -1,6 +1,7 @@
 import type { Capture, CaptureResult, Identity, Health, Capabilities, SavedItemView, CollectionPage, AnnotationResponse, AnnotationResult, Hypotheses, HypothesisFeedback, HypothesisView, StartDiscovery, DiscoveryView, Discoveries, DiscoveryEvent, Catalog, CreateWatch, WatchView, Watches, UpdateWatch, SimulatedPrice, QueuedPriceCheck, Notifications, JobView, TraceView, Deleted, Reset } from './types';
 export * from './types';
 import type { CatalogSources, CatalogSearchPage, CatalogRecord, LibrarySearchPage, AnalysisQueued, ExplorePage } from './types';
+import type { CatalogWatchRequest, PriceHistory } from './types';
 export interface ReadOptions { signal?: AbortSignal; timeoutMs?: number }
 export interface MutationOptions extends ReadOptions { idempotencyKey: string }
 export interface PageOptions extends ReadOptions { offset?: number; limit?: number }
@@ -33,6 +34,9 @@ export class CommonThreadClient {
   searchProducts(options: PageOptions & {source: string; query: string}): Promise<CatalogSearchPage>;
   catalogItem(source: string, id: string, options?: ReadOptions): Promise<CatalogRecord>;
   createWatch(payload: CreateWatch, options: MutationOptions): Promise<WatchView>;
+  createCatalogWatch(payload: CatalogWatchRequest, options: MutationOptions): Promise<WatchView>;
+  priceHistory(id: string, options?: PageOptions): Promise<PriceHistory>;
+  checkWatch(id: string, options: MutationOptions): Promise<WatchView>;
   watches(options?: PageOptions): Promise<Watches>;
   getWatch(id: string, options?: ReadOptions): Promise<WatchView>;
   updateWatch(id: string, payload: UpdateWatch, options: MutationOptions): Promise<WatchView>;
