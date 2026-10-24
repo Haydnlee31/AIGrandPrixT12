@@ -422,3 +422,48 @@ def test_analysis_schema_is_embedded_and_strict_at_every_object():
         verify(schema)
         return httpx.Response(200, json=envelope())
     provider(handle).understand_capture(capture())
+
+
+def test_text_only_schema_prevents_visual_claims_and_does_not_mutate_image_schema():
+    from backend.app.predictive import capture_output_schema
+    text = capture_output_schema(image_present=False, note_present=False)
+    image = capture_output_schema(image_present=True, note_present=True)
+    assert text['properties']['visual_attributes']['maxItems'] == 0
+    assert image['properties']['visual_attributes']['maxItems'] == 6
+    assert text['properties']['analysis']['properties']['intent_context']['maxItems'] == 0
+    attrs = text['properties']['analysis']['properties']['products']['items']['properties']['attributes']['items']
+    assert attrs['properties']['basis']['enum'] == ['captured_text']
+
+
+def test_invalid_visual_response_retries_once_with_sources_still_validated():
+    calls = []
+    def handle(request):
+        body = json.loads(request.content); calls.append(body)
+        assert 'reasoning' not in body
+        return httpx.Response(200, json=envelope(result(visual_attributes=['imaginary color']) if len(calls) == 1 else result()))
+    output = provider(handle, model='gpt-4.1-mini').understand_capture(capture())
+    assert len(calls) == 2
+    assert 'previous response failed' in calls[1]['instructions']
+    assert output['features']['visual_attributes'] == []
+
+
+def test_repair_never_accepts_repeated_unsupported_visual_claims():
+    calls = []
+    def handle(request):
+        calls.append(request)
+        return httpx.Response(200, json=envelope(result(visual_attributes=['unseen color'])))
+    with pytest.raises(ProviderError, match='astra_unobserved_visual_attributes'):
+        provider(handle).understand_capture(capture())
+    assert len(calls) == 2
+
+
+def test_text_evidence_choices_are_actual_bounded_source_quotes():
+    from backend.app.predictive import capture_output_schema
+    from backend.app.understanding import normalized_text
+    source = 'Apple Watch Series 12 - Apple\n' + ('Heart rate sensing with S11 chip. ' * 12)
+    schema = capture_output_schema(image_present=False, note_present=False, captured_text=source)
+    fact = schema['properties']['analysis']['properties']['products']['items']['properties']['attributes']['items']
+    quotes = fact['properties']['evidence']['enum']
+    assert quotes
+    assert all(0 < len(q) <= 150 and normalized_text(q) in normalized_text(source) for q in quotes)
+    assert 'Apple Watch Series 12 - Apple' in quotes
