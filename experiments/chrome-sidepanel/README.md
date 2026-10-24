@@ -7,15 +7,28 @@ This is Chime’s standalone, side-panel extension, version 0.3.0 with optional 
 Load this folder unpacked in Chrome. If you already installed the previous local `mynah-finds/` folder, update its files in place and click **Reload** on the existing extension in `chrome://extensions`. Keep the same folder and installation to preserve its extension ID and saved library. Do not uninstall it.
 
 1. Open a regular website and click the Mynah Finds toolbar icon to grant access to that tab.
-2. Click **Save page**, then tap one suggested intent. There is no required typing. **Add a note**, a custom answer, **Not now**, and inspiration-only choices remain available.
-3. **Screenshot** saves the visible page. **Upload an image** accepts PNG, JPEG or WebP up to 8 MB. **Conversation screenshot** uses the same picker. Local/basic mode offers honest general choices; configured AI mode reads the uploaded image to generate contextual choices.
+2. Click **Save page**, then tap one suggested intent. There is no required typing. **Add a note**, a custom answer, **Just save for later**, and inspiration-only choices remain available.
+3. **Screenshot** saves the visible page. **Upload image** accepts PNG, JPEG or WebP up to 8 MB. **Conversation screenshot** uses the same picker. Local/basic mode offers honest general choices; configured AI mode reads the uploaded image to generate contextual choices.
 4. Right-click an image and choose **Save image to Mynah Finds**. The panel opens with the image and its intent choices. The image is copied locally, along with its page source and available alt text/caption. When browser cross-origin protections prevent copying pixels directly, the extension saves a labelled crop of the visible image. Bring the whole image into view if you need the full picture. Protected embedded frames may require opening the image in a new tab or uploading it.
 
 The updated toolbar and panel use the team’s existing bird icons. No build step is needed. Local saving needs no server or key. Optional shared mode needs the local backend below. Run `npm test` for the tests.
 
+## Side-panel design
+
+The home view puts **Save page** and **Screenshot** first, followed by image upload and the saved library. Opening or saving a find presents its question in a dedicated view; a single choice saves the intent. **All finds** returns to the library. Notes and custom answers remain optional. Connection setup is in a native dialog, with keyboard focus and Escape dismissal.
+
+The visual direction follows the teammate’s `codex/ios-app` source (`NativeTheme.swift` and `LibraryPresentation.swift`): white surfaces, system typography, black capsule actions, soft cards and the existing bird artwork. Chrome keeps capture controls close to the current page instead of copying the iOS navigation tabs.
+
+Mobbin references inspected for this pass:
+
+- [Pinterest — Saving a pin](https://mobbin.com/flows/1aa81943-6b3c-4d7b-a807-176a589eee42): save immediately, confirm, then offer optional organisation.
+- [ElevenReader — Library](https://mobbin.com/screens/569b6dc6-5c00-4576-8941-44f8e7b0519b): compact saved-item rows with a clear title and restrained controls.
+
+These inform interaction and hierarchy; no third-party artwork is bundled. Design-taste draw: `achromatic-ledger`, seed `457204930`; rounded cards follow the supplied iOS reference. The only shadow belongs to the modal overlay. Visual checks use the permitted computer-use tool in actual Chrome, rather than a separate browser automation script.
+
 ## Connect to the local backend
 
-From the repository root, install `requirements.lock` into `.venv` and run `make run`. Open **Connect a shared library** in the side panel and use `http://127.0.0.1:8000` with the development token `demo-alex`. Grant access to that local backend. The web library opens at the same URL and uses the same demo account.
+From the repository root, install `requirements.lock` into `.venv` and run `make run`. Open **Library connection settings** (the sliders button) in the side panel and use `http://127.0.0.1:8000` with the development token `demo-alex`. Grant access to that local backend. The web library opens at the same URL and uses the same demo account.
 
 After connecting, new captures and answers sync. Existing local saves stay local until you choose **Share with library**. Tokens last only for the Chrome session; reconnect after a browser restart. No provider key belongs in the extension.
 
@@ -25,7 +38,7 @@ The server uses the [Responses image-input API](https://developers.openai.com/ap
 
 ## What the question uses
 
-Local mode uses captured article text, selected text, social captions, image alt text/captions, optional notes, and the chosen conversation type. It preserves the existing birdwatching/creative intent choices. Basic backend mode never claims to read an image. AI mode sends only the explicitly shared save’s text/image to the server-side model, returning one question, possible intents and supporting evidence. “Just inspiration” and “Not now” remain available.
+Local mode uses captured article text, selected text, social captions, image alt text/captions, optional notes, and the chosen conversation type. It preserves the existing birdwatching/creative intent choices. Basic backend mode never claims to read an image. AI mode sends only the explicitly shared save’s text/image to the server-side model, returning one question, possible intents and supporting evidence. “Just inspiration” and “Just save for later” remain available.
 
 Text evidence is checked against captured text. Image evidence is labelled as an unverified AI reading. A quote from a friend or article is not independent verification of its claim. The model has no browsing or action tools; out-of-scope/unclear/refused results get a neutral fallback, unsupported text evidence fails safely, and numeric price/discount assertions are filtered. These controls reduce mistakes; they do not guarantee perfect model accuracy.
 

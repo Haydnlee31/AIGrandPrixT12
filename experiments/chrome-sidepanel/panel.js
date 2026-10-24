@@ -31,14 +31,16 @@ function element(tag, className, text) {
 }
 
 function showError(error) {
-  $('#error').textContent = error.message || 'Something went wrong. Please try again.';
-  $('#error').hidden = false;
+  const target = $('#settings-dialog').open ? $('#connection-error') : $('#error');
+  target.textContent = error.message || 'Something went wrong. Please try again.';
+  target.hidden = false;
 }
 
 async function run(work) {
   if (busy) return;
   busy = true;
   $('#error').hidden = true;
+  $('#connection-error').hidden = true;
   document.querySelectorAll('button, input, textarea').forEach(control => { control.disabled = true; });
   try { await work(); }
   catch (error) { $('#status').textContent = ''; showError(error); }
@@ -47,30 +49,34 @@ async function run(work) {
 
 async function refresh() {
   items = await listSaves();
-  if (!items.some(item => item.id === selectedId)) { selectedId = items[0]?.id; editing = false; }
+  if (!items.some(item => item.id === selectedId)) { selectedId = undefined; editing = false; }
   render();
 }
 
 function render() {
-  $('.local-badge').textContent = connection ? (connection.ai ? 'CONNECTED · AI' : 'CONNECTED · BASIC') : 'LOCAL';
+  $('.local-badge').textContent = connection ? (connection.ai ? 'Connected · AI suggestions' : 'Connected · Basic suggestions') : 'On this device · Basic suggestions';
+  $('.collection').hidden = Boolean(selectedId);
   $('#count').textContent = `${items.length} ${items.length === 1 ? 'save' : 'saves'}`;
   const library = $('#library');
   library.replaceChildren();
   if (!items.length) {
     const empty = element('div', 'empty');
-    empty.append(element('div', 'empty-mark', '＋'), element('h3', '', 'Good ideas start somewhere.'), element('p', '', 'Save your first page or screenshot above.'));
+    const bird = element('img'); bird.src = 'icons/icon-128.png'; bird.alt = '';
+    empty.append(bird, element('h3', '', 'A home for your finds.'), element('p', '', 'An idea. A lovely object. Something for later. Save your first page above.'));
     library.append(empty);
   }
   for (const item of items) {
     const button = element('button', 'library-item');
     button.setAttribute('aria-pressed', String(item.id === selectedId));
-    const thumb = item.image ? element('img', 'thumbnail') : element('span', 'thumbnail', '↗');
+    const thumb = item.image ? element('img', 'thumbnail') : document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    if (!item.image) { thumb.setAttribute('class', 'thumbnail-symbol'); thumb.setAttribute('viewBox', '0 0 24 24'); thumb.setAttribute('aria-hidden', 'true'); const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', 'M6 4h12v17l-6-4-6 4z'); thumb.append(path); }
     if (item.image) { thumb.src = item.image; thumb.alt = ''; }
     const copy = element('span', 'item-copy');
     const context = !item.answer ? 'Add context' : item.answer.kind === 'skipped' ? 'For later' : 'Context saved';
     copy.append(element('span', 'item-title', item.title), element('span', 'item-meta', `${labelFor(item)} · ${context}`));
-    button.append(thumb, copy, element('span', 'item-arrow', '↗'));
-    button.addEventListener('click', () => { selectedId = item.id; editing = false; $('#status').textContent = ''; $('#error').hidden = true; render(); detail.scrollIntoView({ block: 'start', behavior: 'smooth' }); });
+    const arrow = element('span', 'item-arrow', '›'); arrow.setAttribute('aria-hidden', 'true');
+    button.append(thumb, copy, arrow);
+    button.addEventListener('click', () => { if (busy) return; selectedId = item.id; editing = false; $('#status').textContent = ''; $('#error').hidden = true; render(); detail.querySelector('.back-to-library').focus(); detail.scrollIntoView({ block: 'start' }); });
     library.append(button);
   }
   renderDetail(items.find(item => item.id === selectedId));
@@ -85,7 +91,6 @@ function renderDetail(item) {
   find('.saved-title').textContent = item.title;
   find('.kind-badge').textContent = labelFor(item);
   if (item.image) { find('.hero-image').src = item.image; find('.hero-image').hidden = false; }
-  else { find('.page-preview').hidden = false; find('.preview-domain').textContent = new URL(item.url).hostname.replace(/^www\./, ''); }
   const source = safeUrl(item.url);
   if (source) find('.source-link').href = source;
   else find('.source-link').hidden = true;
@@ -107,8 +112,6 @@ function renderDetail(item) {
   find('.question-title').textContent = item.question.prompt;
   find('.question-basis').textContent = `Suggested from ${item.question.basis}. Choose what fits, or skip.`;
   if (item.imageCapture === 'visible-crop') { find('.capture-quality').hidden = false; find('.capture-quality').textContent = 'Saved the visible part of this image. The site did not allow copying the original.'; }
-  // Put the one-tap choices before the large preview, so saving never feels like a form.
-  find('.saved-title').after(find('.question-block'), find('.answer-block'));
   for (const choice of item.question.options) {
     const button = element('button', 'choice', choice.label);
     button.addEventListener('click', () => answer(item.id, { optionId: choice.id }));
@@ -119,10 +122,11 @@ function renderDetail(item) {
   if (item.answer) {
     find('.answer-label').textContent = item.answer.label;
     find('.answer-next').textContent = item.answer.next;
-    if (item.answer.kind === 'skipped') find('.answer-block .eyebrow').textContent = 'SAVED FOR LATER';
+    if (item.answer.kind === 'skipped') find('.answer-block .answer-status').textContent = 'Kept for later';
     if (item.answer.kind === 'text') find('#own-answer').value = item.answer.label;
   }
-  find('.edit-answer').addEventListener('click', () => { editing = true; renderDetail(item); find('.choice').focus(); });
+  find('.edit-answer').addEventListener('click', () => { editing = true; renderDetail(item); find('.choice').focus({preventScroll: true}); detail.scrollIntoView({block: 'start'}); });
+  find('.back-to-library').addEventListener('click', () => { if (busy) return; selectedId = undefined; editing = false; $('#status').textContent = ''; render(); const first = $('#library .library-item'); if (first) first.focus({preventScroll: true}); window.scrollTo({top: 0}); });
   find('.delete').addEventListener('click', event => {
     if (event.currentTarget.dataset.confirm !== 'yes') {
       event.currentTarget.dataset.confirm = 'yes';
@@ -159,11 +163,12 @@ async function keep(capture) {
   await refresh();
   channel.postMessage('changed');
   if (connection) await share(item.id);
-  $('#status').textContent = 'Saved. Tap an intent below — no typing needed.';
-  const heading = detail.querySelector('.question-title');
-  heading.setAttribute('tabindex', '-1');
-  heading.focus();
-  detail.querySelector('.question-block').scrollIntoView({ block: 'start', behavior: 'smooth' });
+  const hasAnswer = Boolean(items.find(saved => saved.id === item.id)?.answer);
+  $('#status').textContent = hasAnswer ? 'Saved with your existing intent.' : 'Saved. Choose what it means to you.';
+  const focus = detail.querySelector(hasAnswer ? '.answer-block' : '.question-title');
+  focus.setAttribute('tabindex', '-1');
+  focus.focus({preventScroll: true});
+  detail.scrollIntoView({ block: 'start' });
 }
 
 async function share(id, retryUnderstanding = false) {
@@ -190,6 +195,8 @@ $('#connection-form').addEventListener('submit', event => {
   run(async () => { await pending; $('#backend-token').value = ''; await refreshConnection(); });
 });
 $('#disconnect').addEventListener('click', () => run(async () => { await disconnect(); await refreshConnection(); }));
+$('#open-settings').addEventListener('click', () => { $('#connection-error').hidden = true; $('#settings-dialog').showModal(); });
+$('#close-settings').addEventListener('click', () => $('#settings-dialog').close());
 
 $('#save-page').addEventListener('click', () => run(() => keep(() => capturePage('page', $('#capture-note').value))));
 $('#save-screenshot').addEventListener('click', () => run(() => keep(() => capturePage('screenshot', $('#capture-note').value))));
@@ -215,7 +222,7 @@ async function syncContext() {
     if (imageCapture.error) showError(new Error(imageCapture.error));
   }
   await refresh();
-  if (imageCapture?.id && selectedId === imageCapture.id) detail.querySelector('.question-block')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  if (imageCapture?.id && selectedId === imageCapture.id) detail.querySelector('.question-block')?.scrollIntoView({ block: 'start' });
 }
 chrome.storage?.onChanged.addListener((changes, area) => { if (area === 'session' && changes.imageCapture) syncContext().catch(showError); if (area === 'session' && changes.sharedConnection) refreshConnection().catch(showError); });
 channel.onmessage = () => { if (!busy) refresh().catch(showError); else refreshPending = true; };

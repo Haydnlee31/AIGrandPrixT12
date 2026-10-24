@@ -10,6 +10,15 @@ Checked 25 October 2026. This branch extends the original local capture experime
 - Regular Chrome: user reloaded the existing installation; all four earlier saves remained visible. Connected to the local backend, shared the existing NParks article and retained its **Explore binoculars for birdwatching** answer. Duplicate capture correctly reused the existing backend item.
 - Real OpenAI calls have **not** been run because no server key is configured. Provider tests use mocked HTTP responses, not fake live-AI results. Browser testing uses visibly labelled basic mode. Full video/audio, live product recommendations/prices, autonomous monitoring and production identity remain unimplemented.
 
+## Side-panel design refresh
+
+- Re-ran all **28 side-panel tests** and JavaScript syntax checks after the layout/navigation changes. `git diff --check` passed. Design lint reports no failures; its single shadow warning is the intentional native dialog overlay.
+- Chrome for Testing: the saved library opens by default; opening an article shows its saved intent. **Change** brings all four contextual options into view. Tab + Return selected and persisted the binoculars intent, then **All finds** restored the capture controls and library.
+- Inspected the compact panel visually: readable wrapped labels, image thumbnails, no clipped primary controls, visible keyboard focus. The settings dialog displays the existing basic-mode connection, focuses its close button and returns focus to the settings trigger on Escape.
+- Saved the real NParks page and a visible-page screenshot with one click. Existing shared article context survives duplicate capture; the basic backend returns honest general choices for screenshots. **Just save for later** persisted a skipped intent.
+- Regular Chrome: updated the existing installation in place, closed/reopened the panel, and visually confirmed the new design with all **four existing saves** retained. Basic-mode connection remained active.
+- This pass changes presentation and navigation only. It does not configure a model key or change extension permissions, storage schema or shared API contracts. Full accessibility/browser coverage remains outside these checks.
+
 The original v0.2 capture-only test history follows. Its limits describe that earlier version, not the v0.3 backend contract.
 
 ---
