@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {createSave, applyAnswer} from '../experiments/chrome-sidepanel/questions.js';
+import {syncSave} from '../experiments/chrome-sidepanel/shared.js';
 import {CommonThreadClient, newMutationKey} from '../clients/javascript/client.js';
 
 const api = new CommonThreadClient({baseURL:process.env.SMOKE_API_URL, token:process.env.SMOKE_API_TOKEN});
@@ -35,4 +38,43 @@ assert.equal((await api.getWatch(watch.id)).last_price_minor,6900);
 await api.deleteSave(receipt.id,mutation());
 await assert.rejects(api.capture(payload,captureKey),error=>error.status===410 && error.code==='mutation_expired');
 assert.equal((await api.collection()).items.length,1);
+const {image_data} = JSON.parse(await readFile(new URL('../contracts/examples/image_media.json',import.meta.url),'utf8'));
+const imageReceipt = await api.capture({title:'Screenshot smoke',image_data,client:'chrome_extension'},mutation());
+const screenshot = await api.waitForSave(imageReceipt.id,{intervalMs:100});
+assert.equal(screenshot.has_image,true);
+assert.equal((await api.getMedia(screenshot.id)).image_data,image_data);
+await api.respond(screenshot.id,{action:'select',suggestion_id:screenshot.suggestions[1].id},mutation());
+assert.equal((await api.getSave(screenshot.id)).responses.at(-1).payload.label,'Plan something from it');
+await api.deleteSave(screenshot.id,mutation());
+await assert.rejects(api.getMedia(screenshot.id),error=>error.status===404);
+console.log('Image HTTP smoke passed: image upload → shared question → intent → private media → deletion.');
 console.log('HTTP smoke passed: shared SDK → migrated API → worker → cross-client collection, annotation, session conflict, watch alert, deletion/retry.');
+
+// Real article text and the labelled sample conversation exercise the actual Chrome sync adapter.
+const capabilities = await api.capabilities();
+const identity = await api.me();
+const connection = {baseURL:process.env.SMOKE_API_URL, userId:identity.user_id, imageField:'image_data_url', multipleIntents:capabilities.features.multiple_intents};
+async function chromeFlow(input, firstChoice, secondChoice) {
+  let local = createSave(input);
+  const originalId = local.id, originalImage = local.image;
+  const args = {id:local.id, connection, api, read:async()=>structuredClone(local), update:async(_,change)=>{local=change(structuredClone(local));return structuredClone(local);}};
+  await syncSave(args);
+  local = applyAnswer(local, {optionId:firstChoice}); await syncSave(args);
+  local = applyAnswer(local, {optionId:secondChoice}); await syncSave(args);
+  assert.equal(local.intents.length, 2);
+  const remote = await api.getSave(local.shared.remoteId);
+  assert.equal(remote.responses.filter(event=>event.event_type==='annotation_response' && event.active).length, 2);
+  await api.respond(remote.id, {action:'edit', text:'Also consider this with a friend'}, mutation());
+  await syncSave(args);
+  assert.equal(local.intents.length, 3);
+  const removed = local.intents[0].id;
+  local = applyAnswer(local, {removeIntentId:removed}); await syncSave(args);
+  assert.equal(local.intents.length, 2);
+  assert.equal(local.id, originalId); assert.equal(local.image, originalImage);
+  await syncSave(args);
+  assert.equal((await api.getSave(remote.id)).responses.filter(event=>event.event_type==='annotation_response' && event.active).length, 2);
+}
+await chromeFlow({kind:'page', contentType:'article', title:'How Now Brown Bird?', url:'https://www.nparks.gov.sg/publications-resources/articles/how-now-brown-bird', excerpt:'Singapore is home to over 400 different species of birds, and they come in all shapes, sizes and colours.'}, 'gear', 'outing');
+const conversation = await readFile(new URL('../experiments/chrome-sidepanel/tests/sample-conversation.png', import.meta.url));
+await chromeFlow({kind:'image', contentType:'conversation', title:'Labelled sample conversation', image:'data:image/jpeg;base64,' + conversation.toString('base64')}, 'place', 'together');
+console.log('Chrome HTTP integration passed: article + conversation screenshot, two active intents, cross-client addition/removal, refresh and local ID/image preservation.');

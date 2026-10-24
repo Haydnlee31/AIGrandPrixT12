@@ -40,11 +40,14 @@ public struct CaptureRequest: Codable, Sendable, Equatable {
     public var client: CaptureClient
     /// Base64 JPEG, PNG, or WebP data URL. Send a URL, an image, or both.
     public var imageDataUrl: String?
-    public init(url: String? = nil, title: String, source: CaptureSource = .web, selectedText: String = "", note: String = "", client: CaptureClient = .iosApp, imageDataUrl: String? = nil) {
-        self.url = url; self.title = title; self.source = source; self.selectedText = selectedText; self.note = note; self.client = client; self.imageDataUrl = imageDataUrl
+    /// Legacy Chrome-compatible wire field; new clients should use imageDataUrl.
+    public var imageData: String?
+    public init(url: String? = nil, title: String, source: CaptureSource = .web, selectedText: String = "", note: String = "", client: CaptureClient = .iosApp, imageDataUrl: String? = nil, imageData: String? = nil) {
+        self.url = url; self.title = title; self.source = source; self.selectedText = selectedText; self.note = note; self.client = client; self.imageDataUrl = imageDataUrl; self.imageData = imageData
     }
 }
 public struct CaptureReceipt: Codable, Sendable { public let id: String; public let status: String; public let duplicate: Bool }
+public struct SavedMedia: Codable, Sendable { public let imageData: String }
 public struct CollectionPage: Codable, Sendable { public let items: [SavedItem]; public let nextOffset: Int? }
 public struct LibrarySearchPage: Codable, Sendable {
     public let items: [SavedItem]
@@ -146,7 +149,8 @@ public struct Suggestion: Codable, Sendable, Identifiable {
     public let claim: String; public let modelVersion: String; public let status: String
     public let intent: AnnotationIntent?
     public let requiresConfirmation: Bool
-    private enum CodingKeys: String, CodingKey { case id, itemId, kind, text, claim, modelVersion, status, intent, requiresConfirmation }
+    public let nextStep: String?
+    private enum CodingKeys: String, CodingKey { case id, itemId, kind, text, claim, modelVersion, status, intent, requiresConfirmation, nextStep }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id); itemId = try c.decode(String.self, forKey: .itemId)
@@ -154,11 +158,13 @@ public struct Suggestion: Codable, Sendable, Identifiable {
         claim = try c.decode(String.self, forKey: .claim); modelVersion = try c.decode(String.self, forKey: .modelVersion)
         status = try c.decode(String.self, forKey: .status); intent = try c.decodeIfPresent(AnnotationIntent.self, forKey: .intent)
         requiresConfirmation = try c.decodeIfPresent(Bool.self, forKey: .requiresConfirmation) ?? true
+        nextStep = try c.decodeIfPresent(String.self, forKey: .nextStep)
     }
 }
 public struct UserEvent: Codable, Sendable, Identifiable {
     public let id: String; public let itemId: String?; public let eventType: String
     public let payload: [String: JSONValue]; public let occurredAt: Double
+    public let active: Bool?
 }
 public struct Evidence: Codable, Sendable, Identifiable {
     public let id: String; public let itemId: String; public let claim: String; public let text: String
@@ -176,7 +182,8 @@ public struct Hypothesis: Codable, Sendable, Identifiable {
 public struct AnnotationRequest: Codable, Sendable {
     public enum Action: String, Codable, Sendable { case select, edit, reject, skip }
     public let action: Action; public let suggestionId: String?; public let text: String
-    public init(action: Action, suggestionId: String? = nil, text: String = "") { self.action = action; self.suggestionId = suggestionId; self.text = text }
+    public let retractEventId: String?
+    public init(action: Action, suggestionId: String? = nil, text: String = "", retractEventId: String? = nil) { self.action = action; self.suggestionId = suggestionId; self.text = text; self.retractEventId = retractEventId }
 }
 public struct AnnotationReceipt: Codable, Sendable {
     public let eventId: String; public let hypothesis: Hypothesis
@@ -418,5 +425,6 @@ public struct Capabilities: Codable, Sendable {
     public struct CaptureLimits: Codable, Sendable {
         public let clients: [String]; public let contentTypes: [String]; public let maxUrlLength: Int
         public let maxTitleLength: Int; public let maxSelectedTextLength: Int; public let maxNoteLength: Int
+        public let maxImageBytes: Int?
     }
 }

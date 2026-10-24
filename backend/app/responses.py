@@ -61,6 +61,10 @@ class CaptureResult(Response):
     duplicate: bool
 
 
+class SavedMediaView(Response):
+    image_data: str
+
+
 class SuggestionView(Response):
     id: str
     item_id: str
@@ -71,9 +75,11 @@ class SuggestionView(Response):
     status: Literal["proposed"]
     intent: Literal["buy_intent", "track_discount", "remind_later", "save_inspiration", "compare_options"] | None = None
     requires_confirmation: bool = True
+    next_step: str | None = None
 
 
 class EventView(Response):
+    active: bool | None = None
     id: str
     item_id: str | None
     event_type: str

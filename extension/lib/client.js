@@ -82,6 +82,8 @@ export class CommonThreadClient {
   me(options) { return this.request('/me', options); }
   capabilities(options) { return this.request('/capabilities', options); }
   capture(payload, options) { return this.request('/saves', {...options, method:'POST', body:payload}); }
+  getMedia(id, options) { return this.request(`/saves/${encodeURIComponent(id)}/media`, options); }
+  retrySave(id, options) { return this.request(`/saves/${encodeURIComponent(id)}/retry`, {...options, method:'POST', body:{}}); }
   getSave(id, options) { return this.request(`/saves/${encodeURIComponent(id)}`, options); }
   collection({offset = 0, limit = 30, ...options} = {}) { return this.request(`/collection?offset=${offset}&limit=${limit}`, options); }
   searchLibrary({query = '', category, limit = 20, offset = 0, ...options} = {}) {

@@ -97,6 +97,20 @@
             "title": "Action",
             "type": "string"
           },
+          "retract_event_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With action reject, remove one prior annotation answer while retaining other intents.",
+            "title": "Retract Event Id"
+          },
           "suggestion_id": {
             "anyOf": [
               {
@@ -247,6 +261,19 @@
             ],
             "title": "Client",
             "type": "string"
+          },
+          "image_data": {
+            "anyOf": [
+              {
+                "maxLength": 5592431,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Legacy Chrome data URL. New integrations use image_data_url; do not send both.",
+            "title": "Image Data"
           },
           "image_data_url": {
             "anyOf": [
@@ -1123,6 +1150,17 @@
       },
       "EventView": {
         "properties": {
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active"
+          },
           "event_type": {
             "title": "Event Type",
             "type": "string"
@@ -2635,6 +2673,19 @@
         "title": "SavedItemView",
         "type": "object"
       },
+      "SavedMediaView": {
+        "properties": {
+          "image_data": {
+            "title": "Image Data",
+            "type": "string"
+          }
+        },
+        "required": [
+          "image_data"
+        ],
+        "title": "SavedMediaView",
+        "type": "object"
+      },
       "SimulatedPrice": {
         "additionalProperties": false,
         "properties": {
@@ -2714,6 +2765,17 @@
           "model_version": {
             "title": "Model Version",
             "type": "string"
+          },
+          "next_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Step"
           },
           "requires_confirmation": {
             "default": true,
@@ -2928,7 +2990,7 @@
   },
   "info": {
     "description": "Shared Chrome and iOS backend. Server-configured predictive annotations; integer minor-unit prices; Unix seconds UTC. Mutation requests require Idempotency-Key. Suggestions record intent only; actions require separate confirmation and implementation.",
-    "title": "Mymah Finds API",
+    "title": "Mynah Finds API",
     "version": "0.4.0"
   },
   "openapi": "3.1.0",
@@ -6065,6 +6127,123 @@
         ]
       }
     },
+    "/v1/saves/{item_id}/media": {
+      "get": {
+        "operationId": "get_media_v1_saves__item_id__media_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedMediaView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "DevelopmentBearer": []
+          }
+        ],
+        "summary": "Get Media",
+        "tags": [
+          "Capture"
+        ]
+      }
+    },
     "/v1/saves/{item_id}/responses": {
       "post": {
         "operationId": "respond_v1_saves__item_id__responses_post",
@@ -6198,6 +6377,134 @@
           }
         ],
         "summary": "Respond",
+        "tags": [
+          "Capture"
+        ]
+      }
+    },
+    "/v1/saves/{item_id}/retry": {
+      "post": {
+        "operationId": "retry_save_v1_saves__item_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required for every mutation. Persist before sending; reuse the key and identical body after an uncertain result. Missing/empty keys return 400.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptureResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "DevelopmentBearer": []
+          }
+        ],
+        "summary": "Retry Save",
         "tags": [
           "Capture"
         ]

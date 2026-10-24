@@ -23,11 +23,13 @@ from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException
 
 from .contracts import AnnotationResponse, Capture, CreateWatch, DiscoveryEvent, HypothesisFeedback, SimulatedPrice, StartDiscovery, UpdateWatch, canonical_url
-from .db import Base, DiscoverySession, Evidence, Job, Mutation, Notification, Observation, SavedItem, Suggestion, UserEvent, UserState, Watch, make_database
+from .db import Base, DiscoverySession, Evidence, Job, Mutation, Notification, Observation, SavedItem, SavedMedia, Suggestion, UserEvent, UserState, Watch, make_database
 from .intelligence import CATALOG, claims_in, context, shortlist
 from .worker import enqueue, run_forever
 from .predictive import get_annotation_provider
 from .request_limits import BodyLimitMiddleware
+from .media import validate_image_data_url
+from .content import decode_image, suggestion_next_step, suggestion_key
 from . import responses as schema
 from .catalog import schemas as catalog_schema
 from .catalog import service as catalog_service
@@ -75,7 +77,7 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
             provider.close()
         engine.dispose()
 
-    app = FastAPI(title="Mymah Finds API", version="0.4.0", lifespan=lifespan,
+    app = FastAPI(title="Mynah Finds API", version="0.4.0", lifespan=lifespan,
         description="Shared Chrome and iOS backend. Server-configured predictive annotations; integer minor-unit prices; Unix seconds UTC. Mutation requests require Idempotency-Key. Suggestions record intent only; actions require separate confirmation and implementation.",
         responses={status: {"model": schema.ErrorEnvelope} for status in [400, 401, 404, 409, 410, 422, 500, 503]})
     app.state.factory = factory
@@ -181,14 +183,15 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
             db.flush()
         return state
 
-    def mutate(db, user_id, key, operation, payload, callback):
+    def mutate(db, user_id, key, operation, payload, callback, compatible_payloads=()):
         if not key or len(key) > 128:
             raise APIError(400, "idempotency_key_required", "Provide an Idempotency-Key header (1–128 characters)")
         state_for(db, user_id)
         fingerprint = hashlib.sha256(json.dumps([operation, payload], sort_keys=True).encode()).hexdigest()
         existing = db.scalar(select(Mutation).where(Mutation.user_id == user_id, Mutation.key == key))
         if existing:
-            if existing.fingerprint != fingerprint:
+            fingerprints = {fingerprint, *(hashlib.sha256(json.dumps([operation, old], sort_keys=True).encode()).hexdigest() for old in compatible_payloads)}
+            if existing.fingerprint not in fingerprints:
                 raise APIError(409, "idempotency_conflict", "This key was already used for a different request")
             if existing.response.get("_expired"):
                 raise APIError(410, "mutation_expired", "This result was invalidated by a deletion. Refresh state; do not automatically replay this action with a new key.")
@@ -202,9 +205,11 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
         analysis = library_service.product_analysis(item)
         analysis_status = "pending" if item.status == "pending" else "failed" if item.status == "enrichment_failed" else "ready" if analysis else "unavailable"
         order = {claim: index for index, claim in enumerate(item.features.get("suggestion_order", []))}
-        suggestions = sorted(db.scalars(select(Suggestion).where(Suggestion.item_id == item.id, Suggestion.user_id == item.user_id)), key=lambda s: (order.get(s.claim, 99), s.id))
+        keys = {tuple(key): i for i, key in enumerate(item.features.get("suggestion_keys", []))}
+        suggestions = sorted(db.scalars(select(Suggestion).where(Suggestion.item_id == item.id, Suggestion.user_id == item.user_id)), key=lambda s: (keys.get(suggestion_key(s.kind, s.claim, s.text), order.get(s.claim, 99)), s.id))
+        active_events = set(db.scalars(select(Evidence.event_id).where(Evidence.item_id == item.id, Evidence.user_id == item.user_id, Evidence.active.is_(True))))
         return {**row_dict(item), "analysis": analysis, "analysis_status": analysis_status, "has_image": item.has_image, "image_path": f"/v1/saves/{item.id}/image" if item.has_image else None,
-            "suggestions": [{**row_dict(s), "status": "proposed", "intent": s.claim if s.kind == "intent" else None, "requires_confirmation": True} for s in suggestions], "responses": [row_dict(e) for e in db.scalars(select(UserEvent).where(UserEvent.item_id == item.id, UserEvent.user_id == item.user_id))]}
+            "suggestions": [{**row_dict(s), "status": "proposed", "intent": s.claim if s.kind == "intent" else None, "requires_confirmation": True, "next_step": suggestion_next_step(s)} for s in suggestions], "responses": [{**row_dict(e), "active": e.id in active_events} for e in db.scalars(select(UserEvent).where(UserEvent.item_id == item.id, UserEvent.user_id == item.user_id).order_by(UserEvent.occurred_at, UserEvent.id))]}
 
     def invalidate_predictions(db, user_id, evidence_ids):
         # Recorded provenance lets removal/rejection also retract predictions
@@ -257,7 +262,7 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
         return {"api_version": "v1", "contract_version": "0.4.0", "authentication": "development_bearer",
             "capture": {"clients": ["web", "chrome_extension", "ios_app", "ios_share_extension"], "content_types": ["url", "selected_text", "note", "image"], "max_url_length": 2048, "max_title_length": 300, "max_selected_text_length": 12000, "max_note_length": 2000, "max_image_bytes": 4194304},
             "data_modes": {"annotations": getattr(provider, "data_mode", "demo_rules"), "catalog": "fixture", "tracking": "simulated"},
-            "features": {"annotations": True, "predictive_prompts": hasattr(provider, "understand_capture"), "product_analysis": getattr(provider, "supports_product_analysis", False), "library_search": True, "explore": True, "discovery": True, "watches": True, "price_simulation": demo_mode, "demo_reset": demo_mode, "image_upload": True, "live_price_monitoring": False, "push_notifications": False, "merchant_handoff": False, "personal_agent_connector": False, "reminder_scheduling": False},
+            "features": {"annotations": True, "predictive_prompts": hasattr(provider, "understand_capture"), "product_analysis": getattr(provider, "supports_product_analysis", False), "library_search": True, "explore": True, "discovery": True, "watches": True, "price_simulation": demo_mode, "demo_reset": demo_mode, "image_upload": True, "multimodal_ai": hasattr(provider, "understand_capture"), "contextual_questions": True, "retry_understanding": True, "multiple_intents": True, "legacy_image_data": True, "image_data_url": True, "live_price_monitoring": False, "push_notifications": False, "merchant_handoff": False, "personal_agent_connector": False, "reminder_scheduling": False},
             "currencies": ["SGD"], "refresh": {"strategy": "poll_on_foreground", "pending_save_interval_ms": 1500, "pending_save_timeout_ms": 30000, "incremental_sync": False}}
 
     @app.get("/v1/commerce/sources", response_model=catalog_schema.CatalogSources, tags=["Catalog integration"])
@@ -297,8 +302,25 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
     @app.post("/v1/saves", status_code=201, response_model=schema.CaptureResult, tags=["Capture"])
     def capture(body: Capture, user_id=Depends(user), db=Depends(database), key: str = Header(default="", alias="Idempotency-Key")):
         def operation():
-            canonical = canonical_url(body.url) if body.url else "image:" + hashlib.sha256(body.image_data_url.encode()).hexdigest()
-            item = db.scalar(select(SavedItem).where(SavedItem.user_id == user_id, SavedItem.canonical_url == canonical))
+            image = body.image_data_url or (validate_image_data_url(body.image_data) if body.image_data else None)
+            image_hash = hashlib.sha256(decode_image(image)).hexdigest() if image else ""
+            canonical = canonical_url(body.url) if body.url else ""
+            if image:
+                canonical = canonical + "#image=" + image_hash if body.url and body.image_data_url else "image:" + image_hash
+            aliases = {canonical}
+            if image:
+                # Recognize both released branches' image dedupe keys.
+                aliases.add("image:" + image_hash)
+                aliases.add("image:" + body._original_image_hash)
+                aliases.add("image:" + hashlib.sha256(image.encode()).hexdigest())
+                if body.image_data:
+                    aliases.add("image:" + hashlib.sha256(decode_image(body.image_data)).hexdigest())
+            matching = SavedItem.canonical_url.in_(aliases)
+            if image and body.url and body.image_data_url:
+                matching = and_(matching, or_(SavedItem.original_url == body.url, SavedItem.canonical_url == canonical))
+            if image and body.url:
+                matching = or_(matching, and_(SavedItem.canonical_url == canonical_url(body.url), SavedItem.image_data_url == image))
+            item = db.scalar(select(SavedItem).where(SavedItem.user_id == user_id, matching).order_by(SavedItem.deleted, SavedItem.captured_at))
             if item and not item.deleted:
                 return {"id": item.id, "status": item.status, "duplicate": True}
             if item:
@@ -308,15 +330,15 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
                 item.title, item.selected_text, item.note = body.title, body.selected_text, body.note
                 item.original_url, item.source, item.captured_at = body.url or "", body.source, time.time()
                 item.client = body.client
-                item.image_data_url = body.image_data_url
+                item.image_data_url = image
                 item.features = {}
                 db.execute(delete(Suggestion).where(Suggestion.item_id == item.id))
             else:
-                item = SavedItem(user_id=user_id, original_url=body.url or "", canonical_url=canonical, title=body.title, source=body.source, client=body.client, selected_text=body.selected_text, note=body.note, image_data_url=body.image_data_url)
+                item = SavedItem(user_id=user_id, original_url=body.url or "", canonical_url=canonical, title=body.title, source=body.source, client=body.client, selected_text=body.selected_text, note=body.note, image_data_url=image)
                 db.add(item)
                 db.flush()
             normalized = " ".join(body.selected_text.casefold().split())
-            item.content_hash = hashlib.sha256(normalized.encode()).hexdigest() if normalized else ""
+            item.content_hash = image_hash or (hashlib.sha256(normalized.encode()).hexdigest() if normalized else "")
             enqueue(db, user_id, "enrich", {"item_id": item.id, "revision": item.revision})
             if body.note.strip():
                 event = UserEvent(user_id=user_id, item_id=item.id, event_type="capture_note", payload={"text": body.note})
@@ -327,7 +349,9 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
             state_for(db, user_id).version += 1
             library_service.update_search_document(db, item)
             return {"id": item.id, "status": item.status, "duplicate": False}
-        return mutate(db, user_id, key, "capture", body.model_dump(exclude_none=True), operation)
+        legacy = body.model_dump(exclude={"image_data_url"})
+        legacy["url"] = legacy["url"] or ""
+        return mutate(db, user_id, key, "capture", body.model_dump(exclude_none=True), operation, compatible_payloads=(legacy,) if body.image_data_url is None else ())
 
     @app.get("/v1/collection", response_model=schema.CollectionPage, tags=["Capture"])
     def collection(offset: int = 0, limit: int = 30, user_id=Depends(user), db=Depends(database)):
@@ -373,6 +397,24 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
         header, encoded = item.image_data_url.split(",", 1)
         return Response(base64.b64decode(encoded), media_type=header[5:].split(";", 1)[0], headers={"Cache-Control": "no-store"})
 
+    @app.get("/v1/saves/{item_id}/media", response_model=schema.SavedMediaView, tags=["Capture"])
+    def get_media(item_id: str, user_id=Depends(user), db=Depends(database)):
+        item = owned(db, SavedItem, item_id, user_id)
+        if not item.image_data_url:
+            raise APIError(404, "image_not_found", "This save has no image")
+        return {"image_data": item.image_data_url}
+
+    @app.post("/v1/saves/{item_id}/retry", response_model=schema.CaptureResult, tags=["Capture"])
+    def retry_save(item_id: str, user_id=Depends(user), db=Depends(database), key: str = Header(default="", alias="Idempotency-Key")):
+        def operation():
+            item = owned(db, SavedItem, item_id, user_id)
+            mode = getattr(provider, "data_mode", "demo_rules")
+            if item.status == "enrichment_failed" or (item.status == "ready" and mode != "demo_rules" and item.features.get("data_mode") != mode):
+                queue_analysis(db, item)
+                state_for(db, user_id).version += 1
+            return {"id": item.id, "status": item.status, "duplicate": False}
+        return mutate(db, user_id, key, f"retry:{item_id}", {}, operation)
+
     @app.post("/v1/saves/{item_id}/responses", response_model=schema.AnnotationResult, tags=["Capture"])
     def respond(item_id: str, body: AnnotationResponse, user_id=Depends(user), db=Depends(database), key: str = Header(default="", alias="Idempotency-Key")):
         def operation():
@@ -386,17 +428,23 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
             if body.action == "edit" and not body.text.strip():
                 raise APIError(422, "text_required", "An edit needs your own explanation")
             # Responses supersede earlier evidence for this proposal, retaining history.
-            if suggestion:
+            if body.retract_event_id:
+                target = owned(db, UserEvent, body.retract_event_id, user_id)
+                if body.suggestion_id or body.action != "reject" or target.item_id != item_id or target.event_type != "annotation_response":
+                    raise APIError(422, "invalid_retraction", "Only reject a prior annotation on this save")
+            if suggestion or body.retract_event_id:
                 prior = db.scalars(select(UserEvent).where(UserEvent.user_id == user_id, UserEvent.item_id == item_id)).all()
-                prior_ids = [e.id for e in prior if e.payload.get("suggestion_id") == suggestion.id]
+                prior_ids = [e.id for e in prior if e.id == body.retract_event_id or (suggestion and e.payload.get("suggestion_id") == suggestion.id)]
                 matching = Evidence.event_id.in_(prior_ids)
-                if suggestion.kind == "intent":
+                if suggestion and suggestion.kind == "intent":
                     matching = or_(matching, and_(Evidence.claim == suggestion.claim, Evidence.origin == "confirmed_annotation"))
                 revoked = set(db.scalars(select(Evidence.id).where(Evidence.user_id == user_id, Evidence.item_id == item_id, matching, Evidence.active.is_(True))))
                 if revoked:
                     db.execute(update(Evidence).where(Evidence.id.in_(revoked), Evidence.user_id == user_id).values(active=False))
                     invalidate_predictions(db, user_id, revoked)
-            event_payload = body.model_dump()
+            event_payload = {**body.model_dump(),
+                "label": suggestion.text if suggestion and body.action == "select" else body.text,
+                "next_step": suggestion_next_step(suggestion) if suggestion and body.action == "select" else "Your context is saved. No purchase or monitoring has been started."}
             if suggestion:
                 event_payload.update({"suggestion_text": suggestion.text, "claim": suggestion.claim, "kind": suggestion.kind})
             event = UserEvent(user_id=user_id, item_id=item_id, event_type="annotation_response", payload=event_payload)
@@ -416,7 +464,8 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
             return {"event_id": event.id, "hypothesis": context(db, user_id),
                 "intent": suggestion.claim if body.action == "select" and suggestion.kind == "intent" else None,
                 "execution_status": "annotation_only", "analysis_job_id": refinement["job_id"] if refinement else None, "saved_revision": item.revision}
-        return mutate(db, user_id, key, f"respond:{item_id}", body.model_dump(), operation)
+        payload = body.model_dump(exclude={"retract_event_id"} if "retract_event_id" not in body.model_fields_set else set())
+        return mutate(db, user_id, key, f"respond:{item_id}", payload, operation)
 
     @app.delete("/v1/saves/{item_id}", response_model=schema.Deleted, tags=["Capture"])
     def remove_save(item_id: str, user_id=Depends(user), db=Depends(database), key: str = Header(default="", alias="Idempotency-Key")):
@@ -433,6 +482,7 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
             db.execute(update(UserEvent).where(UserEvent.item_id == item_id, UserEvent.user_id == user_id).values(payload={"removed": True}))
             db.execute(delete(Suggestion).where(Suggestion.item_id == item_id, Suggestion.user_id == user_id))
             invalidate_predictions(db, user_id, revoked)
+            db.execute(delete(SavedMedia).where(SavedMedia.item_id == item_id, SavedMedia.user_id == user_id))
             # Cached mutation responses may contain an old evidence snapshot.
             db.execute(update(Mutation).where(Mutation.user_id == user_id).values(response={"_expired": True}))
             state_for(db, user_id).version += 1

@@ -1,0 +1,84 @@
+{
+  "id": "2a24cda4dc694bf4a9b76092ece096a1",
+  "original_url": "",
+  "canonical_url": "image:36fe6ab71ec56fa1fc84326e4673fbf028c6ad2eb5051ce5a9e6cb0d07c85f4c",
+  "title": "Image contract fixture",
+  "source": "web",
+  "client": "ios_share_extension",
+  "selected_text": "",
+  "note": "",
+  "captured_at": 1792869051.341902,
+  "status": "ready",
+  "features": {
+    "data_mode": "demo_rules",
+    "summary": "Image saved. Choose what you want to do with it; image understanding is not enabled.",
+    "question": "What would you like to do with this save?",
+    "evidence": [],
+    "suggestion_order": [
+      "needs_clarification",
+      "needs_clarification",
+      "inspiration_only"
+    ],
+    "suggestion_keys": [
+      [
+        "explore",
+        "needs_clarification",
+        "Explore the idea"
+      ],
+      [
+        "plan",
+        "needs_clarification",
+        "Plan something from it"
+      ],
+      [
+        "inspiration",
+        "inspiration_only",
+        "Just inspiration"
+      ]
+    ]
+  },
+  "revision": 1,
+  "suggestions": [
+    {
+      "id": "731b0c66aa375954a4f0c1f3e937f3e1",
+      "item_id": "2a24cda4dc694bf4a9b76092ece096a1",
+      "kind": "explore",
+      "text": "Explore the idea",
+      "claim": "needs_clarification",
+      "model_version": "demo-rules-v1",
+      "status": "proposed",
+      "intent": null,
+      "requires_confirmation": true,
+      "next_step": "Keep the source as inspiration. Decide which detail you want to explore before looking for products."
+    },
+    {
+      "id": "5557c934cfbd5c0bb1c80d18f12fccb1",
+      "item_id": "2a24cda4dc694bf4a9b76092ece096a1",
+      "kind": "plan",
+      "text": "Plan something from it",
+      "claim": "needs_clarification",
+      "model_version": "demo-rules-v1",
+      "status": "proposed",
+      "intent": null,
+      "requires_confirmation": true,
+      "next_step": "Turn this into a plan: who is it for, what do you already have, and what would you need?"
+    },
+    {
+      "id": "7db963aa2b015151a14059a409066a85",
+      "item_id": "2a24cda4dc694bf4a9b76092ece096a1",
+      "kind": "inspiration",
+      "text": "Just inspiration",
+      "claim": "inspiration_only",
+      "model_version": "demo-rules-v1",
+      "status": "proposed",
+      "intent": null,
+      "requires_confirmation": true,
+      "next_step": "Kept as inspiration. This does not start shopping or price monitoring."
+    }
+  ],
+  "responses": [],
+  "has_image": true,
+  "image_path": "/v1/saves/2a24cda4dc694bf4a9b76092ece096a1/image",
+  "analysis": null,
+  "analysis_status": "unavailable"
+}
