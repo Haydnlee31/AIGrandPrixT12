@@ -31,7 +31,7 @@ def main():
     if args.sidepanel:
         source = ROOT / "experiments/chrome-sidepanel"
         # Explicit source types exclude credentials, test data and local browser state.
-        files = [p for p in source.iterdir() if p.suffix in {".js", ".html", ".css"} or p.name in {"manifest.json", "README.md"}]
+        files = [p for p in source.iterdir() if p.suffix in {".js", ".html", ".css"} or p.name in {"manifest.json", "README.md", "TESTING.md"}]
         files += list((source / "lib").glob("*.js")) + list((source / "icons").glob("*.png"))
         archive(DIST / "mynah-finds-sidepanel.zip", [(p, p.relative_to(source)) for p in files if p.is_file()])
         return
