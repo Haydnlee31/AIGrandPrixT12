@@ -1,19 +1,19 @@
-# Mymah Finds — team handoff
+# Mynah Finds — team handoff
 
-Mymah Finds has three agreed main destinations: **Library**, **Explore**, and **Profile**. Library holds saved content with product analysis and search; Explore recommends and searches products with citations; Profile holds account and app controls. Chrome/browser and iOS share the backend and SDK contracts.
+Mynah Finds has three agreed main destinations: **Library**, **Explore**, and **Profile**. Library holds saved content with product analysis and search; Explore recommends and searches products with citations; Profile holds account and app controls. Chrome/browser and iOS share the backend and SDK contracts.
 
-**Start with the [Library / Explore / Profile integration guide](ios-ai-handoff.md).** Contract **0.4.0** provides structured product understanding, [predictive annotations](predictive-annotations.md), private Library search and cited Explore recommendations. Existing native and browser screens predate the new plan and still need teammate design and wiring. Product screens must not expose prototype/demo labels, provider keys, internal mode labels, or developer diagnostics. Live watches, reminder execution and checkout remain separate work.
+**Start with the [Library / Explore / Profile integration guide](ios-ai-handoff.md).** Contract **0.4.0** provides structured product understanding, [predictive annotations](predictive-annotations.md), private Library search and cited Explore recommendations. Existing native and browser screens predate the new plan and still need teammate design and wiring. Provider keys and developer diagnostics remain outside product screens. Preserve Chrome’s honest distinction between basic suggestions and AI interpretation. Live watches, reminder execution and checkout remain separate work.
 
 ## Ownership and starting points
 
 | Owner | Work area | Start here |
 | --- | --- | --- |
 | Haydn / backend | Capture, product analysis, Library search, cited Explore, contracts, identity, jobs and catalog integration | `backend/`, `contracts/`, `.env.example` |
-| Chrome teammate | Capture popup, Library/Explore/Profile, permissions, lifecycle, store assets | `extension/`, [Chrome guide](platform-chrome.md), `clients/javascript/` |
-| iOS teammate | Native Library/Explore/Profile, Share Extension, analysis/citation presentation, account state and accessibility | [AI integration guide](ios-ai-handoff.md), `clients/ios/`, [iOS guide](platform-ios.md) |
+| Chime | Chrome side panel, content-understanding and contextual questions, permissions and lifecycle | `experiments/chrome-sidepanel/`, [Chrome guide](platform-chrome.md), `clients/javascript/` |
+| Adi | Native Library/Explore/Profile, Share Extension, analysis/citation presentation, account state and accessibility | [AI integration guide](ios-ai-handoff.md), `clients/ios/`, [iOS guide](platform-ios.md) |
 | Shared review | Contract changes, brand/copy, account isolation, cross-device acceptance | `contracts/openapi.json`, `contracts/examples/`, this checklist |
 
-Use **Mymah Finds** in user-visible names and copy. Internal `CommonThread` SDK symbols and existing API paths may retain older identifiers for compatibility. Teammates can replace scaffold views while keeping the shared transport, retry, and persistence behavior. The older `frontend/` navigation is not the new product specification or a requirement to reproduce its components in SwiftUI.
+Use **Mynah Finds** in user-visible names and copy. Internal `CommonThread` SDK symbols and existing API paths may retain older identifiers for compatibility. Teammates can replace scaffold views while keeping the shared transport, retry, and persistence behavior. The older `frontend/` navigation is not the new product specification or a requirement to reproduce its components in SwiftUI.
 
 ## First integration session
 
@@ -86,11 +86,11 @@ Explore uses the [catalog integration](catalog-integration.md), which provides l
 | Keyboard/focus, constrained popup, browser Library/Explore/Profile layout | Safe areas, Dynamic Type, VoiceOver, keyboard handling, native navigation/sheets |
 | Extension icons, store assets and privacy disclosure | App icons, store assets and privacy disclosures |
 
-The image upload and Astra vision contract is now available in the [predictive annotation guide](predictive-annotations.md). Teammates still need to implement selected-image capture, iOS image-share activation/HEIC conversion, and authenticated display. Video, screenshot extraction, large-file/background transfer, browser notifications, APNs and notification deep links remain later work.
+The image upload and Astra vision contract is now available in the [predictive annotation guide](predictive-annotations.md). Chrome already supports selected-image capture, screenshots and image uploads. Native image-share activation/HEIC conversion and native presentation remain Adi’s work. Video understanding, large-file/background transfer, browser notifications, APNs and notification deep links remain later work.
 
 ## Acceptance checklist for both teammates
 
-- Build Mymah Finds with Library, Explore, and Profile as the main navigation. No demo/prototype labels, internal hypothesis controls, provider key settings, or developer diagnostics appear in product screens. Explore cards must not claim checkout or live monitoring that the backend does not supply.
+- Build Mynah Finds with Library, Explore, and Profile as the main navigation. Keep provider key settings and developer diagnostics outside product screens; preserve the current Chrome capture/question experience while connecting later Explore screens. Explore cards must not claim checkout or live monitoring that the backend does not supply.
 - Save a real public link with optional text/note; see that saved content in Library on both surfaces after refresh. Opening it leads to the original link.
 - Save a selected image without inventing a source URL; retrieve it using the current account's authorization. Verify that another account cannot load it.
 - Show optional predictive annotations after a save; select, edit, reject and skip without losing the saved item. Selection confirms an annotation and never claims reminder or watch execution.
@@ -107,7 +107,7 @@ The image upload and Astra vision contract is now available in the [predictive a
 
 Validation includes the existing library/transport checks plus predictive annotations, image capture, source adapters, catalog integration, operator CLI and worker concurrency tests. Run `make test` for the current full counts and generated-contract checks. Provider tests use mocked HTTP responses; they do not establish live credentials or latency. `make smoke-swift` additionally covers image payloads, private image transport, typed annotation intents, catalog models, money/null handling, expiry, request encoding and source errors.
 
-The Mymah Finds browser reference was checked on desktop and at a 393 px mobile viewport. Saving an actual link, finding it by its note, opening its detail view, and removing it were exercised against the running backend. These browser checks do not claim native iOS or installed-extension verification.
+The Mynah Finds browser reference was checked on desktop and at a 393 px mobile viewport. Saving an actual link, finding it by its note, opening its detail view, and removing it were exercised against the running backend. These browser checks do not claim native iOS or installed-extension verification.
 
 The Swift package has a compiled harness for real response fixtures, transport, retries, and durable outbox behavior. Its XCTest suite is supplied but could not run on this workstation's mismatched Command Line Tools toolchain; see the platform guide.
 
@@ -115,6 +115,41 @@ The framework includes real HTTP smoke, SQLite migration/row-preservation checks
 
 The browser interface was also checked at 375 × 667: no horizontal overflow, all three navigation targets exceeded 44 px, and the visible interface contained no previous brand or prototype/demo wording. Current [mobile](mymah-finds-library-mobile.png) and [desktop](mymah-finds-library-desktop.png) previews are included in the handoff.
 
-Chrome installation/permission prompts were not exercised. Native host/share targets are project templates: Xcode signing, iOS builds, Simulator, and physical-device integration remain to be tested. Live PostgreSQL remains untested.
+The original popup scaffold’s installation was not exercised in that earlier pass. Chime’s v0.3 side panel was tested in isolated Chrome for Testing, including local-backend host permission and screenshot sharing. Native host/share targets are project templates: Xcode signing, iOS builds, Simulator, and physical-device integration remain to be tested. Live PostgreSQL remains untested.
 
 Before release, the backend owner must provide production identity/session handling, deployment settings, operational limits/monitoring, and data retention/erasure. Store publishing is separate work. No Astra key or full Xcode app was available for live-model/device verification in this workspace. Run `make smoke-astra` after backend key configuration, then test representative images and the real iOS flow. Preserve source attribution, currency/unknown fields, expiry and `data_kind` in Explore; historical or synthetic records must not appear to be current merchant offers.
+
+
+## Chrome and backend merge
+
+The combined branch preserves Haydn’s v0.4 product analysis, Library search, cited Explore, provider lifecycle and worker concurrency safeguards. Chrome’s current design, local saves, optional connection, one-click saving, contextual questions and branding live in `experiments/chrome-sidepanel/`. `extension/` remains the original popup scaffold. This merge does not replace the installed extension, clear IndexedDB, upload earlier local-only saves, or change the running local server.
+
+| Person | Owns the next step |
+| --- | --- |
+| Chime | Chrome experience, content understanding and contextual questions; try real saves and review the choices. |
+| Haydn | Shared backend/web app, provider configuration, catalogs and deployment. |
+| Adi | Native iPhone screens and Share Extension using the shared contracts. |
+
+| Need | Tool/API | Why |
+| --- | --- | --- |
+| Product understanding and uncertainty | Existing Astra adapter in `predictive.py` | Retains Haydn’s validated product observations and source-backed analysis. |
+| Contextual shopping question experiments | Existing OpenAI Responses adapter in `content.py` | Preserves Chime’s question/evidence output as an optional server-selected adapter. |
+| Basic mode without a paid key | `ANNOTATION_PROVIDER=demo` or `fallback` | Saves and text-based choices remain usable; no visual understanding is claimed. |
+| Shared content and answers | FastAPI plus shared JS/Swift SDKs | One account, save ID and durable mutation history across clients. |
+| Private images | Pillow plus `saved_items.image_data_url` | Normalized private bytes; authenticated JSON and binary reads; excluded from collection metadata. |
+| Library search and recommendations | Haydn’s Library/Explore APIs and licensed catalogs | Keep evidence, source citations and uncertainty. Historical catalogs do not establish live offers. |
+
+**Capture compatibility:** new Chrome connections use `image_data_url` and omit an absent URL. The API also accepts legacy `image_data` and `url:""` so pending captures retain their original body and idempotency key. Do not send both image fields. Limits remain 4 MiB decoded / 6 MiB request, with server normalization. Different images from one page remain separate; modern captures also retain distinct source-page context. Legacy image dedupe keys are recognized.
+
+**Migration:** `b82fa3563197` joins the two published Alembic histories and transfers legacy `saved_media` images into the shared image column. It preserves save IDs, canonical keys, answers and idempotency records. Back up a development database before `alembic upgrade head`; do not stamp over or downgrade an existing database to resolve the fork. The old attachment table remains empty for migration history. Existing deployed PostgreSQL data still needs an environment-specific migration rehearsal.
+
+**Media and recovery:** `GET /v1/saves/{id}/image` returns private bytes; `/media` remains the compatible JSON `{image_data}` endpoint. Both require the owner’s bearer token and use no-store responses. `/retry` remains for Chrome’s failed/basic-result recovery; `/analyze` remains Haydn’s explicit reanalysis API. Capability flags advertise image formats, retry and multiple intents, rather than inferring compatibility from the old ambiguous `0.3.0` version alone.
+
+**Questions and confirmation:** suggestions include `next_step`, and response events include their chosen `label`. Astra results are identified as AI interpretation; basic/failed interpretation remains distinct. `execution_status:"annotation_only"` means a chosen action records interest: it does not purchase, schedule a reminder or start price monitoring. Full video/audio understanding and live merchant monitoring remain outside this merge.
+
+**Provider setup:** `auto` / `astra` preserve Haydn’s configuration; `demo` / `fallback` explicitly keep basic mode; `openai` selects the legacy contextual-question adapter with `OPENAI_API_KEY` and optional `OPENAI_MODEL`. Select one provider for the API and worker, then restart both after changing it. No key is added by this merge. Keep credentials out of clients, commits and shared Pages. A live provider request, real iOS device build, shared HTTPS deployment and store publishing remain separate verification steps.
+
+**Local preservation:** Chrome persists capture payloads before networking and replays an uncertain request unchanged after reconnecting. Earlier local-only saves still require “Share with library.” Account/origin boundaries, pending answers and existing image previews remain intact; no storage reset or automatic migration of the installed extension is required by the source merge.
+
+
+**Confirmed product decisions:** understand why the person saved an item before offering shopping actions. Chrome keeps its contextual question first; once that context is recorded, Astra’s optional action suggestions can follow. Several intents may remain active together. `responses[].active` identifies current annotations; event history is retained. Selecting another intent or skipping does not erase earlier choices. Use `{action:"reject", retract_event_id:"…"}` to remove one annotation, including a custom answer. This retraction also invalidates predictions derived from the removed evidence. Swift exposes `UserEvent.active` and `AnnotationRequest(retractEventId:)`. Native/web teammates should preserve the why-first order in their final screens.

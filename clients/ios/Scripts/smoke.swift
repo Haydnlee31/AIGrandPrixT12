@@ -37,6 +37,13 @@ struct Smoke {
         func decode<T: Decodable>(_ type: T.Type, _ name: String) throws -> T { try CommonThreadClient.decoder().decode(type, from: fixture(name)) }
         let capabilities = try decode(Capabilities.self, "capabilities")
         try check(capabilities.features["image_upload"] == true, "capability flag")
+        let media = try decode(SavedMedia.self, "image_media")
+        let imageSave = try decode(SavedItem.self, "image_saved")
+        try check(imageSave.hasImage == true && imageSave.suggestions.first?.nextStep != nil, "image and contextual question metadata")
+        let imageRequest = CaptureRequest(title: "Screenshot", imageData: media.imageData)
+        let imageBody = try JSONSerialization.jsonObject(with: CommonThreadClient.encoder().encode(imageRequest)) as! [String: Any]
+        try check(imageBody["image_data"] as? String == media.imageData && imageBody["url"] == nil, "image-only wire request")
+        print("PASS image-only upload encoding, media decoding and contextual suggestion fields")
         _ = try decode(Account.self, "account"); _ = try decode(CaptureReceipt.self, "capture")
         _ = try decode(SavedItem.self, "pending"); _ = try decode(SavedItem.self, "saved")
         _ = try decode(CollectionPage.self, "collection"); _ = try decode(AnnotationReceipt.self, "annotation")

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mynah Finds · Your inspiration</title>
+  <link rel="stylesheet" href="panel.css">
+  <script type="module" src="panel.js"></script>
+</head>
+<body>
+  <header class="brand"><div class="wordmark"><img class="brand-mark" src="icons/icon-48.png" alt=""><h1>Mynah Finds</h1></div><button id="open-settings" class="icon-button" aria-label="Library connection settings" title="Library connection settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg></button></header>
+  <main>
+    <section class="capture-box" aria-label="Capture inspiration">
+      <p class="capture-hint">Something worth keeping?</p>
+      <div class="capture-actions"><button id="save-page" class="primary"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h12v17l-6-4-6 4z"/></svg> Save page</button><button id="save-screenshot" class="secondary"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5 9.5 3h5L16 5h4v15H4V5z"/><circle cx="12" cy="12" r="4"/></svg> Screenshot</button></div>
+      <div class="capture-foot"><button id="upload" class="text-button">Upload image</button><button id="upload-conversation" class="text-button">Conversation screenshot</button></div>
+      <details class="optional-note"><summary>Add a note (optional)</summary><label for="capture-note">Anything you want to add?</label><textarea id="capture-note" rows="2" maxlength="500" placeholder="Only if you want to add something…"></textarea></details>
+      <input id="image-file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+    </section>
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+    <p id="error" class="error" role="alert" hidden></p>
+    <section id="detail" aria-label="Selected save" hidden></section>
+    <section class="collection" aria-label="Your collection"><div class="section-heading"><h2>Your finds</h2><span id="count">0 saves</span></div><p class="collection-hint">A little inspiration. A possibility for later.</p><div id="library"></div></section>
+    <footer><span class="local-badge">On this device</span><p>Right-click any image to save just that detail.</p><details><summary>About your saves</summary><p id="privacy-copy">Local saving works without an account. Basic suggestions use saved text, not image analysis. Reels use captured captions; full video is not analysed. Connect a library in settings to sync new saves.</p></details></footer>
+  </main>
+  <dialog id="settings-dialog" aria-labelledby="settings-title">
+    <div class="dialog-heading"><h2 id="settings-title">Library connection</h2><button id="close-settings" class="icon-button" aria-label="Close settings">×</button></div>
+    <section class="connection-box"><h3 id="connection-label">Connect a shared library</h3>
+      <p>When connected, new saves and answers go to your backend. In AI mode, saved text and images are also sent to OpenAI. Existing local saves stay local until you share them.</p>
+      <form id="connection-form"><label for="backend-url">Backend URL</label><input id="backend-url" type="url" value="http://127.0.0.1:8000" required><label for="backend-token">Backend access token</label><input id="backend-token" type="password" autocomplete="off" placeholder="Local demo: demo-alex" required><button type="submit" class="secondary">Connect</button></form>
+      <p id="connection-status" role="status"></p><button id="disconnect" class="text-button" hidden>Disconnect</button><a id="shared-library" target="_blank" rel="noopener noreferrer" hidden>Open web library ↗</a>
+      <p id="connection-error" class="error" role="alert" hidden></p>
+    </section>
+  </dialog>
+  <template id="detail-template">
+    <article class="saved-detail">
+      <div class="detail-label"><button class="back-to-library text-button"><span aria-hidden="true">←</span> All finds</button><span class="detail-saved">Saved</span></div>
+      <div class="source-meta"><span class="kind-badge"></span><a class="source-link" target="_blank" rel="noopener noreferrer">Open original ↗</a></div>
+      <h2 class="saved-title"></h2><p class="saved-note" hidden></p>
+      <div class="question-block"><p class="question-heading">Make it yours</p><h3 class="question-title"></h3><div class="choices"></div><div class="question-actions"><button class="skip text-button">Just save for later</button><details class="custom-answer"><summary>My own words</summary><form class="answer-form"><label for="own-answer">What did you have in mind?</label><div class="answer-input"><input id="own-answer" maxlength="500" placeholder="I’m thinking about…" autocomplete="off"><button type="submit" class="answer-submit" aria-label="Save my answer">↗</button></div></form></details></div><details class="basis-details"><summary>About these suggestions</summary><p class="question-basis"></p></details></div>
+      <div class="answer-block" hidden><div class="answer-top"><span class="answer-status">Intent saved</span><button class="edit-answer text-button">Change</button></div><div class="answer-label"></div><p class="answer-next"></p></div>
+      <div class="understanding-evidence"><p class="understanding" hidden></p><ul class="content-evidence" hidden></ul></div>
+      <img class="hero-image" alt="Saved image" hidden><p class="capture-quality" hidden></p>
+      <details class="source-text" hidden><summary>Saved page text</summary><p></p></details>
+      <div class="shared-status"><p class="sync-state"></p><button class="sync-save text-button">Share with library</button></div>
+      <div class="detail-footer"><button class="delete text-button" aria-label="Remove this save">Remove this find</button></div>
+    </article>
+  </template>
+</body>
+</html>

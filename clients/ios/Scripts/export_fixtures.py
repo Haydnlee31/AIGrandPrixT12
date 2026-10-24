@@ -2,6 +2,9 @@
 import json
 import sys
 import tempfile
+import base64
+import io
+from PIL import Image
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -51,4 +54,11 @@ with tempfile.TemporaryDirectory() as directory:
         save("job", client.get(f"/v1/jobs/{simulation['job_id']}"))
         save("notifications", client.get("/v1/notifications"))
         save("unauthorized", client.get("/v1/me", headers={"Authorization": "Bearer invalid"}), 401)
+        picture = io.BytesIO()
+        Image.new("RGB", (8, 8), "blue").save(picture, format="PNG")
+        image_data = "data:image/png;base64," + base64.b64encode(picture.getvalue()).decode()
+        receipt = save("image_capture", client.post("/v1/saves", json={"title": "Image contract fixture", "image_data": image_data, "client": "ios_share_extension"}, headers={"Idempotency-Key": "image"}), 201)
+        run_once(app.state.factory, app.state.annotation_provider)
+        save("image_saved", client.get(f"/v1/saves/{receipt['id']}"))
+        save("image_media", client.get(f"/v1/saves/{receipt['id']}/media"))
 print(f"Exported API fixtures to {OUT}")

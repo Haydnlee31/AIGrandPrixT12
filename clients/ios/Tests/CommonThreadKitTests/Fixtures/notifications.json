@@ -1,10 +1,10 @@
 {
   "items": [
     {
-      "id": "f8d73a573ca44159bb53ce40de1923bd",
-      "watch_id": "94b516a98c0f497c82317a706e4eb4f1",
-      "observation_id": "e1eb9caf143d41a98d121e065bf7989c",
-      "dedupe_key": "94b516a98c0f497c82317a706e4eb4f1:2:1",
+      "id": "b001e5a4441b418fbd354f23ef263883",
+      "watch_id": "008beeb4cb8d4892afee8b15d2cc526a",
+      "observation_id": "26376a2c83074a4e9d98538cfd468387",
+      "dedupe_key": "008beeb4cb8d4892afee8b15d2cc526a:2:1",
       "message": "Simulated price alert: halo-cream is SGD 69.00, at or below your target.",
       "delivery_status": "in_app"
     }

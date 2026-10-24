@@ -12,6 +12,8 @@ from sqlalchemy import and_, delete, or_, select, update
 from .db import Evidence, Job, Notification, Observation, SavedItem, Suggestion, UserState, Watch, make_database
 from .predictive import ProviderError, get_annotation_provider
 from .library import update_search_document
+from .content import neutral_result, suggestion_key
+from .intelligence import DemoAnnotationProvider
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +139,7 @@ def validate_annotation(result, model_version):
         if type(suggestion) is not dict or set(suggestion) != {"kind", "text", "claim"}:
             raise ValueError("invalid_provider_output")
         kind, text, claim = suggestion["kind"], suggestion["text"], suggestion["claim"]
-        if type(kind) is not str or kind not in {"attraction", "constraint", "stage", "intent"}:
+        if type(kind) is not str or kind not in {"attraction", "constraint", "stage", "intent", "explore", "compare", "plan", "inspiration"}:
             raise ValueError("invalid_provider_output")
         if type(claim) is not str or claim not in allowed_claims:
             raise ValueError("invalid_provider_output")
@@ -167,10 +169,10 @@ def process_job(db, job, annotation=None, model_version=None):
             raise ValueError("missing_provider_output")
         # The adapter receives captured content as data, has no tools, and may only
         # suggest annotations. No provider output becomes user evidence.
-        previous = {(s.kind, s.claim): s for s in db.scalars(select(Suggestion).where(Suggestion.user_id == job.user_id, Suggestion.item_id == item.id))}
+        previous = {suggestion_key(s.kind, s.claim, s.text): s for s in db.scalars(select(Suggestion).where(Suggestion.user_id == job.user_id, Suggestion.item_id == item.id))}
         retained = set()
         for suggestion in annotation["suggestions"]:
-            key = (suggestion["kind"], suggestion["claim"])
+            key = suggestion_key(suggestion["kind"], suggestion["claim"], suggestion["text"])
             if key in retained:
                 continue
             retained.add(key)
@@ -179,8 +181,8 @@ def process_job(db, job, annotation=None, model_version=None):
                 previous[key].model_version = model_version
             else:
                 # Stable identity survives manual reanalysis or a temporarily
-                # omitted option; it is not derived from model wording/rank.
-                identity = uuid.uuid5(uuid.NAMESPACE_URL, f"mymah:{item.id}:{key[0]}:{key[1]}").hex
+                # omitted action; contextual alternatives additionally use their wording.
+                identity = uuid.uuid5(uuid.NAMESPACE_URL, f"mymah:{item.id}:{':'.join(key)}").hex
                 db.add(Suggestion(id=identity, user_id=job.user_id, item_id=item.id, model_version=model_version, **suggestion))
         for key, old in previous.items():
             if key not in retained:
@@ -262,9 +264,12 @@ def _run_once(factory, provider):
 
         # No session, transaction, connection or row lock survives this boundary.
         result = provider.understand_capture(snapshot) if contextual else provider.understand(snapshot.title, snapshot.selected_text)
+        if isinstance(provider, DemoAnnotationProvider) and snapshot.image_data_url and not result["features"].get("desk_related"):
+            result = neutral_result("Image saved. Choose what you want to do with it; image understanding is not enabled.", "demo_rules")
         model_version = provider.version
         annotation = validate_annotation(result, model_version)
         annotation["features"]["suggestion_order"] = [suggestion["claim"] for suggestion in annotation["suggestions"]]
+        annotation["features"]["suggestion_keys"] = [list(suggestion_key(s["kind"], s["claim"], s["text"])) for s in annotation["suggestions"]]
         if contextual:
             annotation["features"]["context_evidence_ids"] = list(dict.fromkeys([entry[0] for entry in preferences] + [entry[0] for entry in current_notes]))
 

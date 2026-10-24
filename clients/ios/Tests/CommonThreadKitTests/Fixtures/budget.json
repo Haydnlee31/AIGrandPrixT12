@@ -1,5 +1,5 @@
 {
-  "id": "a5099705a5504a64a3f826757d256946",
+  "id": "e016cde8ef2145c1b157145f1043510b",
   "version": 2,
   "stage": "exploring",
   "preferences": {
@@ -11,20 +11,20 @@
     "selected_variant": null
   },
   "evidence_ids": [
-    "c4c5f14064164c6991833ab512df3f5a",
-    "f19a3f8eaaa44a75b78d572acae79c35",
-    "d1e951e471564b349d888793c1172490"
+    "d6ce2c75f1644f6fa06a3514f6535a37",
+    "130889542024437e847babd52cc7416b",
+    "9fd03abe995c4bb1a6c356d1f2885e6c"
   ],
   "context_version": 3,
-  "created_at": 1792865905.384528,
+  "created_at": 1792869051.281406,
   "context_stale": false,
   "products": [],
   "next_action": {
     "action_type": "choose_direction",
     "evidence_ids": [
-      "c4c5f14064164c6991833ab512df3f5a",
-      "f19a3f8eaaa44a75b78d572acae79c35",
-      "d1e951e471564b349d888793c1172490"
+      "d6ce2c75f1644f6fa06a3514f6535a37",
+      "130889542024437e847babd52cc7416b",
+      "9fd03abe995c4bb1a6c356d1f2885e6c"
     ],
     "missing_information": [],
     "reason_codes": [

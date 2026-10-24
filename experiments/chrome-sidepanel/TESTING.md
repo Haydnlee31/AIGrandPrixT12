@@ -1,0 +1,70 @@
+# Mynah Finds 0.3.0 — shared-flow verification
+
+Checked 25 October 2026. This branch extends the original local capture experiment.
+
+- Final automated results: **37 backend tests and 57 JavaScript tests passed** (29 shared/web/scaffold, 28 side-panel), with OpenAPI/TypeScript drift checks, HTTP image-capture smoke checks and the standalone Swift harness passing. Upgrading an existing database retained its saved item.
+- Backend automated checks cover image validation, bounded uploads, independent images from the same page, private media access, duplicate/idempotent capture, shared answers, media deletion, refusal/out-of-scope fallbacks, unsupported text quotes, numeric discount claims, and deletion while inference is running. Existing framework/journey tests remain included.
+- Side-panel tests cover retained capture/answer keys, account/backend mismatch, local intent preservation in basic mode, and importing a newer web answer without overwriting it.
+- Shared SDK, original extension and web library tests run with `make test`; OpenAPI/TypeScript drift is checked. Swift wire models support image-only capture and new media/next-step fields; the standalone Swift harness passes. Native UI, device builds and App Store signing are not tested here.
+- Chrome for Testing 151, isolated profile: connected to the local backend through the real hostname permission prompt; saved the real NParks article; uploaded the existing clearly fictional conversation screenshot; selected **Plan something from it** with one click; opened the web library and verified the original image and same persisted intent/next-step text. Changed the intent to **Explore the idea** in the web app, refreshed the side panel, and verified Chrome showed that newer answer without overwriting it.
+- Regular Chrome: user reloaded the existing installation; all four earlier saves remained visible. Connected to the local backend, shared the existing NParks article and retained its **Explore binoculars for birdwatching** answer. Duplicate capture correctly reused the existing backend item.
+- Real OpenAI calls have **not** been run because no server key is configured. Provider tests use mocked HTTP responses, not fake live-AI results. Browser testing uses visibly labelled basic mode. Full video/audio, live product recommendations/prices, autonomous monitoring and production identity remain unimplemented.
+
+## Side-panel design refresh
+
+- Re-ran all **28 side-panel tests** and JavaScript syntax checks after the layout/navigation changes. `git diff --check` passed. Design lint reports no failures; its single shadow warning is the intentional native dialog overlay.
+- Chrome for Testing: the saved library opens by default; opening an article shows its saved intent. **Change** brings all four contextual options into view. Tab + Return selected and persisted the binoculars intent, then **All finds** restored the capture controls and library.
+- Inspected the compact panel visually: readable wrapped labels, image thumbnails, no clipped primary controls, visible keyboard focus. The settings dialog displays the existing basic-mode connection, focuses its close button and returns focus to the settings trigger on Escape.
+- Saved the real NParks page and a visible-page screenshot with one click. Existing shared article context survives duplicate capture; the basic backend returns honest general choices for screenshots. **Just save for later** persisted a skipped intent.
+- Regular Chrome: updated the existing installation in place, closed/reopened the panel, and visually confirmed the new design with all **four existing saves** retained. Basic-mode connection remained active.
+- This pass changes presentation and navigation only. It does not configure a model key or change extension permissions, storage schema or shared API contracts. Full accessibility/browser coverage remains outside these checks.
+
+The original v0.2 capture-only test history follows. Its limits describe that earlier version, not the v0.3 backend contract.
+
+---
+
+## Mynah Finds 0.2.0 — earlier verification
+
+Checked 25 October 2026. This is the standalone side-panel experiment, not the backend-connected extension scaffold.
+
+## Automated checks
+
+`npm test`: **22 tests passed**. JavaScript syntax checks passed. Tests cover safe URL/image boundaries; note precedence and optional/skipped answers; real-example article/caption intent routing; conversation type without invented OCR; article extraction and exclusion of social comment threads; tab/navigation changes; selected-image provenance; blocked-frame recovery; and viewport clipping at screenshot scale.
+
+## Actual browser checks
+
+Regular Chrome, installed extension `mmkdjbfokpagfgkeoomfjfifpepfimmk`:
+
+- Reloaded in place; toolbar/panel use the supplied bird artwork.
+- Saved the real NParks “How Now Brown Bird?” article with no note. Tapped “Explore binoculars for birdwatching”; answer displayed as saved.
+- Imported `tests/sample-conversation.png` using **Conversation screenshot**. The fictional image was retained, conversation intent options appeared, and “Plan something together” was saved. No text was typed and no private conversation was accessed.
+- Saved the open Instagram post `https://www.instagram.com/p/Dd1Z-TWs20c/`. Its actual claymation caption became the saved title and supplied creative-activity choices. Tapped “Learn how it was made”; the UI explicitly says it used the caption, not the video/audio.
+- Closed the panel, right-clicked the NParks Brown Shrike photo, and used **Save image to Mynah Finds**. Panel opened and saved that image, its alt text and original page link. All previous test saves remained in the collection.
+
+Chrome for Testing 151, isolated profiles:
+
+- Saved the real NParks article and its Eurasian Tree Sparrow image; tap-based birdwatching intents worked.
+- Exercised an intentionally cross-origin image (`127.0.0.1` page, `localhost` image, no CORS headers). The first check exposed a viewport change while the side panel opened. Added a short layout-settling delay while retaining the before/after geometry guard. Retested in a fresh process with the final code: save succeeded from a closed panel.
+- Visually inspected the fallback crop: it contained only the chosen image, excluded the fixture’s surrounding heading/footer, and displayed “Saved the visible part of this image…” accurately.
+- Choices scroll into view automatically after save and fit the default side-panel width.
+
+## Limits not claimed as tested or implemented
+
+- No OCR, image recognition, video/audio understanding, model API, recommendations, live prices, monitoring, backend sync, shared accounts or store publication.
+- Keywords and site captions can be incomplete. Instagram layouts/access can change; a bookmark fallback is not full media understanding.
+- A protected image crop captures its currently visible pixels (including any visual occlusion); it is not a full-resolution original. Unsupported/protected embedded frames offer a recovery message.
+- No exhaustive cross-site, multiple-window, storage-quota, browser-version or accessibility audit. Existing records remain readable by inspection; no destructive database migration is performed.
+- The final crop timing fix was verified in Chrome for Testing. Regular Chrome verified original-image saving; its worker loads updated files on a subsequent restart/reload.
+
+The fixtures are explicit test files, not pre-seeded user-library content. Screenshot evidence is kept in the workspace `.artifacts/` directory; it is not embedded into shared app screens.
+
+
+## v0.4 backend integration verification
+
+- Unified with Haydn’s product-analysis, Library-search and cited-Explore backend. `make test` covers the combined API/worker/catalog suite, shared client/scaffold tests and side-panel tests; generated OpenAPI/TypeScript contracts match.
+- Real HTTP smoke uses the production Chrome sync adapter with the NParks article title/text and the labelled sample conversation image. It checks two active intents, a third answer from another client, individual removal, refresh, and retention of the local save ID and original image.
+- Upgrade tests start at each published migration head, preserve private image bytes, annotation history and original capture idempotency keys, and finish with one Alembic head. Both `/image` and compatible `/media` remain owner-only.
+- Chrome browser preview of the actual panel code (isolated local origin with a minimal Chrome API stub): select binoculars, add a birdwatching outing, see both together, remove binoculars and retain the outing. This is a UI preview, not a new installation or a test of extension permissions. The installed extension and its IndexedDB were untouched.
+- Mocked Astra results retain the why-first question before optional actions. A separate regression proves contextual alternatives sharing the same action remain distinct.
+- Standalone Swift harness passes API fixture decoding, image upload/private image reads, typed intents, product analysis/search/Explore, retries and account-isolated outbox checks.
+- Live AI credentials/inference, a real iOS device, deployed HTTPS backend and PostgreSQL execution remain unverified. No paid provider request or change to the running basic-mode server was made.

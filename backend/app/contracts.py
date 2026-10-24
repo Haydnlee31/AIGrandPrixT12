@@ -1,10 +1,12 @@
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 import ipaddress
+import hashlib
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 from .media import MAX_IMAGE_DATA_URL_LENGTH, validate_image_data_url
+from .content import decode_image
 
 
 class Contract(BaseModel):
@@ -30,6 +32,17 @@ def canonical_url(value: str):
 
 
 class Capture(Contract):
+    _original_image_hash: str = PrivateAttr(default="")
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def remember_image_identity(cls, data, handler):
+        capture = handler(data)
+        original = data.get("image_data_url") or data.get("image_data") if isinstance(data, dict) else None
+        if original:
+            capture._original_image_hash = hashlib.sha256(decode_image(original)).hexdigest()
+        return capture
+
     url: str | None = Field(default=None, max_length=2048)
     title: str = Field(min_length=1, max_length=300)
     source: Literal["web", "pinterest", "instagram", "article", "product"] = "web"
@@ -39,10 +52,21 @@ class Capture(Contract):
     image_data_url: str | None = Field(default=None, max_length=MAX_IMAGE_DATA_URL_LENGTH,
         description="Base64 JPEG, PNG or WebP, up to 4 MiB decoded. Server strips metadata and resizes. Never a remote image URL.")
 
+    # Keep the v0.3 wire field for persisted Chrome requests and their mutation keys.
+    image_data: str | None = Field(default=None, max_length=MAX_IMAGE_DATA_URL_LENGTH,
+        description="Legacy Chrome data URL. New integrations use image_data_url; do not send both.")
+
+    @field_validator("image_data")
+    @classmethod
+    def valid_legacy_image(cls, value):
+        if value is not None:
+            decode_image(value)
+        return value
+
     @field_validator("url")
     @classmethod
     def valid_url(cls, value):
-        if value is not None:
+        if value:
             canonical_url(value)
         return value
 
@@ -53,12 +77,15 @@ class Capture(Contract):
 
     @model_validator(mode="after")
     def has_content(self):
-        if self.url is None and self.image_data_url is None:
+        if self.image_data is not None and self.image_data_url is not None:
+            raise ValueError("Send image_data_url or image_data, not both")
+        if not self.url and self.image_data_url is None and self.image_data is None:
             raise ValueError("Provide a URL or an image")
         return self
 
 
 class AnnotationResponse(Contract):
+    retract_event_id: str | None = Field(default=None, min_length=1, max_length=200, description="With action reject, remove one prior annotation answer while retaining other intents.")
     action: Literal["select", "edit", "reject", "skip"]
     suggestion_id: str | None = None
     text: str = Field(default="", max_length=2000)

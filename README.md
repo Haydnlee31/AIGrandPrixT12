@@ -1,8 +1,8 @@
-# Mymah Finds — shared app framework
+# Mynah Finds — shared app framework
 
 A shared backend for a **Chrome extension/browser experience** and a **native iOS app with a Share Extension**. The agreed navigation is **Library, Explore, Profile**. Library holds saved content and searches its analyzed product facets; Explore recommends and searches catalog products with source citations; Profile holds account and app controls. No Map or Community.
 
-The saved-library approach takes inspiration from [Albo](https://albo.inc/) with an independent Mymah Finds visual identity. The backend supplies Astra product analysis, predictive annotations, server-side Library search, and cited Explore recommendations over licensed local catalogs. Existing native and browser screens predate this plan; the frontend teammate must connect and design the new flows. Product screens must contain no prototype/demo labels or provider-key controls.
+The saved-library approach takes inspiration from [Albo](https://albo.inc/) with an independent Mynah Finds visual identity. The backend supplies Astra product analysis, predictive annotations, server-side Library search, and cited Explore recommendations over licensed local catalogs. Existing native and browser screens predate this plan; the frontend teammate must connect and design the new flows. The Chrome side panel keeps its current capture/question design and distinguishes basic suggestions from AI interpretation. Provider keys remain server-side.
 
 **Start with [the Library / Explore / Profile integration guide](docs/ios-ai-handoff.md), then [the team handoff](docs/team-handoff.md).** Platform setup: [Chrome](docs/platform-chrome.md) · [iOS](docs/platform-ios.md). API contract **0.4.0**: [OpenAPI](contracts/openapi.json) · [response examples](contracts/examples).
 
@@ -18,7 +18,7 @@ This implements the framework behind the [backend plan](https://chatgpt.com/spac
 | Explore | Source-scoped catalog retrieval, deterministic matching to saved observations, explanations, citations and honest offer availability |
 | Catalog foundation | Licensed datasets and synthetic products, attribution/exports, atomic bulk imports, optional approved feeds, shared JavaScript/Swift contracts |
 | JavaScript | Dependency-free transport, generated TypeScript types, bounded polling, cancellation, structured errors and retained mutation keys |
-| Chrome | Load-unpacked MV3 extension, toolbar popup, explicit URL/text capture, service worker, backend settings and scoped permissions |
+| Chrome | Chime’s side panel in `experiments/chrome-sidepanel/`: page/screenshot/image capture, optional shared library, one-tap intents, durable retries. Original `extension/` popup scaffold remains available. |
 | iOS | Swift API package, typed models, account-scoped capture outbox, SwiftUI host and Share Extension templates, Keychain/App Group setup |
 | Browser reference | Existing Library / Search / Profile scaffold in `frontend/`; redesign and API wiring for Library / Explore / Profile remain teammate work |
 
@@ -28,9 +28,11 @@ The reference UI is not the final design for either interface. Native Xcode targ
 
 **Catalog setup:** follow [the integration guide](docs/catalog-integration.md). `make catalog-load` imports reviewed downloads; `make catalog-bundle` creates a portable dataset handoff with licenses. Dataset retrieval needs no provider key. Keep raw data in ignored `local-data/`. `EXPLORE_CATALOG_SOURCE` selects the backend's Explore source, defaulting to `abo`; each response retains its source attribution. Catalog facts are matched locally and are not sent wholesale to Astra. Historical dataset records are not current merchant offers.
 
+Chrome and branding are integrated with Haydn’s v0.4 backend. Both published image-upload formats remain accepted, with a single private storage path and a migration from either branch. See [compatibility and handoff](docs/team-handoff.md#chrome-and-backend-merge).
+
 ## Start the backend
 
-Prerequisites: Python 3.11+ (validated with 3.13), Node 20+ for JavaScript checks, and optionally `uv`.
+Prerequisites: Python 3.11+ (validated for this update with 3.12), Node 20+ for JavaScript checks, and optionally `uv`.
 
 ```sh
 make setup
@@ -45,12 +47,13 @@ python3 -m venv .venv
 make run
 ```
 
-`make run` applies migrations and starts the API with an embedded worker at **http://127.0.0.1:8000**. Local development uses `demo-alex`; `demo-sam` is a separate user. Profile → Connect/Switch account accepts the access key without showing developer credential examples in the UI. Use the same API origin and token on both interfaces to share a library. An iPhone cannot reach a Mac's loopback address; use an HTTPS development endpoint for device integration.
+Copy `.env.example` to `.env` to configure the server (the file is Git-ignored). `make run` loads these settings, applies migrations and starts the API with an embedded worker at **http://127.0.0.1:8000**. Local development uses `demo-alex`; `demo-sam` is a separate user. Profile → Connect/Switch account accepts the access key without showing developer credential examples in the UI. Use the same API origin and token on both interfaces to share a library. An iPhone cannot reach a Mac's loopback address; use an HTTPS development endpoint for device integration.
 
 - Interactive API: http://127.0.0.1:8000/docs. Use **Authorize** with a development token. Swagger assets need internet.
 - Offline schema: http://127.0.0.1:8000/openapi.json.
 - SQLite data: ignored `prototype.db`.
-- Settings: [.env.example](.env.example). Export variables; `.env` is not loaded automatically.
+- Settings: [.env.example](.env.example). `make run` loads `.env`; separately launched workers need matching exported settings.
+- Basic mode: set `ANNOTATION_PROVIDER=demo` to keep all inference local.
 - Astra: set `ASTRA_API_KEY` (or `OPENAI_API_KEY`) in the backend environment. `ANNOTATION_PROVIDER=astra` requires a key; the default `auto` selects Astra when a key is available. Clients never receive or configure that key. See [configuration and live verification](docs/predictive-annotations.md).
 - Verify live model access with `make smoke-astra` after configuring the key; it makes one explicit paid image request. Live Astra access has not been verified in this workspace.
 - Separate worker: `EMBEDDED_WORKER=false make run`, then `make worker` in another terminal with matching database settings. The default setup already includes a worker.
@@ -65,6 +68,7 @@ make handoff
 This regenerates contracts/examples, runs backend/JavaScript checks, and builds source-only archives:
 
 - `dist/mymah-finds-framework.zip` — backend, contracts, both clients, guides, and browser UI; excludes local database, environment credentials, and build caches.
+- `dist/mynah-finds-sidepanel.zip` — Chime’s current side panel. For an existing unpacked installation, update its existing folder and reload it; loading a new folder can create a different extension identity.
 - `dist/mymah-finds-chrome-extension.zip` — extract and choose its directory in Chrome → `chrome://extensions` → Developer mode → **Load unpacked**.
 - `dist/chrome-extension/` — directly loadable development build.
 
@@ -90,7 +94,7 @@ const saved = await api.capture({
 const item = await api.getSave(saved.id); // A receipt means saved; do not wait for intelligence.
 ```
 
-`source` records the content platform; `client` records the capture interface. Timestamps are Unix seconds UTC. Refresh Library and Explore on foreground and after saves, annotations or deletions; there is no delta sync or push yet. New interfaces use `searchLibrary()` and `explore()` rather than the old browser scaffold's local filter. Internal `CommonThreadClient` and `CommonThreadKit` names remain compatible with existing integrations; visible branding is Mymah Finds. Details and recovery are in [the handoff](docs/team-handoff.md).
+`source` records the content platform; `client` records the capture interface. Timestamps are Unix seconds UTC. Refresh Library and Explore on foreground and after saves, annotations or deletions; there is no delta sync or push yet. New interfaces use `searchLibrary()` and `explore()` rather than the old browser scaffold's local filter. Internal `CommonThreadClient` and `CommonThreadKit` names remain compatible with existing integrations; visible branding is Mynah Finds. Details and recovery are in [the handoff](docs/team-handoff.md).
 
 ## Checks and contract changes
 

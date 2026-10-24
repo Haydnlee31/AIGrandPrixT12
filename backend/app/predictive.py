@@ -316,7 +316,12 @@ class AstraAnnotationProvider:
 def get_annotation_provider():
     """Select once at startup; credentials and provider settings stay server-side."""
     selection = os.getenv("ANNOTATION_PROVIDER", "auto").strip().lower()
-    if selection not in {"auto", "astra", "fallback"}:
+    if selection == "openai":
+        from .content import OpenAIContentProvider
+        if not os.getenv("OPENAI_API_KEY", "").strip():
+            raise ProviderError("openai_key_missing", False)
+        return OpenAIContentProvider()
+    if selection not in {"auto", "astra", "fallback", "demo"}:
         raise ProviderError("annotation_provider_invalid", False)
     key = (os.getenv("ASTRA_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
     if selection == "astra" or (selection == "auto" and key):

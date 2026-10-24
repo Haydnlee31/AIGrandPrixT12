@@ -1,4 +1,5 @@
-import {CommonThreadClient, newMutationKey} from './lib/client.js?v=2';
+import {CommonThreadClient, newMutationKey} from './lib/client.js?v=3';
+import {showUnderstanding} from './understanding.js';
 import {SOURCE_NAMES, sourceHost, safeLink, visibleSaves, loadSavedLibrary} from './library.mjs';
 
 const $ = (selector,root=document) => root.querySelector(selector);
@@ -15,7 +16,7 @@ const icon = name => `<svg class="inline-icon" viewBox="0 0 24 24" fill="none" s
 const name = () => account ? account.user_id.replace(/[-_]/g,' ').replace(/\b\w/g,c=>c.toUpperCase()) : 'Your space';
 const date = value => new Date(value*1000).toLocaleDateString(undefined,{month:'short',day:'numeric'});
 const kind = item => ['article','product'].includes(item.source) ? item.source : 'link';
-const sourceLabel = item => ({web:'Web link',article:'Article',product:'Product link',pinterest:'Pinterest',instagram:'Instagram'}[item.source] || 'Link');
+const sourceLabel = item => item.has_image ? 'Saved image' : ({web:'Web link',article:'Article',product:'Product link',pinterest:'Pinterest',instagram:'Instagram'}[item.source] || 'Link');
 function toast(message) { clearTimeout(toastTimer); $('#toast').textContent=message; $('#toast').hidden=false; toastTimer=setTimeout(()=>$('#toast').hidden=true,4200); }
 function errorMessage(error) {
   if (error.status===401) return 'Your library needs an access key. Connect from Profile to continue.';
@@ -48,13 +49,13 @@ function search() { return header('Search','That thing you saved? It’s here.',
 function setting(action,label,description,glyph,extra='') { return `<button class="settings-row ${extra}" data-action="${action}"><span class="row-icon">${icon(glyph)}</span><span class="row-copy"><strong>${label}</strong><small>${description}</small></span>${icon('chevron')}</button>`; }
 function profile() {
   const sourceCount=new Set(items.map(sourceHost)).size;
-  return header('Profile','A space that’s yours.','MYMAH FINDS')+`<section class="profile-card"><div class="avatar profile-avatar">${escape(name()[0])}</div><div class="profile-name"><h2>${escape(name())}</h2><p>${account?'Your personal library':'Keep your finds together'}</p></div><div class="profile-stats"><div><strong>${items.length}</strong><span>Saved finds</span></div><div><strong>${sourceCount}</strong><span>${sourceCount===1?'Source':'Sources'}</span></div></div></section><div class="settings-group">${setting('account',account?'Switch account':'Connect your library','Open your saved finds on this device','person')}${setting('help','Ways to save','From your browser or the iOS share sheet','bookmark')}${setting('refresh','Refresh library','Bring your latest saves into view','link')}</div>${account?`<div class="settings-group">${setting('signout','Sign out','Remove access from this browser session','logout','danger')}</div>`:''}${banner()}<p class="profile-footer">Mymah Finds<br><span>Good things, kept close.</span></p>`;
+  return header('Profile','A space that’s yours.','MYNAH FINDS')+`<section class="profile-card"><div class="avatar profile-avatar">${escape(name()[0])}</div><div class="profile-name"><h2>${escape(name())}</h2><p>${account?'Your personal library':'Keep your finds together'}</p></div><div class="profile-stats"><div><strong>${items.length}</strong><span>Saved finds</span></div><div><strong>${sourceCount}</strong><span>${sourceCount===1?'Source':'Sources'}</span></div></div></section><div class="settings-group">${setting('account',account?'Switch account':'Connect your library','Open your saved finds on this device','person')}${setting('help','Ways to save','From your browser or the iOS share sheet','bookmark')}${setting('refresh','Refresh library','Bring your latest saves into view','link')}</div>${account?`<div class="settings-group">${setting('signout','Sign out','Remove access from this browser session','logout','danger')}</div>`:''}${banner()}<p class="profile-footer">Mynah Finds<br><span>Good things, kept close.</span></p>`;
 }
 function render() {
   document.querySelectorAll('[data-view]').forEach(button=>{ const active=button.dataset.view===view; button.classList.toggle('active',active); active?button.setAttribute('aria-current','page'):button.removeAttribute('aria-current'); });
   $('#main').innerHTML = view==='search'?search():view==='profile'?profile():library();
   if (view==='search') searchResults();
-  document.title=`Mymah Finds — ${view[0].toUpperCase()+view.slice(1)}`;
+  document.title=`Mynah Finds — ${view[0].toUpperCase()+view.slice(1)}`;
 }
 function go(next,focus=true) {
   if (!['library','search','profile'].includes(next)) return;
@@ -88,6 +89,7 @@ async function refresh({fresh=false}={}) {
   try { await promise; } finally { if(refreshPromise===promise) refreshPromise=null; }
 }
 function resetConnection({preserveCaptureFor=null}={}) {
+  $('#detail-dialog').close();
   let pending=captureAttempt;
   if(!pending) { try { pending=JSON.parse(store.get('mymah-finds-capture')); } catch {} }
   connectionRevision++; accountIntent++; refreshController?.abort(); refreshPromise=null; captureAttempt=null; captureFlight=null; removeAttempt=null; removalAttempts.clear(); items=[]; account=null; query=''; source='all'; $('#capture-form').reset();
@@ -114,6 +116,13 @@ function showDetail(id) {
   const href=safeLink(item.original_url);
   $('#detail-content').innerHTML=`<div class="sheet-handle" aria-hidden="true"></div><div class="dialog-top"><span class="eyebrow">${escape(sourceLabel(item))}</span><button class="icon-button" data-close aria-label="Close">×</button></div><div class="detail-cover cover source-${Object.hasOwn(SOURCE_NAMES,item.source)?item.source:'web'}"><div class="cover-glyph">${icon(kind(item))}</div><span class="cover-domain">${escape(sourceHost(item))}</span></div><h2 id="detail-title">${escape(item.title)}</h2><p class="detail-meta">Saved ${date(item.captured_at)} · ${escape(sourceHost(item))}</p>${item.note?`<section class="detail-note"><h3>Your note</h3><p>${escape(item.note)}</p></section>`:''}${item.selected_text?`<section class="detail-note"><h3>Saved text</h3><p>${escape(item.selected_text)}</p></section>`:''}${href?`<a class="primary wide" href="${escape(href)}" target="_blank" rel="noopener noreferrer">Open original ${icon('arrow')}</a>`:''}<button class="text-button danger wide" data-action="remove" data-id="${escape(item.id)}">${icon('trash')} Remove from Library</button>`;
   $('#detail-dialog').showModal();
+  if (item.has_image) $('#detail-content').querySelector('.detail-cover').hidden = true;
+  const context = document.createElement('section'); context.className = 'detail-note saved-understanding';
+  $('#detail-content').querySelector('.detail-meta').after(context);
+  const revision = connectionRevision;
+  showUnderstanding(context, item, {api: client(), scope: account.user_id,
+    isCurrent: () => revision === connectionRevision && $('#detail-dialog').open,
+    onSaved: updated => { items = items.map(current => current.id === updated.id ? updated : current); }});
 }
 document.addEventListener('click',async event=>{
   const close=event.target.closest('[data-close]'); if(close) { close.closest('dialog').close(); return; }
