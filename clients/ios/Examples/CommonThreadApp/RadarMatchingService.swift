@@ -34,6 +34,7 @@ import CommonThreadKit
             let context = metadata[find.id] ?? LocalFindMetadata()
             var value: [String: Any] = ["id": find.id, "title": find.title, "text": String(find.selectedText.prefix(12000)),
                 "note": String(find.note.prefix(2000)), "intents": Array(context.selectedIntents.prefix(8))]
+            if !find.originalUrl.isEmpty { value["original_url"] = String(find.originalUrl.prefix(4000)) }
             if let analysis = context.analysis { value["analysis"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(analysis)) }
             return value
         }
@@ -49,7 +50,7 @@ import CommonThreadKit
         }
         let body = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
         guard let configuration = try CaptureIntelligence.configuration() else { throw CaptureIntelligence.Failure.configuration }
-        let namespace = Data((configuration.baseURL.absoluteString + "|" + configuration.accessToken + "|radar-v1").utf8)
+        let namespace = Data((configuration.baseURL.absoluteString + "|" + configuration.accessToken + "|radar-amazon-v2").utf8)
         let key = SHA256.hash(data: namespace + body).map { String(format: "%02x", $0) }.joined()
         if !force, let entry = cache[key], Date().timeIntervalSince(entry.createdAt) < 60 { return entry.page }
         let data = try await CaptureIntelligence.post(path: "v1/radar", body: body)

@@ -18,6 +18,10 @@ struct RadarScreen: View {
     @State private var busy = false
     @State private var errorMessage: String?
     @State private var activeRequestID: UUID?
+    #if DEBUG
+    @State private var priceReviewURL: URL?
+    @State private var showingPriceReview = false
+    #endif
     @Environment(\.dynamicTypeSize) private var typeSize
     private var suggestions: [RadarSuggestion] {
         var result: [RadarSuggestion] = []; var used = Set<String>()
@@ -40,6 +44,7 @@ struct RadarScreen: View {
                 VStack(alignment: .leading, spacing: 28) {
                     introduction
                     if !suggestions.isEmpty { suggestedIntentions }
+                    PriceWatchListSection()
                     if !watches.isEmpty { trackedNeeds }
                     if !showingMatches, let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.secondary) }
                 }.padding(20).padding(.bottom, 20)
@@ -51,6 +56,27 @@ struct RadarScreen: View {
                 if let request { matches(for: request) }
             }
             .task(id: libraryRevision) { await load() }
+            #if DEBUG
+            .task {
+                let args = ProcessInfo.processInfo.arguments
+                if let index = args.firstIndex(of: "-showPriceCheck"), args.indices.contains(index + 1),
+                   let url = PriceMoney.exactURL(args[index + 1]) {
+                    priceReviewURL = url; showingPriceReview = true
+                }
+                if let index = args.firstIndex(of: "-reviewBudget"), args.indices.contains(index + 1) {
+                    var brief = RadarBrief(); brief.intention = String(args[index + 1].prefix(300))
+                    editor = RadarBriefEditorContext(brief: brief)
+                }
+            }
+            .sheet(isPresented: $showingPriceReview) {
+                NavigationStack {
+                    ScrollView {
+                        if let url = priceReviewURL { LivePricePanel(url: url, title: "Amazon listing").padding(24) }
+                    }.background(NativeTheme.bg).navigationTitle("Price check").navigationBarTitleDisplayMode(.inline)
+                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showingPriceReview = false } } }
+                }
+            }
+            #endif
             .task(id: (request?.id.uuidString ?? "") + "|" + libraryRevision) {
                 if showingMatches, let request { await findMatches(request) }
             }
@@ -311,10 +337,14 @@ private struct RadarBriefEditor: View {
 
 private struct RadarBudgetSlider: View {
     @Binding var brief: RadarBrief
-    private let amounts: [Double] = [0, 25, 50, 75, 100, 150, 200, 300, 500, 750, 1000, 1500, 2000, 3000, 5000]
+    var target: String? = nil
+    @State private var preservedBudget: String?
     private var steps: [Double] {
-        guard let old = Double(brief.budget), old > 5000 else { return amounts }
-        return amounts + [old]
+        var context = brief
+        // Keep the scale stable while dragging, including a previously saved
+        // amount outside the normal range. Reconsider it only for a new product.
+        context.budget = preservedBudget ?? brief.budget
+        return RadarBudgetScale.steps(for: context, target: target)
     }
     private var position: Binding<Double> {
         Binding(get: {
@@ -322,22 +352,23 @@ private struct RadarBudgetSlider: View {
             return Double(steps.indices.min(by: { abs(steps[$0] - amount) < abs(steps[$1] - amount) }) ?? 0)
         }, set: { index in
             let value = steps[min(max(Int(index.rounded()), 0), steps.count - 1)]
-            brief.budget = value == 0 ? "" : String(Int(value))
+            brief.budget = RadarBudgetScale.storedValue(value)
         })
     }
     static func label(_ brief: RadarBrief) -> String {
-        guard !brief.budget.isEmpty else { return "Any budget" }
-        let prefix = ["SGD": "S$", "USD": "US$", "GBP": "£", "EUR": "€"][brief.currency] ?? brief.currency + " "
-        return prefix + brief.budget
+        RadarBudgetScale.label(amount: Double(brief.budget) ?? 0, currency: brief.currency)
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack { Text("Budget").font(.headline.bold()); Spacer(); Text(Self.label(brief)).font(.headline).foregroundStyle(.purple).monospacedDigit() }
             Slider(value: position, in: 0...Double(steps.count - 1), step: 1).tint(.purple)
                 .accessibilityLabel("Maximum budget").accessibilityValue(Self.label(brief))
-            HStack { Text("Any"); Spacer(); Text("\(Int(steps.last ?? 5000))") }.font(.caption).foregroundStyle(.secondary)
-            Text("We’ll keep this in mind. Confirm current prices at the retailer.").font(.caption).foregroundStyle(.secondary)
+            HStack { Text("Any"); Spacer(); Text(RadarBudgetScale.label(amount: steps.last ?? 2000, currency: brief.currency)) }.font(.caption).foregroundStyle(.secondary)
+            Text("Confirm current prices on Amazon.").font(.caption).foregroundStyle(.secondary)
         }.padding(18).background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 22))
+            .onAppear { preservedBudget = brief.budget }
+            .onChange(of: brief.intention) { _, _ in preservedBudget = brief.budget }
+            .onChange(of: target) { _, _ in preservedBudget = brief.budget }
     }
 }
 
@@ -355,7 +386,7 @@ private struct RadarWatchEditor: View {
                     Picker("Track", selection: $watch.scope) { ForEach(RadarScope.allCases) { Text($0.title).tag($0) } }
                     TextField("What do you want to track?", text: $watch.target, axis: .vertical).lineLimit(2...4).focused($editing)
                 }
-                Section { RadarBudgetSlider(brief: $watch.brief).listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
+                Section { RadarBudgetSlider(brief: $watch.brief, target: watch.target).listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
                 if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
                 Section { Text("Check for new matches whenever you return to Radar.").font(.footnote).foregroundStyle(.secondary) }
             }.scrollDismissesKeyboard(.interactively)
@@ -407,6 +438,7 @@ private struct RadarProductDetail: View {
             VStack(alignment: .leading, spacing: 22) {
                 CatalogProductImage(url: item.imageURL.flatMap(URL.init(string:)), height: 300, fit: true).clipShape(RoundedRectangle(cornerRadius: 26))
                 Text(item.title).font(.title2.bold())
+                if let url = item.exactAmazonURL { LivePricePanel(url: url, title: item.title) }
                 VStack(alignment: .leading, spacing: 14) {
                     Label("Why it fits", systemImage: "sparkles").font(.headline).foregroundStyle(.purple)
                     ForEach(item.reasons.prefix(3)) { reason in
@@ -420,10 +452,10 @@ private struct RadarProductDetail: View {
                     }
                 }
                 HStack(spacing: 14) {
-                    if let url = shoppingURL { Link("Shop this find", destination: url).font(.headline).buttonStyle(.borderedProminent) }
+                    if let url = item.exactAmazonURL { Link("View on Amazon", destination: url).font(.headline).buttonStyle(.borderedProminent) }
                     Button(action: onTrack) { Image(systemName: "dot.radiowaves.left.and.right").frame(width: 44, height: 44) }.buttonStyle(.bordered).accessibilityLabel("Track this product")
                 }
-                Text("Opens Amazon search. Check the seller, price and availability.").font(.caption).foregroundStyle(.secondary)
+                Text("Check current price and availability on Amazon.").font(.caption).foregroundStyle(.secondary)
                 DisclosureGroup("Product source") {
                     VStack(alignment: .leading, spacing: 10) {
                         if let url = safeURL(item.sourceURL) { Link(item.sourceName, destination: url) }
@@ -433,9 +465,6 @@ private struct RadarProductDetail: View {
                 }.font(.subheadline).tint(.secondary)
             }.padding(20)
         }.background(NativeTheme.bg).navigationTitle("Your match").navigationBarTitleDisplayMode(.inline)
-    }
-    private var shoppingURL: URL? {
-        var url = URLComponents(string: "https://www.amazon.com/s"); url?.queryItems = [URLQueryItem(name: "k", value: item.title)]; return url?.url
     }
     private func safeURL(_ raw: String) -> URL? {
         guard let url = URL(string: raw), ["https", "http"].contains(url.scheme?.lowercased() ?? ""), url.host != nil, url.user == nil, url.password == nil else { return nil }

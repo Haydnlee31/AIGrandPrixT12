@@ -44,6 +44,7 @@ struct IntelligenceSettingsView: View {
             }
             Section("Your content") {
                 Text("While connected, the selected photo and product context are sent through this service to OpenAI for analysis. Your library remains on this iPhone. Responses may be cached by the service for one hour; the request disables OpenAI response storage.")
+                Text("Price watches are separate: the service stores the exact product link, target and observed prices for watches you create. Stop tracking a product in Radar to remove that watch and its history.")
                 Text("A development relay works while its host and secure tunnel are running. Your team can replace the service address with a permanent deployment.")
             }.font(.footnote).foregroundStyle(.secondary)
         }

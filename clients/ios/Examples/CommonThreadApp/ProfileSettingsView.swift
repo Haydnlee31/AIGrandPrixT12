@@ -106,6 +106,9 @@ private struct FindsPrivacyView: View {
             Section("Shared library") {
                 Text("When connected, saves made in your shared library go to the server you chose. AI features may send shared content to the providers configured by that server. Your access key is kept in the iPhone Keychain.")
             }
+            Section("Price tracking") {
+                Text("Creating a price watch stores its product link, target and observed prices with the connected service. Checks continue while that service is running; updates appear in Radar. Stop tracking in Radar to remove the watch and its history. Price checks do not send your saved photos or notes to Amazon.")
+            }
             Section("You are in control") {
                 Text("Remove a find from its options menu. Removing a local find removes its saved content on this iPhone. Removing a shared find affects that account’s library on connected devices.")
                 Text("Opening an original link takes you to that website, where its own privacy practices apply.")

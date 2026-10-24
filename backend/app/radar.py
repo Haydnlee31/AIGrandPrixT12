@@ -117,6 +117,9 @@ def register_radar(app: FastAPI, *, interpreter, recommendation_service):
                 query=request.intention, generated_at=time.time())
             return JSONResponse(result.model_dump(), headers={"Cache-Control": "no-store"})
         response = await asyncio.to_thread(recommendation_service.recommendations, adapted)
+        discovery = getattr(app.state, "amazon_discovery", None)
+        if discovery:
+            response = await discovery.augment(adapted, response)
         if response.status_code == 200 and any(find.id == "radar-request" for find in adapted.finds):
             # Explain the current request honestly instead of citing a save
             # which was never in this person's Library.

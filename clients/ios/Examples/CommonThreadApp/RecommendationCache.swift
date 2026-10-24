@@ -8,7 +8,7 @@ import CryptoKit
     private static var entries: [String: Entry] = [:]
     private static func key(_ body: Data) throws -> String {
         guard let configuration = try CaptureIntelligence.configuration() else { throw CaptureIntelligence.Failure.configuration }
-        let namespace = Data((configuration.baseURL.absoluteString + "|" + configuration.accessToken).utf8)
+        let namespace = Data((configuration.baseURL.absoluteString + "|" + configuration.accessToken + "|amazon-listings-v2").utf8)
         return SHA256.hash(data: namespace + body).map { String(format: "%02x", $0) }.joined()
     }
     static func cached(_ body: Data) throws -> Data? {

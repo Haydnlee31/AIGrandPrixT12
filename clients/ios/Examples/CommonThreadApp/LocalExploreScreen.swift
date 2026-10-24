@@ -21,13 +21,36 @@ struct LocalRecommendation: Decodable, Identifiable {
     let sourceName: String
     let sourceRecordID: String
     let sourceURL: String
+    let productURL: String?
     let licenseURL: String?
     let attribution: String?
     let reasons: [Reason]
     enum CodingKeys: String, CodingKey {
         case id, title, reasons, attribution
         case imageURL = "image_url", sourceName = "source_name", sourceRecordID = "source_record_id"
-        case sourceURL = "source_url", licenseURL = "license_url"
+        case sourceURL = "source_url", licenseURL = "license_url", productURL = "product_url"
+    }
+
+    /// A merchant action must open this catalog record's listing, never a search
+    /// or a similarly named product. The relay supplies the record's exact URL.
+    var exactAmazonURL: URL? {
+        guard let productURL, let components = URLComponents(string: productURL),
+              components.scheme?.lowercased() == "https", components.user == nil,
+              components.password == nil, components.port == nil,
+              let host = components.host?.lowercased() else { return nil }
+        let domain = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        let domains: Set<String> = ["amazon.com", "amazon.sg", "amazon.co.uk", "amazon.ca", "amazon.com.au",
+            "amazon.de", "amazon.fr", "amazon.it", "amazon.es", "amazon.co.jp", "amazon.in", "amazon.nl",
+            "amazon.se", "amazon.pl", "amazon.com.be", "amazon.com.mx", "amazon.com.br", "amazon.ae",
+            "amazon.sa", "amazon.com.tr", "amazon.eg", "amazon.co.za", "amazon.ie"]
+        guard domains.contains(domain) else { return nil }
+        let path = components.path.split(separator: "/").map(String.init)
+        let asin: String
+        if path.count == 2, path[0] == "dp" { asin = path[1] }
+        else if path.count == 3, path[0] == "gp", path[1] == "product" { asin = path[2] }
+        else { return nil }
+        guard asin.range(of: "^[A-Z0-9]{10}$", options: .regularExpression) != nil else { return nil }
+        return URL(string: "https://\(domain)/dp/\(asin)")
     }
 }
 
@@ -54,10 +77,11 @@ struct LocalExploreScreen: View {
     private var columns: [GridItem] { Array(repeating: GridItem(.flexible(), spacing: 12), count: typeSize.isAccessibilitySize ? 1 : 2) }
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 18) {
+            LazyVStack(alignment: .leading, spacing: 20) {
                 recommendations
             }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 24)
         }
+        .scrollDismissesKeyboard(.interactively)
         .task(id: taskID) { await load() }
     }
     @ViewBuilder private var recommendations: some View {
@@ -70,7 +94,13 @@ struct LocalExploreScreen: View {
             }
         }
         if let page, !page.items.isEmpty {
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 22) {
+            HStack {
+                Text("Closest matches").font(.title3.bold())
+                Spacer()
+                Text(page.items.count.formatted()).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                    .accessibilityLabel("\(page.items.count) matches")
+            }
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 26) {
                 ForEach(page.items) { item in
                     NavigationLink { LocalRecommendationDetail(item: item, finds: finds, onChanged: reloadLibrary) }
                     label: { LocalRecommendationCard(item: item) }.buttonStyle(.plain)
@@ -121,6 +151,7 @@ struct LocalExploreScreen: View {
             var value: [String: Any] = ["id": find.id, "title": find.title,
                 "note": String(find.note.prefix(2_000)), "text": String(find.selectedText.prefix(12_000)),
                 "intents": Array(context.selectedIntents.prefix(8))]
+            if !find.originalUrl.isEmpty { value["original_url"] = String(find.originalUrl.prefix(4_000)) }
             if let analysis = context.analysis { value["analysis"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(analysis)) }
             return value
         }
@@ -174,15 +205,24 @@ struct LocalExploreScreen: View {
 private struct LocalRecommendationCard: View {
     let item: LocalRecommendation
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            CatalogProductImage(url: item.imageURL.flatMap(URL.init(string:)), height: 190, fit: true)
-                .clipShape(RoundedRectangle(cornerRadius: 23))
-            Text(item.title).font(.subheadline.bold()).foregroundStyle(.primary).lineLimit(3).multilineTextAlignment(.leading)
-            if let reason = item.reasons.first {
-                Label(reason.text, systemImage: "sparkles").font(.caption.weight(.medium)).foregroundStyle(.purple)
-                    .lineLimit(3).multilineTextAlignment(.leading)
+        VStack(alignment: .leading, spacing: 12) {
+            CatalogProductImage(url: item.imageURL.flatMap(URL.init(string:)), height: 196, fit: true)
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+            VStack(alignment: .leading, spacing: 7) {
+                Text(item.title).font(.subheadline.bold()).foregroundStyle(.primary).lineLimit(3).multilineTextAlignment(.leading)
+                if let reason = item.reasons.first {
+                    HStack(alignment: .top, spacing: 5) {
+                        Image(systemName: "sparkles").foregroundStyle(.purple).accessibilityHidden(true)
+                        Text(reason.text).foregroundStyle(.secondary).multilineTextAlignment(.leading).lineLimit(2)
+                    }.font(.caption.weight(.medium))
+                }
+                if item.exactAmazonURL != nil {
+                    Label("Amazon", systemImage: "arrow.up.right").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                        .padding(.top, 2)
+                }
             }
         }.frame(maxWidth: .infinity, alignment: .topLeading)
+            .accessibilityElement(children: .combine)
     }
 }
 
@@ -190,34 +230,39 @@ private struct LocalRecommendationDetail: View {
     let item: LocalRecommendation
     let finds: [SavedItem]
     let onChanged: () -> Void
-    @Environment(\.openURL) private var openURL
+    @Environment(\.colorScheme) private var colorScheme
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 CatalogProductImage(url: item.imageURL.flatMap(URL.init(string:)), height: 330, fit: true)
                     .clipShape(RoundedRectangle(cornerRadius: 28))
-                Text(item.title).font(.title.bold())
-                IntelligenceCard(title: "Why this fits", symbol: "sparkles") {
-                    ForEach(Array(item.reasons.prefix(2).enumerated()), id: \.offset) { index, reason in
-                        FindInsightRow(text: reason.text, index: index)
-                    }
-                    ForEach(finds.filter { find in item.reasons.contains { $0.findID == find.id } }) { find in
-                        NavigationLink {
-                            SavedContentView(item: find, stillSaved: true, localOnly: true, onChanged: onChanged,
-                                onDelete: { id, _ in try await LocalLibrary.shared.delete(id); onChanged() })
-                        } label: { Label(find.title, systemImage: "bookmark.fill").font(.subheadline.weight(.semibold)) }
+                Text(item.title).font(.title2.bold())
+                if let url = item.exactAmazonURL { LivePricePanel(url: url, title: item.title) }
+                if !item.reasons.isEmpty {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Label("Why it fits", systemImage: "sparkles").font(.headline.bold()).foregroundStyle(.purple)
+                        ForEach(Array(item.reasons.prefix(2).enumerated()), id: \.offset) { index, reason in
+                            Text(reason.text).font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        ForEach(finds.filter { find in item.reasons.contains { $0.findID == find.id } }.prefix(2)) { find in
+                            NavigationLink {
+                                SavedContentView(item: find, stillSaved: true, localOnly: true, onChanged: onChanged,
+                                    onDelete: { id, _ in try await LocalLibrary.shared.delete(id); onChanged() })
+                            } label: {
+                                HStack(spacing: 9) {
+                                    Image(systemName: "bookmark.fill").foregroundStyle(.blue)
+                                    Text(find.title).lineLimit(1).foregroundStyle(.primary)
+                                    Spacer(minLength: 4)
+                                    Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
+                                }.font(.subheadline.weight(.medium))
+                            }.buttonStyle(.plain)
+                        }
                     }
                 }
-
-                if let url = shoppingSearchURL {
-                    Link(destination: url) {
-                        Label("Find on Amazon", systemImage: "arrow.up.right").font(.headline.bold())
-                            .frame(maxWidth: .infinity).padding(19).foregroundStyle(.white)
-                            .background(Color.purple, in: RoundedRectangle(cornerRadius: 22))
-                    }
-                    Text("Opens a search. Check current price and availability on Amazon.")
-                        .font(.footnote).foregroundStyle(.secondary)
+                if item.exactAmazonURL == nil {
+                    Label("Listing link unavailable", systemImage: "link").font(.footnote).foregroundStyle(.secondary)
                 }
+                Divider()
                 DisclosureGroup("Source & attribution") {
                     VStack(alignment: .leading, spacing: 12) {
                         Text(item.attribution ?? item.sourceName).font(.footnote)
@@ -227,11 +272,24 @@ private struct LocalRecommendationDetail: View {
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 12)
                 }.font(.subheadline).tint(.secondary)
             }.padding(20)
-        }.background(NativeTheme.bg).navigationTitle("A find for you").navigationBarTitleDisplayMode(.inline)
-    }
-    private var shoppingSearchURL: URL? {
-        var url = URLComponents(string: "https://www.amazon.com/s")
-        url?.queryItems = [URLQueryItem(name: "k", value: item.title)]
-        return url?.url
+        }
+        .safeAreaInset(edge: .bottom) {
+            if let url = item.exactAmazonURL {
+                Link(destination: url) {
+                    Label("View on Amazon", systemImage: "arrow.up.right").font(.headline.bold())
+                        .frame(maxWidth: .infinity).padding(.vertical, 18)
+                        .foregroundStyle(colorScheme == .dark ? .black : .white)
+                        .background(Color.primary, in: Capsule())
+                }.buttonStyle(.plain).padding(.horizontal, 20).padding(.vertical, 12).background(.bar)
+            }
+        }
+        .toolbar {
+            if let url = item.exactAmazonURL {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ShareLink(item: url).accessibilityLabel("Share product link")
+                }
+            }
+        }
+        .background(NativeTheme.bg).navigationTitle("Product").navigationBarTitleDisplayMode(.inline)
     }
 }

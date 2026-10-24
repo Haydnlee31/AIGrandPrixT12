@@ -177,6 +177,9 @@ struct SavedContentView: View {
                     // Stable identity keeps active editors alive while metadata refreshes.
                     .id(displayed.id)
                 if !displayed.note.isEmpty { contentSection((metadata.sourceItems?.count ?? 1) > 1 ? "Your notes" : "Your note", text: displayed.note, symbol: "quote.bubble.fill") }
+                if let productURL = PriceMoney.exactURL(displayed.originalUrl) {
+                    LivePricePanel(url: productURL, title: displayed.title)
+                }
                 if let sources = metadata.sourceItems, sources.count > 1 { mergedSources(sources) }
                 if !displayed.selectedText.isEmpty {
                     DisclosureGroup("Saved text") {

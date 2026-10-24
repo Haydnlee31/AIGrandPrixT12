@@ -55,6 +55,8 @@ struct LocalRecommendation: Decodable {
         let sources = payload["finds"] as! [[String: Any]]
         try check(sources.count == 1 && sources[0]["id"] as? String == group.id,
                   "Surviving selected aliases must resolve once; deleted and unrelated sources stay excluded")
+        try check(sources[0]["original_url"] as? String == group.originalUrl,
+                  "Original product identity must reach matching without guessing a different listing")
         try check(payload["target"] as? String == "Desk lamps" && payload["scope"] as? String == "category",
                   "The explicitly edited tracking target must reach the backend")
         try check(payload["query"] as? String == "" && payload["preferences"] as? [String] == ["Warm light"],

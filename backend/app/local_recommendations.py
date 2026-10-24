@@ -29,13 +29,13 @@ from .catalog.registry import SOURCES
 from .catalog.schemas import public_url
 from .catalog.search_index import matching_product_ids
 from .catalog.recommendation_index import category_product_ids
-from .catalog_images import enrich_product_images
+from .amazon_catalog_identity import AMAZON_MARKETS, amazon_asin, amazon_record_identity
 from .db import CatalogFeed, CatalogImport, CatalogProduct
 from .explore import Facet, Profile, _candidate_queries, _catalog_fields, _match, _profile_match, _tokens
 
 ROOT = Path(__file__).resolve().parents[2]
 CATALOG_PATH = ROOT / "local-data" / "recommendation-catalog.db"
-ELIGIBLE_SOURCES = tuple(key for key, source in SOURCES.items() if source.kind == "open_dataset")
+ELIGIBLE_SOURCES = ("abo",)
 SOURCE_URLS = {"abo": "https://registry.opendata.aws/amazon-berkeley-objects/", "wands": "https://github.com/wayfair/WANDS",
                "open_beauty_facts": "https://world.openbeautyfacts.org/", "open_products_facts": "https://world.openproductsfacts.org/",
                "open_food_facts": "https://world.openfoodfacts.org/", "uci_retail": "https://archive.ics.uci.edu/dataset/502/online+retail+ii"}
@@ -45,7 +45,7 @@ CACHE_MAX_ENTRIES = 64
 SMALL_CATEGORY_LIMIT = 1000
 _GENERIC = {"product", "item", "object", "accessory", "accessories", "fashion", "home", "garden", "electronic", "electronics", "goods", "other"}
 _STOP = {"i", "my", "a", "an", "the", "this", "that", "it", "like", "love", "want", "need", "looking", "look", "for", "and", "or", "to", "of", "with", "would", "something", "similar", "one", "find", "save", "as", "is", "are", "me", "more", "prefer", "please", "color", "colour", "design", "style", "quality", "price"}
-_NOUNS = {"wristwatch": "watch", "wristwatches": "watch", "watches": "watch", "smartphone": "phone", "smartphones": "phone", "mobilephone": "phone", "couch": "sofa", "couches": "sofa", "sneakers": "shoe", "sneaker": "shoe", "headphone": "headphone", "earbuds": "earbud"}
+_NOUNS = {"smartwatch": "watch", "smartwatche": "watch", "wristwatch": "watch", "wristwatches": "watch", "watches": "watch", "smartphone": "phone", "smartphones": "phone", "mobilephone": "phone", "couch": "sofa", "couches": "sofa", "sneakers": "shoe", "sneaker": "shoe", "headphone": "headphone", "earbuds": "earbud"}
 _COLORS = {"black", "white", "blue", "brown", "silver", "gold", "red", "green", "pink", "purple", "yellow", "orange", "beige", "cream", "grey", "gray", "navy", "rose", "rose gold"}
 _MATERIALS = {"leather", "steel", "titanium", "nylon", "resin", "ceramic", "silicone", "linen", "cotton", "wood", "wooden", "glass", "metal", "suede", "stainless steel"}
 _STYLES = {"analog", "digital", "mechanical", "automatic", "vintage", "classic", "retro", "minimalist", "sporty", "rectangular", "square", "compact"}
@@ -88,6 +88,7 @@ class FindAnalysis(Contract):
 class RecommendationFind(Contract):
     id: str = Field(min_length=1, max_length=128)
     title: str = Field(min_length=1, max_length=300)
+    original_url: str | None = Field(default=None, max_length=4096)
     note: str = Field(default="", max_length=2000)
     text: str = Field(default="", max_length=12000)
     intents: list[Intent] = Field(default_factory=list, max_length=8)
@@ -277,7 +278,22 @@ def _requires_mobile_phone(find):
     return bool(re.search(r"\b(?:smart[\s-]?phones?|iphones?\d*|mobile(?:[\s-]?phones?)?|cell(?:ular)?[\s-]?phones?|android)\b", context, re.IGNORECASE))
 
 
-def _category_compatible(profile, record, *, requires_mobile_phone=False):
+def _requires_smartwatch(find):
+    analysis = find.analysis
+    context = " ".join([find.title, *find.intents, analysis.product_name or "" if analysis else "",
+                        *(analysis.category_path if analysis else [])])
+    return bool(re.search(r"\b(?:smart[\s-]?watch(?:es)?|apple\s+watch|galaxy\s+watch)\b", context, re.IGNORECASE))
+
+
+def _requires_digital_watch(find):
+    analysis = find.analysis
+    context = " ".join([*find.intents, analysis.product_name or "" if analysis else "",
+                        *(analysis.category_path if analysis else [])])
+    return bool(re.search(r"\bdigital\b", context, re.IGNORECASE)) and not bool(re.search(r"\banalog\b", context, re.IGNORECASE))
+
+
+def _category_compatible(profile, record, *, requires_mobile_phone=False, requires_smartwatch=False,
+                         requires_digital_watch=False):
     """A contextual mention of a watch/phone cannot turn furniture into one."""
     wanted = profile.anchor[0].value
     category = {_NOUNS.get(word, word) for word in _tokens(record.get("category") or "")}
@@ -291,13 +307,19 @@ def _category_compatible(profile, record, *, requires_mobile_phone=False):
         title = (record.get("title") or "").casefold()
         if wanted == "watch" and re.search(r"\bwatch(?:es)?\s*(?:/|and)?\s*(?:band|box|holder|winder|strap|case)\b", title):
             return False
+        if wanted == "watch" and requires_smartwatch and not re.search(r"\b(?:smart[\s-]?watch(?:es)?|apple\s+watch|galaxy\s+watch)\b", title + " " + (record.get("category") or "")):
+            return False
+        if wanted == "watch" and requires_digital_watch and not re.search(r"\b(?:digital|lcd|led\s+display)\b", title + " " + (record.get("description") or "")):
+            return False
         if wanted == "phone" and set(_tokens(title)).intersection(accessories):
             return False
         if wanted == "phone" and requires_mobile_phone:
             # A PHONE category also includes DECT sets and answering machines.
             # Their available photos must never make them smartphone matches.
-            product_kind = title + " " + (record.get("category") or "")
+            product_kind = (title + " " + (record.get("category") or "")).replace("_", " ")
             if re.search(r"\b(?:dect|land[\s-]?lines?|corded|cordless|answering[\s-]*machines?|(?:home|office|desktop)[\s-]+(?:tele)?phones?)\b", product_kind, re.IGNORECASE):
+                return False
+            if not re.search(r"\b(?:smart\s*phone|iphone|galaxy|pixel|android|cellular\s+phone|mobile\s+phone)\b", product_kind, re.IGNORECASE):
                 return False
     if category - _GENERIC and wanted not in category:
         return False
@@ -368,6 +390,9 @@ def recommend(factory, request: RecommendationRequest, now=None, *, catalog_snap
     preferences = {find.id: _intent_terms(find) for find, _ in profiles}
     contexts = {find.id: _preference_context(find, preferences[find.id][0]) for find, _ in profiles}
     mobile_phone_required = {find.id: _requires_mobile_phone(find) for find, _ in profiles}
+    smartwatch_required = {find.id: _requires_smartwatch(find) for find, _ in profiles}
+    digital_watch_required = {find.id: _requires_digital_watch(find) for find, _ in profiles}
+    exact_asins = {find.id: amazon_asin(find.original_url) for find, _ in profiles}
     _, catalog_count, configured = catalog_snapshot or _catalog_snapshot(factory)
     with factory() as db:
         if not configured:
@@ -387,17 +412,33 @@ def recommend(factory, request: RecommendationRequest, now=None, *, catalog_snap
         if request.query:
             queries = [request.query]
         candidates = _candidates(db, [profile for _, profile in profiles], queries, now)
+        # An exact saved ASIN must not fall outside a broad category's bounded
+        # candidate window. Reproduce the importer's source-scoped lookup key;
+        # the result still passes identity, image, category and exclusion gates.
+        exact_ids = ["abo:" + hashlib.sha256(json.dumps([asin, domain], separators=(",", ":")).encode()).hexdigest()
+                     for asin in set(exact_asins.values()) if asin for domain in AMAZON_MARKETS]
+        if exact_ids:
+            for row in db.scalars(_visible().where(CatalogProduct.source_record_id.in_(exact_ids))).all():
+                candidates[row.id] = row.record
         ranked = []
         seen_products = set()
         for identity, record in candidates.items():
             if record.get("data_kind") != "open_dataset" or record.get("source_id") not in ELIGIBLE_SOURCES:
                 continue
+            amazon_identity = amazon_record_identity(record)
+            if amazon_identity is None:
+                continue
+            asin, product_url, image_url = amazon_identity
             fields = _fields(record)
             if not _matches_query(request.query, fields):
                 continue
             matches = []
             for find, profile in profiles:
-                if not _category_compatible(profile, record, requires_mobile_phone=mobile_phone_required[find.id]):
+                if not _category_compatible(profile, record, requires_mobile_phone=mobile_phone_required[find.id],
+                                            requires_smartwatch=smartwatch_required[find.id],
+                                            requires_digital_watch=digital_watch_required[find.id]):
+                    continue
+                if re.search(r"\b(?:automatic|self.winding|mechanical)\b", find.title + " " + " ".join(find.intents), re.I) and re.search(r"\bdigital\b", record.get("title", ""), re.I):
                     continue
                 terms, excluded = preferences[find.id]
                 if any(_match(word, fields) for word in excluded):
@@ -405,7 +446,15 @@ def recommend(factory, request: RecommendationRequest, now=None, *, catalog_snap
                 score, evidence = _profile_match(profile, fields)
                 if not evidence:
                     continue
+                exact_product = exact_asins[find.id] == asin
+                if exact_product:
+                    score += 1000  # Exact source identity precedes similar alternatives.
                 reason_options = {}
+                # Shared subtypes such as digital cannot satisfy a requested
+                # appearance such as silver and fill the page with wrong colors.
+                physical = {term for term in terms if term in _COLORS or term in _MATERIALS}
+                distinctive = physical or {term for term in terms if _preference_weight(term) >= 8}
+                matched_distinctive = set()
                 for reason in evidence:
                     # Internal taxonomy paths stay internal; the fallback is
                     # one plain product noun, not multiple category-tag chips.
@@ -423,15 +472,24 @@ def recommend(factory, request: RecommendationRequest, now=None, *, catalog_snap
                     if parts and not matched_parts:
                         continue
                     if match:
+                        if term in distinctive:
+                            matched_distinctive.add(term)
                         priority = _preference_weight(term)
                         score += priority
                         value = f"{term} {matched_parts[0]}" if matched_parts else term
                         text = f"The {value} matches a detail you liked." if matched_parts else _reason_text(term, confirmed=True)
                         reason_options[tuple(_tokens(term))] = (priority, RecommendationReason(find_id=find.id, find_title=find.title,
                             text=text, matched_value=value))
+                # When someone specifies concrete colors/materials/styles,
+                # the category alone is not enough to fill a results page.
+                if distinctive and not matched_distinctive and not exact_product and not request.query:
+                    continue
                 meaningful = [entry for entry in reason_options.values() if entry[0] > 0.5]
                 ordered = sorted(meaningful or list(reason_options.values()), key=lambda entry: -entry[0])
                 reasons, seen_text = [], set()
+                if exact_product:
+                    reasons.append(RecommendationReason(find_id=find.id, find_title=find.title,
+                        text="The same Amazon product you saved.", matched_value=asin))
                 for _, reason in ordered:
                     if reason.text not in seen_text:
                         reasons.append(reason)
@@ -448,13 +506,11 @@ def recommend(factory, request: RecommendationRequest, now=None, *, catalog_snap
             # translating it into an invented product description.
             if str(record.get("provenance", {}).get("title_language") or "").startswith("en"):
                 score += 1
-            if _https_url(record.get("offer", {}).get("image_url")):
-                score += 0.5
             # Same ASIN appears in different marketplaces in ABO. Show it once
             # while preserving the chosen source-scoped identity and attribution.
             product_identity = (source_id, record.get("provenance", {}).get("original_item_id") or record["source_record_id"])
             ranked.append((score, identity, product_identity, RecommendationItem(
-                id=identity, title=record["title"], image_url=_https_url(record.get("offer", {}).get("image_url")),
+                id=identity, title=record["title"], image_url=image_url, product_url=product_url,
                 source_id=source_id, source_record_id=record["source_record_id"], source_name=source.name,
                 source_url=_https_url(record.get("provenance", {}).get("source_url")) or SOURCE_URLS[source_id],
                 license_url=source.license_url, attribution=source.attribution,
@@ -477,11 +533,6 @@ def recommend(factory, request: RecommendationRequest, now=None, *, catalog_snap
                     break
                 if len(result["items"]) >= request.limit:
                     break
-        # Presentation order only: keep every relevance-qualified selection and
-        # each saved find's representation, while showing actual source photos
-        # before records whose dataset never supplied one. Never substitute an
-        # accessory or an unrelated pictured product for an imageless match.
-        result["items"].sort(key=lambda item: item.image_url is None)
         return RecommendationResult(status="ready" if result["items"] else "no_matches", **result)
 
 
@@ -578,23 +629,8 @@ class LocalRecommendationService:
                     response = self._busy()
                     future.set_result((response.body, response.status_code))
                     return response
-            if result.status == "ready" and self.image_enricher is not None:
-                # Enrich only the already-qualified result page. Photos cannot
-                # add products, alter relevance/citations, or invent an offer.
-                original_items = result.items
-                try:
-                    rows = self.image_enricher([item.model_dump() for item in original_items])
-                    if len(rows) == len(original_items) and [row.get("id") for row in rows] == [item.id for item in original_items]:
-                        items = [item.model_copy(update={
-                            "image_url": _https_url(row.get("image_url")) or item.image_url,
-                            "attribution": row.get("attribution") if isinstance(row.get("attribution"), str) else item.attribution,
-                        }) for item, row in zip(original_items, rows)]
-                        items.sort(key=lambda item: item.image_url is None)
-                        result = result.model_copy(update={"items": items})
-                except Exception:
-                    # An unavailable public image source must never prevent a
-                    # genuine catalog match from reaching the user.
-                    pass
+            # Every visible product already carries its own reviewed Amazon
+            # image. Never replace it via another source or a photo-first sort.
             body = result.model_dump_json().encode()
             if result.status != "catalog_unavailable":
                 final_key = hashlib.sha256((snapshot[0] + fingerprint).encode()).hexdigest()
@@ -621,10 +657,12 @@ class LocalRecommendationService:
                 self.inflight.pop(key, None)
 
 
-def register_recommendations(app: FastAPI, factory=None):
-    service = LocalRecommendationService(factory, image_enricher=enrich_product_images)
+def register_recommendations(app: FastAPI, factory=None, discovery=None):
+    service = LocalRecommendationService(factory)
     app.state.recommendation_service = service
 
     @app.post("/v1/recommendations", response_model=RecommendationResult)
-    def recommendations(request: RecommendationRequest):
-        return service.recommendations(request)
+    async def recommendations(request: RecommendationRequest):
+        import asyncio
+        response = await asyncio.to_thread(service.recommendations, request)
+        return await discovery.augment(request, response) if discovery else response

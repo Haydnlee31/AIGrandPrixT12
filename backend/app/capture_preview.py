@@ -1,9 +1,11 @@
-"""Private, stateless product-aware capture previews for local-first clients.
+"""Private product-aware capture previews and explicit price watches.
 
 Run separately: uvicorn backend.app.capture_preview:app. Configure
 OPENAI_API_KEY and MYNAH_PREVIEW_TOKEN on the server, never in the app bundle.
-This service does not create Library records, fetch supplied URLs, or log input.
+Capture analysis does not create Library records, fetch supplied URLs, or log input.
 Its bounded, one-hour memory cache stores results under hashed inputs only.
+Separate price routes fetch allowlisted exact Amazon listings and persist only
+explicit product watches and observed prices; checks run while this relay runs.
 """
 from __future__ import annotations
 
@@ -29,6 +31,8 @@ from .media import validate_image_data_url
 from .local_recommendations import register_recommendations
 from .dictation import MAX_DICTATION_BODY_BYTES, register_dictation
 from .radar import RADAR_INSTRUCTIONS, RadarInterpretation, interpretation_input, register_radar
+from .price_routes import register_prices
+from .price_tracking import DEFAULT_STORE
 
 ENDPOINT = "https://api.openai.com/v1/responses"
 MAX_IMAGE_BYTES = 1_572_864
@@ -294,7 +298,7 @@ class RequestBoundary:
         self.app, self.token = app, token
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or scope["path"] not in {"/v1/capture-preview", "/v1/recommendations", "/v1/refine-intent", "/v1/dictation", "/v1/radar"}:
+        if scope["type"] != "http" or scope["path"] not in {"/v1/capture-preview", "/v1/recommendations", "/v1/refine-intent", "/v1/dictation", "/v1/radar", "/v1/price-check", "/v1/price-watch"}:
             return await self.app(scope, receive, send)
         headers = dict(scope.get("headers", []))
         authorization = headers.get(b"authorization", b"")
@@ -302,7 +306,8 @@ class RequestBoundary:
         if not self.token or not hmac.compare_digest(authorization, expected):
             return await error_response(PreviewError(401, "unauthorized", "A valid preview access token is required."))(scope, receive, send)
         is_dictation = scope["path"] == "/v1/dictation"
-        body_limit = MAX_DICTATION_BODY_BYTES if is_dictation else MAX_BODY_BYTES
+        is_price = scope["path"] in {"/v1/price-check", "/v1/price-watch"}
+        body_limit = 8192 if is_price else MAX_DICTATION_BODY_BYTES if is_dictation else MAX_BODY_BYTES
         chunks, count = [], 0
         while True:
             message = await receive()
@@ -311,7 +316,7 @@ class RequestBoundary:
             chunk = message.get("body", b"")
             count += len(chunk)
             if count > body_limit:
-                message = "Use an audio recording of at most 4 MiB." if is_dictation else "Resize the image or shorten the captured text."
+                message = "Use a short product link and watch title." if is_price else "Use an audio recording of at most 4 MiB." if is_dictation else "Resize the image or shorten the captured text."
                 return await error_response(PreviewError(413, "request_too_large", message))(scope, receive, send)
             chunks.append(chunk)
             if not message.get("more_body", False):
@@ -546,7 +551,8 @@ class RadarIntentService(PreviewService):
 
 def create_app(*, api_key: str | None = None, token: str | None = None, model: str | None = None,
                transport=None, clock: Callable = time.monotonic, wall_clock: Callable = time.time,
-               rate_limit: int = REQUESTS_PER_MINUTE, timeout: float = 40, recommendation_factory=None) -> FastAPI:
+               rate_limit: int = REQUESTS_PER_MINUTE, timeout: float = 40, recommendation_factory=None,
+               price_checker=None, price_store=DEFAULT_STORE, price_background: bool | None = None) -> FastAPI:
     key = (api_key if api_key is not None else os.getenv("OPENAI_API_KEY", "")).strip()
     access = (token if token is not None else os.getenv("MYNAH_PREVIEW_TOKEN", "")).strip()
     selected_model = model or os.getenv("MYNAH_PREVIEW_MODEL", "gpt-4.1-mini")
@@ -574,10 +580,14 @@ def create_app(*, api_key: str | None = None, token: str | None = None, model: s
             return error_response(PreviewError(422, "invalid_audio", "Use an AAC M4A recording of at most 4 MiB and 60 seconds."))
         if _request.url.path == "/v1/radar":
             return error_response(PreviewError(422, "invalid_intention", "Use a short shopping need and at most 24 selected examples."))
+        if _request.url.path in {"/v1/price-check", "/v1/price-watch"}:
+            return error_response(PreviewError(422, "invalid_price_request", "Check the exact Amazon product link and target price."))
         return error_response(PreviewError(422, "invalid_capture", "Check the link, text lengths and image format (JPEG, PNG or WebP, at most 1.5 MiB)."))
 
     @app.exception_handler(Exception)
     async def unexpected_error(_request: Request, _error: Exception):
+        if _request.url.path in {"/v1/price-check", "/v1/price-watch"}:
+            return error_response(PreviewError(500, "price_check_failed", "Price checks are temporarily unavailable. Please try again.", True))
         if _request.url.path == "/v1/dictation":
             return error_response(PreviewError(500, "dictation_failed", "Voice transcription is unavailable. You can type your note instead.", True))
         return error_response(PreviewError(500, "preview_failed", "Suggestions could not be loaded. You can still save your find.", True))
@@ -596,12 +606,17 @@ def create_app(*, api_key: str | None = None, token: str | None = None, model: s
         result = await refinement_service.preview(capture)
         return JSONResponse(result.model_dump(), headers={"Cache-Control": "no-store"})
 
-    register_recommendations(app, factory=recommendation_factory)
+    from .amazon_discovery import AmazonDiscovery
+    discovery = AmazonDiscovery(key) if api_key is None and token is None else None
+    app.state.amazon_discovery = discovery
+    register_recommendations(app, factory=recommendation_factory, discovery=discovery)
     register_radar(app, interpreter=RadarIntentService(api_key=key, model=selected_model, transport=transport,
         clock=clock, wall_clock=wall_clock, rate_limit=min(rate_limit, 12), timeout=timeout),
         recommendation_service=app.state.recommendation_service)
     register_dictation(app, api_key=key, transport=transport, clock=clock,
         rate_limit=min(rate_limit, 8), timeout=min(timeout, 30))
+    register_prices(app, checker=price_checker, store_path=price_store,
+        background=(api_key is None and token is None) if price_background is None else price_background)
     return app
 
 

@@ -2,6 +2,7 @@
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 import json
+import hashlib
 import threading
 
 from fastapi.testclient import TestClient
@@ -18,11 +19,17 @@ from sqlalchemy import func, select
 
 
 def record(identity, title, category, **changes):
+    # Explicit test catalog identity, not an attempt to infer a real ASIN.
+    asin = hashlib.sha256(identity.encode()).hexdigest()[:10].upper()
+    image = "https://amazon-berkeley-objects.s3.us-east-1.amazonaws.com/images/small/ab/abcdef01.jpg"
     row = {"source_id": "abo", "source_record_id": identity, "data_kind": "open_dataset",
            "title": title, "description": title, "category": category, "brand": None,
-           "attributes": {}, "merchant": {"id": None, "name": None, "platform": "abo"},
-           "offer": {"id": identity, "environment": "local", "image_url": "https://catalog.example.org/photo.jpg"},
-           "provenance": {"source_url": "https://catalog.example.org/items/" + identity}}
+           "attributes": {"main_image_id": "explicit-fixture-image"}, "merchant": {"id": None, "name": None, "platform": "abo"},
+           "offer": {"id": identity, "environment": "local", "image_url": image},
+           "provenance": {"source_url": "https://catalog.example.org/items/" + identity,
+                          "original_item_id": asin, "source_record_id": asin, "domain_name": "amazon.com"}}
+    if "attributes" in changes:
+        changes["attributes"] = {**row["attributes"], **changes["attributes"]}
     row.update(changes)
     return row
 
@@ -52,8 +59,8 @@ def database(tmp_path):
 
 def find(identity="saved-watch", noun="watch", intents=None):
     return {"id": identity, "title": "My " + noun, "note": "", "text": "", "intents": intents or [],
-            "analysis": {"product_name": "Digital wristwatch" if noun == "watch" else noun,
-                         "category_path": ["Accessories", "Watches", "Digital watches"] if noun == "watch" else [noun],
+            "analysis": {"product_name": "Wristwatch" if noun == "watch" else noun,
+                         "category_path": ["Accessories", "Watches", "Wristwatches"] if noun == "watch" else [noun],
                          "brand": "Casio" if noun == "watch" else None,
                          "style": ["Digital"] if noun == "watch" else [], "summary": "A saved " + noun}}
 
@@ -70,7 +77,7 @@ def test_matches_actual_watch_saves_not_furniture_or_accessories(database):
     assert result.generated_at == 123
     assert all(reason.find_id == "saved-watch" for item in result.items for reason in item.reasons)
     assert all(item.source_url.endswith(item.source_record_id) for item in result.items)
-    assert all(item.product_url is None and item.price_minor is None and item.currency is None and item.availability == "unknown" for item in result.items)
+    assert all(item.product_url.startswith("https://www.amazon.com/dp/") and item.price_minor is None and item.currency is None and item.availability == "unknown" for item in result.items)
     assert all(item.attribution and item.license_url and item.image_url for item in result.items)
     with factory() as db:
         assert db.scalar(select(func.count()).select_from(SavedItem)) == 0
@@ -91,6 +98,14 @@ def test_explicit_negative_preference_excludes_products(database):
     result = recommend(factory, request(find(intents=["no black", "digital"])))
     assert "black-watch" not in {item.source_record_id for item in result.items}
     assert result.items[0].source_record_id == "blue-watch"
+
+
+def test_product_subtype_cannot_fill_results_with_wrong_requested_color(database):
+    factory, _ = database
+    result = recommend(factory, request(find(intents=["I want a blue digital watch"])))
+    assert [item.source_record_id for item in result.items] == ["blue-watch"]
+    missing = recommend(factory, request(find(intents=["I want a silver digital watch"])))
+    assert missing.status == "no_matches"  # Silver analog and black digital are not this request.
 
 
 def test_phone_does_not_recommend_cases_or_stands_as_the_phone(database):
@@ -115,7 +130,7 @@ def test_different_actual_saves_are_represented_in_a_short_result_page(database)
     assert {item.reasons[0].find_id for item in result.items} == {"saved-watch", "my-lamp"}
 
 
-def test_photo_order_preserves_imageless_matches_and_find_representation(database):
+def test_missing_same_record_photo_does_not_show_an_unrelated_replacement(database):
     factory, _ = database
     import_dataset(factory, "abo", [
         record("phone", "Black phone", "Phones", offer={"id": "phone", "environment": "local", "image_url": None}),
@@ -123,14 +138,11 @@ def test_photo_order_preserves_imageless_matches_and_find_representation(databas
         record("phone-case", "Black smartphone case", "Phone cases"),
     ], version="mixed-photo-coverage", checksum="e" * 64)
     result = recommend(factory, request(find("saved-phone", "phone"), find(), limit=2))
-    assert [item.source_record_id for item in result.items] == ["watch", "phone"]
-    assert result.items[0].image_url == "https://catalog.example.org/photo.jpg"
-    assert result.items[1].image_url is None
-    assert {item.reasons[0].find_id for item in result.items} == {"saved-phone", "saved-watch"}
+    assert [item.source_record_id for item in result.items] == ["watch"]
+    assert result.items[0].image_url.endswith("/ab/abcdef01.jpg")
     # A photo is never enough to turn an accessory into the requested product.
     phone_only = recommend(factory, request(find("saved-phone", "phone")))
-    assert [item.source_record_id for item in phone_only.items] == ["phone"]
-    assert phone_only.items[0].image_url is None
+    assert phone_only.status == "no_matches" and not phone_only.items
 
 
 def test_photo_presentation_keeps_preference_order_within_photo_group(database):
@@ -144,13 +156,13 @@ def test_photo_presentation_keeps_preference_order_within_photo_group(database):
 def test_phone_category_aliases_survive_fts_and_match_without_accessories(database, category):
     factory, _ = database
     import_dataset(factory, "abo", [
-        record("actual-phone", "Black smartphone", category, offer={"id": "phone", "environment": "local", "image_url": None}),
+        record("actual-phone", "Black smartphone", category),
         record("case", "Black smartphone case", category + " cases"),
         record("stand", "Black smartphone stand", category + " stands"),
     ], version="phone-category-alias", checksum="f" * 64)
     result = recommend(factory, request(find("my-phone", "phone")))
     assert [item.source_record_id for item in result.items] == ["actual-phone"]
-    assert result.items[0].image_url is None  # Never invent a photo to fill a gap.
+    assert result.items[0].image_url.endswith("/ab/abcdef01.jpg")
     assert result.items[0].reasons[0].find_id == "my-phone"
     assert [item.source_record_id for item in recommend(factory, request(find("my-phone", "phone"), query="phone")).items] == ["actual-phone"]
 
@@ -158,8 +170,7 @@ def test_phone_category_aliases_survive_fts_and_match_without_accessories(databa
 @pytest.mark.parametrize("signal", ["product_name", "category_path", "saved_title", "selected_intent"])
 def test_smartphone_intent_never_promotes_pictured_home_telephones(database, signal):
     factory, _ = database
-    phones = [record("mobile", "Samsung Galaxy smartphone", "Smartphones",
-        offer={"id": "mobile", "environment": "local", "image_url": None})]
+    phones = [record("mobile", "Samsung Galaxy smartphone", "Smartphones")]
     for index, title in enumerate([
         "AmazonBasics DECT Home Telephone Set 3", "Telephone with answering machine",
         "Corded office phone", "Cordless telephone", "Land-line phone", "Desktop phone",
@@ -177,7 +188,7 @@ def test_smartphone_intent_never_promotes_pictured_home_telephones(database, sig
         saved["intents"] = ["I want a mobile phone"]
     result = recommend(factory, request(saved))
     assert [item.source_record_id for item in result.items] == ["mobile"]
-    assert result.items[0].image_url is None
+    assert result.items[0].image_url.endswith("/ab/abcdef01.jpg")
     assert all(reason.find_id == "saved-phone" for reason in result.items[0].reasons)
     # The restriction belongs to mobile intent, not every phone in the catalog.
     generic = recommend(factory, request(find("home-phone", "phone")))
@@ -203,16 +214,18 @@ def test_missing_analysis_catalog_and_unrelated_query_do_not_invent_fallbacks(da
 
 def test_repeated_marketplace_record_is_shown_once(database):
     factory, _ = database
-    product = record("uk-watch", "Blue digital watch", "Watches", provenance={"original_item_id": "SAME", "source_url": "https://catalog.example.org/uk"})
+    product = record("uk-watch", "Blue digital watch", "Watches")
+    product["provenance"]["domain_name"] = "amazon.co.uk"
     us = deepcopy(product)
     us["source_record_id"] = "us-watch"
+    us["provenance"]["domain_name"] = "amazon.com"
     import_dataset(factory, "abo", [product, us], version="two-markets", checksum="c" * 64)
     result = recommend(factory, request(find()))
     assert len(result.items) == 1
     assert result.catalog_count == 2  # Source records, not unique products.
 
 
-def test_other_real_sources_keep_their_citations_and_synthetic_rows_are_excluded(database):
+def test_non_amazon_sources_and_synthetic_rows_are_excluded(database):
     factory, _ = database
     for source, kind in [("wands", "open_dataset"), ("synthetic", "synthetic")]:
         row = record(source + "-watch", "Black digital watch", "WATCH")
@@ -220,12 +233,8 @@ def test_other_real_sources_keep_their_citations_and_synthetic_rows_are_excluded
         row["merchant"]["platform"] = source
         import_dataset(factory, source, [row], version="test", checksum="d" * 64)
     result = recommend(factory, request(find()))
-    assert result.catalog_count == 10
-    assert not any(item.source_id == "synthetic" for item in result.items)
-    wands = next(item for item in result.items if item.source_id == "wands")
-    assert wands.source_name == "Wayfair WANDS"
-    assert wands.license_url.endswith("LICENSE")
-    assert "Wayfair" in wands.attribution
+    assert result.catalog_count == 9
+    assert all(item.source_id == "abo" for item in result.items)
 
 
 def test_service_reads_downloaded_database_read_only(database):
@@ -295,14 +304,11 @@ def test_watch_preferences_keep_strap_dial_and_stitching_relationships(database)
     result = recommend(factory, request(saved))
     by_id = {item.source_record_id: item for item in result.items}
     assert result.items[0].source_record_id == "black-leather"
-    assert by_id["black-nylon"].score > by_id["green-nylon"].score
-    assert by_id["silver-dial"].score > by_id["green-nylon"].score
+    assert "green-nylon" not in by_id  # No requested part/color match: do not pad the results.
     assert {reason.matched_value for reason in by_id["black-nylon"].reasons} == {"black strap"}
     assert {reason.matched_value for reason in by_id["silver-dial"].reasons} == {"silver dial"}
-    assert not {"white", "silver", "black", "leather"}.intersection(
-        reason.matched_value for reason in by_id["green-nylon"].reasons)
     # Missing exact materials remain alternatives, not a new hard filter.
-    assert len(result.items) == 4
+    assert len(result.items) == 3
     assert all(item.price_minor is None and item.availability == "unknown" for item in result.items)
 
 
@@ -315,8 +321,7 @@ def test_part_preferences_accept_structured_source_fields_without_inferring_unqu
     result = recommend(factory, request(find(intents=["I like a black strap and silver dial"])))
     assert result.items[0].source_record_id == "specified"
     assert {reason.matched_value for reason in result.items[0].reasons} == {"black strap", "silver dial"}
-    assert not any(reason.matched_value in {"black", "silver", "black strap", "silver dial"}
-                   for reason in result.items[1].reasons)
+    assert len(result.items) == 1  # Unqualified colors cannot establish the requested part.
 
 
 @pytest.mark.parametrize("negative", ["no black or silver", "don't want black or silver", "avoid black and silver"])
