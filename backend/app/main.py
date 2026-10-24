@@ -34,6 +34,7 @@ from .catalog import service as catalog_service
 from .catalog.registry import DATASET_SOURCES
 from . import library as library_service
 from .explore import ExplorePage, explore as explore_products
+from . import tracking
 
 
 class APIError(Exception):
@@ -167,7 +168,10 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
         return rows[:limit], offset + limit if len(rows) > limit else None
 
     def owned(db, model, record_id, user_id):
-        row = db.scalar(select(model).where(model.id == record_id, model.user_id == user_id))
+        query = select(model).where(model.id == record_id, model.user_id == user_id)
+        if model is Watch:
+            query = query.with_for_update()
+        row = db.scalar(query)
         if row is None or (isinstance(row, SavedItem) and row.deleted):
             raise APIError(404, "not_found", "Record not found")
         return row
@@ -257,7 +261,7 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
         return {"api_version": "v1", "contract_version": "0.4.0", "authentication": "development_bearer",
             "capture": {"clients": ["web", "chrome_extension", "ios_app", "ios_share_extension"], "content_types": ["url", "selected_text", "note", "image"], "max_url_length": 2048, "max_title_length": 300, "max_selected_text_length": 12000, "max_note_length": 2000, "max_image_bytes": 4194304},
             "data_modes": {"annotations": getattr(provider, "data_mode", "demo_rules"), "catalog": "fixture", "tracking": "simulated"},
-            "features": {"annotations": True, "predictive_prompts": hasattr(provider, "understand_capture"), "product_analysis": getattr(provider, "supports_product_analysis", False), "library_search": True, "explore": True, "discovery": True, "watches": True, "price_simulation": demo_mode, "demo_reset": demo_mode, "image_upload": True, "live_price_monitoring": False, "push_notifications": False, "merchant_handoff": False, "personal_agent_connector": False, "reminder_scheduling": False},
+            "features": {"annotations": True, "predictive_prompts": hasattr(provider, "understand_capture"), "product_analysis": getattr(provider, "supports_product_analysis", False), "library_search": True, "explore": True, "discovery": True, "watches": True, "catalog_price_watches": True, "price_history": True, "price_simulation": demo_mode, "demo_reset": demo_mode, "image_upload": True, "live_price_monitoring": False, "push_notifications": False, "merchant_handoff": False, "personal_agent_connector": False, "reminder_scheduling": False},
             "currencies": ["SGD"], "refresh": {"strategy": "poll_on_foreground", "pending_save_interval_ms": 1500, "pending_save_timeout_ms": 30000, "incremental_sync": False}}
 
     @app.get("/v1/commerce/sources", response_model=catalog_schema.CatalogSources, tags=["Catalog integration"])
@@ -548,17 +552,37 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
             watch = Watch(user_id=user_id, **body.model_dump())
             db.add(watch)
             db.flush()
-            return {**row_dict(watch), "price_basis": "item_price_excluding_shipping", "data_mode": "simulated"}
+            return tracking.watch_view(watch)
         return mutate(db, user_id, key, "create_watch", body.model_dump(), operation)
+
+    @app.post("/v1/watches/catalog", status_code=201, response_model=schema.WatchView, tags=["Commerce"])
+    def create_catalog_watch(body: tracking.CatalogWatchRequest, user_id=Depends(user), db=Depends(database), key: str = Header(default="", alias="Idempotency-Key")):
+        return mutate(db, user_id, key, "create_catalog_watch", body.model_dump(),
+            lambda: tracking.watch_view(tracking.create_catalog_watch(db, user_id, body)))
+
+    @app.get("/v1/watches/{watch_id}/history", response_model=schema.PriceHistory, tags=["Commerce"])
+    def price_history(watch_id: str, offset: int = 0, limit: int = 30, user_id=Depends(user), db=Depends(database)):
+        watch = owned(db, Watch, watch_id, user_id)
+        rows, next_offset = page_rows(db, select(Observation).where(Observation.watch_id == watch.id,
+            Observation.user_id == user_id).order_by(Observation.observed_at.desc(), Observation.id), offset, limit)
+        return {"watch_id": watch.id, "currency": watch.currency, "items": [row_dict(row) for row in rows], "next_offset": next_offset}
+
+    @app.post("/v1/watches/{watch_id}/check", response_model=schema.WatchView, tags=["Commerce"])
+    def check_price(watch_id: str, user_id=Depends(user), db=Depends(database), key: str = Header(default="", alias="Idempotency-Key")):
+        def operation():
+            watch = owned(db, Watch, watch_id, user_id)
+            tracking.check_watch(db, watch)
+            return tracking.watch_view(watch)
+        return mutate(db, user_id, key, f"check_watch:{watch_id}", {}, operation)
 
     @app.get("/v1/watches", response_model=schema.Watches, tags=["Commerce"])
     def watches(offset: int = 0, limit: int = 30, user_id=Depends(user), db=Depends(database)):
         rows, next_offset = page_rows(db, select(Watch).where(Watch.user_id == user_id).order_by(Watch.id), offset, limit)
-        return {"items": [row_dict(w) for w in rows], "next_offset": next_offset}
+        return {"items": [tracking.watch_view(w) for w in rows], "next_offset": next_offset}
 
     @app.get("/v1/watches/{watch_id}", response_model=schema.WatchView, tags=["Commerce"])
     def get_watch(watch_id: str, user_id=Depends(user), db=Depends(database)):
-        return row_dict(owned(db, Watch, watch_id, user_id))
+        return tracking.watch_view(owned(db, Watch, watch_id, user_id))
 
     @app.patch("/v1/watches/{watch_id}", response_model=schema.WatchView, tags=["Commerce"])
     def update_watch(watch_id: str, body: UpdateWatch, user_id=Depends(user), db=Depends(database), key: str = Header(default="", alias="Idempotency-Key")):
@@ -570,7 +594,8 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
             if changed:
                 watch.rule_version += 1
                 watch.below = False
-            return row_dict(watch)
+                watch.next_check_at = 0
+            return tracking.watch_view(watch)
         return mutate(db, user_id, key, f"watch:{watch_id}", body.model_dump(), operation)
 
     @app.post("/v1/watches/{watch_id}/simulate", response_model=schema.QueuedPriceCheck, tags=["Demo"])
@@ -579,6 +604,8 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
             raise APIError(404, "not_found", "Demo simulation is disabled")
         def operation():
             watch = owned(db, Watch, watch_id, user_id)
+            if watch.catalog_ref:
+                raise APIError(409, "merchant_watch", "Merchant watches cannot accept simulated prices")
             if not watch.enabled:
                 raise APIError(409, "watch_paused", "Resume this watch before checking")
             if body.variant_id != watch.variant_id or body.currency != watch.currency:

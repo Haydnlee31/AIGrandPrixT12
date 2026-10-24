@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 import CommonThreadKit
 
 private func planMoney(_ minor: Int, currency: String = "SGD") -> String {
@@ -318,7 +319,51 @@ private struct CreatePriceTargetView: View {
     }
 }
 
-private struct PriceWatchesView: View {
+struct CreateCatalogPriceTargetView: View {
+    let product: CatalogRecord
+    let connection: SharedEnvironment
+    @Environment(\.dismiss) private var dismiss
+    @State private var target = ""
+    @State private var busy = false
+    @State private var errorMessage: String?
+    @State private var operation: Task<Void, Never>?
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(product.title) {
+                    Text(product.merchant.name ?? "Merchant")
+                    Text("Observed item price: \(catalogCurrencyText(product.offer.priceMinor, currency: product.offer.currency))")
+                    TextField("Alert at or below S$", text: $target).keyboardType(.decimalPad)
+                }
+                Section { Text("Checks use the merchant feed available to Mynah, not a live visit to the shop. Alerts appear in Activity. Prices exclude shipping; vouchers and membership discounts are not included.").font(.footnote).foregroundStyle(.secondary) }
+                if let errorMessage { Text(errorMessage).foregroundStyle(.secondary) }
+            }
+            .navigationTitle("Track price").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(busy) }
+                ToolbarItem(placement: .confirmationAction) { Button("Track") { save() }.disabled(busy || positiveMinorUnits(target) == nil) }
+            }.interactiveDismissDisabled(busy)
+        }.onDisappear { operation?.cancel() }
+    }
+    private func save() {
+        guard !busy, let amount = positiveMinorUnits(target) else { return }
+        busy = true; errorMessage = nil
+        operation = Task { @MainActor in
+            defer { busy = false }
+            do {
+                let payload = CatalogWatchRequest(sourceId: product.sourceId, recordId: product.sourceRecordId, targetMinor: amount)
+                let scope = "create-catalog-watch"
+                let key = try await IntelligenceMutationKeys.shared.key(for: payload, scope: scope, connection: connection)
+                let api = try await connection.intelligenceClient()
+                _ = try await api.createCatalogWatch(payload, key: key)
+                try await IntelligenceMutationKeys.shared.complete(payload, scope: scope, connection: connection)
+                try Task.checkCancellation(); dismiss()
+            } catch is CancellationError {} catch { if !Task.isCancelled { errorMessage = error.localizedDescription } }
+        }
+    }
+}
+
+struct PriceWatchesView: View {
     let connection: SharedEnvironment
     let trackingMode: String
     @State private var watches: [PriceWatch] = []
@@ -328,16 +373,17 @@ private struct PriceWatchesView: View {
     @State private var operation: Task<Void, Never>?
     var body: some View {
         List {
-            Section { Text(trackingMode == "simulated" ? "These targets use simulated prices. No live merchant monitoring or push delivery is active." : "Price targets use observations supplied by your connected library.").font(.footnote).foregroundStyle(.secondary) }
+            Section { Text("Merchant targets follow imported feed observations. Sample targets use simulated prices. Alerts appear in Activity; push delivery is not enabled.").font(.footnote).foregroundStyle(.secondary) }
             ForEach(watches) { watch in
-                NavigationLink { PriceTargetDetail(watch: watch, connection: connection, trackingMode: trackingMode) } label: {
+                NavigationLink { PriceTargetDetail(watch: watch, connection: connection, trackingMode: watch.dataMode ?? trackingMode) } label: {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(watch.variantId.replacingOccurrences(of: "-", with: " ").capitalized).font(.headline)
+                        Text(watch.catalog?.title ?? watch.variantId.replacingOccurrences(of: "-", with: " ").capitalized).font(.headline)
                         Text("Target \(planMoney(watch.targetMinor, currency: watch.currency)) · \(watch.enabled ? "Enabled" : "Paused")").font(.subheadline).foregroundStyle(.secondary)
+                        Text(watch.catalog?.merchantName ?? "Simulated target").font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
-            if !busy, watches.isEmpty, errorMessage == nil { ContentUnavailableView("No price targets yet", systemImage: "tag", description: Text("Choose a product in a shopping plan to save a target.")) }
+            if !busy, watches.isEmpty, errorMessage == nil { ContentUnavailableView("No price targets yet", systemImage: "tag", description: Text("Track a supported merchant offer in Explore, or try a sample shopping plan.")) }
             if let nextOffset { Button("Load more") { load(offset: nextOffset) }.disabled(busy) }
             if busy { ProgressView("Loading targets") }
             if let errorMessage { Text(errorMessage).foregroundStyle(.secondary); Button("Try again") { load() } }
@@ -365,14 +411,34 @@ private struct PriceTargetDetail: View {
     @State private var busy = false
     @State private var errorMessage: String?
     @State private var operation: Task<Void, Never>?
+    @State private var history: PriceHistory?
+    @State private var historyError: String?
     var body: some View {
         Form {
             Section {
-                LabeledContent("Product", value: watch.variantId)
+                LabeledContent("Product", value: watch.catalog?.title ?? watch.variantId)
                 LabeledContent("Target", value: planMoney(watch.targetMinor, currency: watch.currency))
                 if let price = watch.lastPriceMinor { LabeledContent(trackingMode == "simulated" ? "Last simulated price" : "Last observed price", value: planMoney(price, currency: watch.currency)) }
                 if let date = watch.lastCheckedAt { LabeledContent("Last observation", value: Date(timeIntervalSince1970: date).formatted()) }
             }
+            if let history {
+                Section("Observed price history") {
+                    if history.items.count >= 2 {
+                        Chart(history.items.sorted { $0.observedAt < $1.observedAt }) { point in
+                            LineMark(x: .value("Observed", Date(timeIntervalSince1970: point.observedAt)), y: .value("SGD item price", Double(point.amountMinor) / 100))
+                            PointMark(x: .value("Observed", Date(timeIntervalSince1970: point.observedAt)), y: .value("SGD item price", Double(point.amountMinor) / 100))
+                        }.frame(height: 170).accessibilityLabel("Recorded item prices in Singapore dollars")
+                    } else { Text("Collecting price history. A trend needs more than one observation.").foregroundStyle(.secondary) }
+                    ForEach(history.items.prefix(5)) { point in
+                        LabeledContent(Date(timeIntervalSince1970: point.observedAt).formatted(), value: planMoney(point.amountMinor, currency: history.currency))
+                    }
+                    Text(history.nextOffset == nil ? "Only prices recorded by Mynah are shown. Shipping is excluded." : "Chart shows the latest 100 observations. Shipping is excluded.").font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            if watch.checkStatus == "waiting_for_current_offer" || watch.checkStatus == "identity_changed" {
+                Section { Text(watch.checkStatus == "identity_changed" ? "The merchant product identity changed. This target will not alert on a different variant. Choose the correct product again in Explore." : "Waiting for a current merchant offer. The last recorded price may be out of date.").font(.footnote).foregroundStyle(.secondary) }
+            }
+            if let historyError { Text(historyError).font(.footnote).foregroundStyle(.secondary) }
             Section("Change target") {
                 TextField("Target in \(watch.currency)", text: $target).keyboardType(.decimalPad)
                 Button("Update target") { if let amount = positiveMinorUnits(target) { update(.init(targetMinor: amount)) } }.disabled(watch.currency != "SGD" || positiveMinorUnits(target) == nil || busy)
@@ -382,6 +448,13 @@ private struct PriceTargetDetail: View {
             if busy { ProgressView("Updating target") }
             if let errorMessage { Text(errorMessage).foregroundStyle(.secondary) }
         }.navigationTitle("Price target").onDisappear { operation?.cancel() }
+        .task(id: watch.ruleVersion) {
+            do {
+                let api = try await connection.intelligenceClient()
+                let result = try await api.priceHistory(watch.id, limit: 100)
+                try Task.checkCancellation(); history = result
+            } catch is CancellationError {} catch { if !Task.isCancelled { historyError = error.localizedDescription } }
+        }
     }
     @MainActor private func update(_ payload: WatchUpdate) {
         guard !busy else { return }; busy = true; errorMessage = nil

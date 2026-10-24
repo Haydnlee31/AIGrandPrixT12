@@ -206,6 +206,15 @@ public actor CommonThreadClient {
         }
     }
     public func createWatch(_ request: WatchRequest, key: MutationKey) async throws -> PriceWatch { try await mutation("POST", ["v1", "watches"], request, key: key) }
+    public func createCatalogWatch(_ request: CatalogWatchRequest, key: MutationKey) async throws -> PriceWatch {
+        try await mutation("POST", ["v1", "watches", "catalog"], request, key: key)
+    }
+    public func priceHistory(_ id: String, offset: Int = 0, limit: Int = 30) async throws -> PriceHistory {
+        try await send("GET", ["v1", "watches", id, "history"], query: page(offset, limit))
+    }
+    public func checkWatch(_ id: String, key: MutationKey) async throws -> PriceWatch {
+        try await send("POST", ["v1", "watches", id, "check"], key: key)
+    }
     public func watches(offset: Int = 0, limit: Int = 30) async throws -> ItemList<PriceWatch> { try await send("GET", ["v1", "watches"], query: page(offset, limit)) }
     public func watch(_ id: String) async throws -> PriceWatch { try await send("GET", ["v1", "watches", id]) }
     public func updateWatch(_ id: String, update: WatchUpdate, key: MutationKey) async throws -> PriceWatch { try await mutation("PATCH", ["v1", "watches", id], update, key: key) }

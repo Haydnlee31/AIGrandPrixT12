@@ -126,6 +126,9 @@ export class CommonThreadClient {
     return this.request(`/commerce/items/${encodeURIComponent(source)}/${encodeURIComponent(id)}`, options);
   }
   createWatch(payload, options) { return this.request('/watches', {...options, method:'POST', body:payload}); }
+  createCatalogWatch(payload, options) { return this.request('/watches/catalog', {...options, method:'POST', body:payload}); }
+  priceHistory(id, {offset = 0, limit = 30, ...options} = {}) { return this.request(`/watches/${encodeURIComponent(id)}/history?offset=${offset}&limit=${limit}`, options); }
+  checkWatch(id, options) { return this.request(`/watches/${encodeURIComponent(id)}/check`, {...options, method:'POST'}); }
   watches({offset = 0, limit = 30, ...options} = {}) { return this.request(`/watches?offset=${offset}&limit=${limit}`, options); }
   getWatch(id, options) { return this.request(`/watches/${encodeURIComponent(id)}`, options); }
   updateWatch(id, payload, options) { return this.request(`/watches/${encodeURIComponent(id)}`, {...options, method:'PATCH', body:payload}); }

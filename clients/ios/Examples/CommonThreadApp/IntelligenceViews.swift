@@ -396,6 +396,8 @@ private struct ExploreDetailView: View {
     let connection: SharedEnvironment
     @Environment(\.openURL) private var openURL
     @State private var offerExpired = false
+    @State private var showingPriceTarget = false
+    @State private var supportsPriceTargets = false
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -420,6 +422,9 @@ private struct ExploreDetailView: View {
                         Link("View source record", destination: url).font(.headline)
                     }
                     if offerExpired { Text("The offer information is no longer current. You can still inspect its source record.").font(.footnote).foregroundStyle(.secondary) }
+                    if supportsPriceTargets, currentOfferURL != nil, item.product.offer.currency == "SGD", item.product.variantKey != nil {
+                        Button("Track price") { showingPriceTarget = true }.font(.headline)
+                    }
                 }
                 IntelligenceCard(title: "Why this?", symbol: "sparkles") {
                     ForEach(Array(item.reasons.enumerated()), id: \.offset) { _, reason in
@@ -444,6 +449,12 @@ private struct ExploreDetailView: View {
                 }
             }.padding(24)
         }.navigationTitle("A possibility").navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showingPriceTarget) { CreateCatalogPriceTargetView(product: item.product, connection: connection) }
+        .task {
+            if let api = try? await connection.intelligenceClient(), let capabilities = try? await api.capabilities(), !Task.isCancelled {
+                supportsPriceTargets = capabilities.features["catalog_price_watches"] == true
+            }
+        }
     }
     private var currentOfferURL: URL? {
         guard item.action == .viewOffer, isCurrentMerchantOffer(item.product),

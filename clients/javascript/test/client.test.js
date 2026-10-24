@@ -4,6 +4,21 @@ import {CommonThreadClient, APIError} from '../client.js';
 
 const reply = (data, status=200) => new Response(JSON.stringify(data), {status,headers:{'Content-Type':'application/json','X-Request-ID':'request-1'}});
 
+test('catalog tracking preserves mutation keys and history pagination', async () => {
+  const calls=[];
+  const client=new CommonThreadClient({fetchImpl:async(url, options)=>{calls.push([url,options]);return reply({items:[]});}});
+  const body={source_id:'impact',record_id:'coffee-black',target_minor:9900};
+  await client.createCatalogWatch(body,{idempotencyKey:'track-1'});
+  await client.priceHistory('watch-1',{offset:30,limit:20});
+  await client.checkWatch('watch-1',{idempotencyKey:'check-1'});
+  assert.deepEqual(calls.map(([url])=>new URL(url).pathname),['/v1/watches/catalog','/v1/watches/watch-1/history','/v1/watches/watch-1/check']);
+  assert.deepEqual(JSON.parse(calls[0][1].body),body);
+  assert.equal(calls[0][1].headers['Idempotency-Key'],'track-1');
+  assert.equal(new URL(calls[1][0]).search,'?offset=30&limit=20');
+  assert.equal(calls[2][1].headers['Idempotency-Key'],'check-1');
+  await assert.rejects(client.checkWatch('watch-1'),TypeError);
+});
+
 test('browser fetch retains its global receiver', async () => {
   const client=new CommonThreadClient({fetchImpl:function () { assert.equal(this,globalThis);return Promise.resolve(reply({user_id:'account'})); }});
   assert.equal((await client.me()).user_id,'account');

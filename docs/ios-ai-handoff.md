@@ -81,6 +81,33 @@ Historical catalog records frequently have unknown price, merchant, stock, or pu
 
 An empty or pending Library may not produce personalized candidates. Design explicit empty/loading/no-match states instead of substituting unrelated cards and presenting them as inferred preferences. Explore responses are bounded retrieval results, not a claim that the entire catalog was exhaustively ranked. Refresh on foreground and after saves, annotation changes, and deletion.
 
+## Price targets and observed history (integration update)
+
+Branch `chime/price-tracking-foundation` builds on iOS commit `becc419`. Explore details now offer **Track price** for a current approved merchant offer with an exact variant, an HTTPS merchant link, and an SGD price. Library's tag button opens tracked products; each target shows observed-price history and supports editing or pausing. Threshold alerts appear in the existing Activity inbox. Profile remains unchanged.
+
+The backend and both SDKs expose:
+
+| Operation | Endpoint | SDK method |
+| --- | --- | --- |
+| Set an item-price target | `POST /v1/watches/catalog` | `createCatalogWatch` |
+| Read dated observations | `GET /v1/watches/{id}/history?offset=0&limit=30` | `priceHistory` |
+| Check the latest imported offer | `POST /v1/watches/{id}/check` | `checkWatch` |
+
+Creation accepts `{"source_id":"impact","record_id":"merchant-sku","target_minor":9900}`. Mutation requests require the existing idempotency key. History is owner-scoped, newest first, and paginated; the native chart shows the latest 100 observations and labels truncation. No history is invented for dates before tracking started.
+
+Run `alembic upgrade head` before starting against an existing database, then run the existing worker (`make worker`, or the configured embedded worker). The worker scans every 30 seconds and schedules each active target every 15 minutes. **These checks consume imported snapshots; they do not fetch merchants.** Re-importing the same source timestamp does not create another history point or alert. Merchant refresh frequency limits freshness regardless of our check interval.
+
+The initial observation establishes a baseline without sending an alert. A new, in-stock observation at or below the target starts one alert episode. Staying below does not repeatedly notify. Expired, revoked, missing, or changed-identity offers do not generate price alerts; the native screen explains when fresh data is needed. Prices exclude shipping. Voucher eligibility, membership prices, percentage discounts, and personal checkout totals are not inferred.
+
+Capabilities include `catalog_price_watches` and `price_history`. Use each watch's `data_mode` (`approved_feed` or `simulated`) for its display; the older global tracking mode remains `simulated` for legacy clients. `live_price_monitoring` and `push_notifications` remain false. Existing simulated watches are preserved and cannot supply observations to merchant watches.
+
+Remaining integration work:
+
+- Obtain authorised merchant access and automate downloads into the existing [affiliate feed importer](affiliate-feeds.md). Impact/CJ import support does not itself grant access or refresh feeds.
+- Add promotion data and eligibility rules before claiming coupon savings or a merchant sale. A threshold crossing alone is a price alert.
+- Connect APNs/device registration for iPhone push; delivery currently uses the in-app inbox. Add Chrome tracking UI using the shared JavaScript SDK when needed.
+- Validate with a real approved feed and a physical iPhone. This change was tested with invented feed records, backend/SDK tests, a SQLite migration round trip, and an unsigned simulator build of the app and Share Extension.
+
 ## Profile and acceptance
 
 Profile remains account and app settings. Add no AI-key fields, invented Dots connection, or model controls. Product screens use **Mynah Finds**. Keep operational metadata behind the UI while retaining honest catalog attribution and historical-data disclosures.

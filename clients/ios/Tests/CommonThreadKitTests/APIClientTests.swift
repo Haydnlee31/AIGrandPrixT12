@@ -41,6 +41,32 @@ final class APIClientTests: XCTestCase {
     }
     override func tearDown() { MockURLProtocol.handler = nil; super.tearDown() }
 
+    func testCatalogWatchAndHistoryTransport() async throws {
+        let baseline = try fixture("watch")
+        let key = MutationKey()
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/v1/watches/catalog")
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertNotNil(request.value(forHTTPHeaderField: "Idempotency-Key"))
+            let body = try JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: Any]
+            XCTAssertEqual(body?["source_id"] as? String, "impact")
+            XCTAssertEqual(body?["record_id"] as? String, "coffee")
+            XCTAssertEqual(body?["target_minor"] as? Int, 9900)
+            return (201, baseline, [:])
+        }
+        let api = try client()
+        _ = try await api.createCatalogWatch(.init(sourceId: .impact, recordId: "coffee", targetMinor: 9900), key: key)
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/v1/watches/watch-1/history")
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertTrue(request.url?.query?.contains("offset=10") == true)
+            return (200, Data(#"{"watch_id":"watch-1","currency":"SGD","price_basis":"item_price_excluding_shipping","items":[{"id":"point-1","amount_minor":9900,"observed_at":123,"data_mode":"approved_feed","offer_snapshot":null}],"next_offset":null}"#.utf8), [:])
+        }
+        let history = try await api.priceHistory("watch-1", offset: 10)
+        XCTAssertEqual(history.items.first?.amountMinor, 9900)
+        XCTAssertEqual(history.items.first?.dataMode, "approved_feed")
+    }
+
     func testActualAPIResponsesDecode() throws {
         let decoder = CommonThreadClient.decoder()
         XCTAssertEqual(try decoder.decode(Capabilities.self, from: fixture("capabilities")).features["image_upload"], true)

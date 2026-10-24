@@ -392,10 +392,27 @@ public struct WatchUpdate: Codable, Sendable {
     public let enabled: Bool?; public let targetMinor: Int?
     public init(enabled: Bool? = nil, targetMinor: Int? = nil) { self.enabled = enabled; self.targetMinor = targetMinor }
 }
+public struct CatalogWatchRequest: Codable, Sendable {
+    public let sourceId: CatalogSource; public let recordId: String; public let targetMinor: Int
+    public init(sourceId: CatalogSource, recordId: String, targetMinor: Int) {
+        self.sourceId = sourceId; self.recordId = recordId; self.targetMinor = targetMinor
+    }
+}
+public struct CatalogWatchReference: Codable, Sendable {
+    public let sourceId: String; public let recordId: String; public let title: String; public let merchantName: String
+}
+public struct PricePoint: Codable, Sendable, Identifiable {
+    public let id: String; public let amountMinor: Int; public let observedAt: Double; public let dataMode: String
+}
+public struct PriceHistory: Codable, Sendable {
+    public let watchId: String; public let currency: String; public let priceBasis: String
+    public let items: [PricePoint]; public let nextOffset: Int?
+}
 public struct PriceWatch: Codable, Sendable, Identifiable {
     public let id: String; public let variantId: String; public let currency: String; public let targetMinor: Int
     public let enabled: Bool; public let ruleVersion: Int; public let below: Bool; public let episode: Int
     public let lastPriceMinor: Int?; public let lastCheckedAt: Double?; public let priceBasis: String?; public let dataMode: String?
+    public let catalog: CatalogWatchReference?; public let checkStatus: String?; public let nextCheckAt: Double?
 }
 public struct PriceSimulation: Codable, Sendable {
     public let amountMinor: Int; public let variantId: String; public let currency: String

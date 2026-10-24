@@ -220,6 +220,13 @@ class Discoveries(Response):
     next_offset: int | None = None
 
 
+class CatalogWatchReference(Response):
+    source_id: str
+    record_id: str
+    title: str
+    merchant_name: str
+
+
 class WatchView(Response):
     id: str
     variant_id: str
@@ -233,6 +240,25 @@ class WatchView(Response):
     last_checked_at: float | None
     price_basis: str = "item_price_excluding_shipping"
     data_mode: str = "simulated"
+    catalog: CatalogWatchReference | None = None
+    check_status: str | None = None
+    next_check_at: float | None = None
+
+
+class PricePoint(Response):
+    id: str
+    amount_minor: int
+    observed_at: float
+    data_mode: str
+    offer_snapshot: dict[str, Any] | None = None
+
+
+class PriceHistory(Response):
+    watch_id: str
+    currency: str
+    price_basis: str = "item_price_excluding_shipping"
+    items: list[PricePoint]
+    next_offset: int | None
 
 
 class Watches(Response):

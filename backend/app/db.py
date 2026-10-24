@@ -123,6 +123,9 @@ class Watch(Base):
     episode: Mapped[int] = mapped_column(Integer, default=0)
     last_price_minor: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_checked_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    catalog_ref: Mapped[dict | None] = mapped_column(Document, nullable=True)
+    next_check_at: Mapped[float] = mapped_column(Float, default=0, server_default="0")
+    check_status: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class Observation(Base):
@@ -135,6 +138,7 @@ class Observation(Base):
     amount_minor: Mapped[int] = mapped_column(Integer)
     observed_at: Mapped[float] = mapped_column(Float)
     data_mode: Mapped[str] = mapped_column(String, default="simulated")
+    offer_snapshot: Mapped[dict | None] = mapped_column(Document, nullable=True)
 
 
 class Notification(Base):
