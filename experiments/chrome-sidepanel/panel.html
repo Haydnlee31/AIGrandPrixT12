@@ -36,7 +36,10 @@
     <div class="dialog-heading"><h2 id="settings-title">Library connection</h2><button id="close-settings" class="icon-button" aria-label="Close settings">×</button></div>
     <section class="connection-box"><h3 id="connection-label">Connect a shared library</h3>
       <p>When connected, new saves and answers go to your backend. In AI mode, saved text and images are also sent to OpenAI. Existing local saves stay local until you share them.</p>
-      <form id="connection-form"><label for="backend-url">Backend URL</label><input id="backend-url" type="url" value="https://mynah-finds.vercel.app" required><label for="backend-token">Mynah account access key</label><input id="backend-token" type="password" autocomplete="off" placeholder="Same account key as the web app" required><button type="submit" class="secondary">Connect</button></form>
+      <label for="backend-url">Mynah server</label><input id="backend-url" type="url" value="https://mynah-finds.vercel.app" required>
+      <button id="sign-in" class="secondary">Sign in with the web app</button>
+      <p class="field-help">Use the same email as on iPhone. Chrome remembers your sign-in and checks for changes automatically while Mynah is open.</p>
+      <details><summary>Demo access key</summary><form id="connection-form"><label for="backend-token">Mynah account access key</label><input id="backend-token" type="password" autocomplete="off" placeholder="Existing shared demo key" required><button type="submit" class="secondary">Connect with key</button></form></details>
       <p id="connection-status" role="status"></p><button id="disconnect" class="text-button" hidden>Disconnect</button><a id="shared-library" target="_blank" rel="noopener noreferrer" hidden>Open web library ↗</a>
       <p id="connection-error" class="error" role="alert" hidden></p>
     </section>

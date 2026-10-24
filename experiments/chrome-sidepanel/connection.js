@@ -2,9 +2,25 @@ import { CommonThreadClient } from './lib/client.js';
 import { normalizeBackendURL } from './lib/platform.js';
 import { getSave, updateSave } from './storage.js';
 import { syncSave, accountScope } from './shared.js';
+import {sessionRequest, sessionToken} from './login.js';
 
-export const getConnection = async () => (await chrome.storage.session.get('sharedConnection')).sharedConnection || null;
-export const disconnect = () => chrome.storage.session.remove('sharedConnection');
+export async function getConnection() {
+  const {managedLogin} = await chrome.storage.local.get('managedLogin');
+  if (!managedLogin) return (await chrome.storage.session.get('sharedConnection')).sharedConnection || null;
+  const {baseURL} = managedLogin;
+  const session = await sessionRequest(baseURL, 'get-session?disableCookieCache=true');
+  if (!session?.user) return null;
+  const subject = session.user.id;
+  const token = sessionToken({baseURL, subject, stillConnected: async () =>
+    (await chrome.storage.local.get('managedLogin')).managedLogin?.baseURL === baseURL});
+  const api = new CommonThreadClient({baseURL, token});
+  const [identity, capabilities] = await Promise.all([api.me(), api.capabilities()]);
+  return {baseURL, token, userId:identity.user_id, subject, email:session.user.email, managed:true, ...connectionFeatures(capabilities)};
+}
+export async function disconnect() {
+  await chrome.storage.local.remove('managedLogin');
+  await chrome.storage.session.remove('sharedConnection');
+}
 
 export async function connect(baseURL, token) {
   baseURL = normalizeBackendURL(baseURL);
@@ -17,6 +33,7 @@ export async function connect(baseURL, token) {
   const [identity, capabilities] = await Promise.all([api.me(), api.capabilities()]);
   if (!capabilities.features.image_upload) throw new Error('This backend needs the image-capture update before connecting.');
   const connection = {baseURL, token: token.trim(), userId: identity.user_id, ...connectionFeatures(capabilities)};
+  await chrome.storage.local.remove('managedLogin');
   await chrome.storage.session.set({sharedConnection: connection});
   return connection;
 }
