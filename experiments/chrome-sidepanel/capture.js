@@ -9,9 +9,10 @@ export function readPage() {
   const article = document.querySelector('article') || document.querySelector('main') || document.querySelector('[role="main"]');
   const body = !social && article ? [...article.querySelectorAll('h1, h2, p')].map(el => el.innerText).filter(Boolean).join('\n') : '';
   const excerpt = (selection || (social ? caption : `${description}\n${body}`)).trim().slice(0, 6000);
+  const product = /^product([.:]|$)/i.test(document.querySelector('meta[property="og:type"]')?.content || '');
   return {
     url: location.href, title: social && caption ? caption.slice(0, 160) : document.title,
-    excerpt, contentType: social ? 'social' : 'article',
+    excerpt, contentType: social ? 'social' : product ? 'product' : 'article',
     textBasis: selection ? 'the text you selected' : social ? 'the post caption, not the video or audio' : 'the page title and available article text'
   };
 }

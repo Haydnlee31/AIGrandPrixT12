@@ -25,9 +25,17 @@ def archive(path, files, prefix=""):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--all", action="store_true", help="Include the backend and both client frameworks")
+    parser.add_argument("--sidepanel", action="store_true", help="Package the Mynah Finds 0.4 side-panel extension only")
     args = parser.parse_args()
     DIST.mkdir(exist_ok=True)
-    for directory in ["extension/lib", "frontend/lib", "experiments/chrome-sidepanel/lib"]:
+    if args.sidepanel:
+        source = ROOT / "experiments/chrome-sidepanel"
+        # Explicit source types exclude credentials, test data and local browser state.
+        files = [p for p in source.iterdir() if p.suffix in {".js", ".html", ".css"} or p.name in {"manifest.json", "README.md", "TESTING.md"}]
+        files += list((source / "lib").glob("*.js")) + list((source / "icons").glob("*.png"))
+        archive(DIST / "mynah-finds-sidepanel.zip", [(p, p.relative_to(source)) for p in files if p.is_file()])
+        return
+    for directory in ["extension/lib", "frontend/lib"]:
         bundled = ROOT / directory / "client.js"
         bundled.parent.mkdir(exist_ok=True)
         shutil.copy2(ROOT / "clients/javascript/client.js", bundled)

@@ -38,17 +38,36 @@ const topics = [
   }
 ];
 
+function productQuestion(title, contentType) {
+  // A named object outranks incidental hobbies mentioned in its marketing copy.
+  if (contentType !== 'product' && !/\b(apple watch|smartwatch(?:es)?|fitness tracker|iphone|ipad|airpods?|macbook|smartphone|headphones?|earbuds?|laptop|camera|monitor|keyboard|headset|vacuum)\b/i.test(title.replace(/[_-]/g, ' '))) return null;
+  const name = title.replace(/\s[-–—|]\s.*$/, '').replace(/\.(png|jpe?g|webp)$/i, '').trim().slice(0, 100) || 'this product';
+  return {id: 'product', prompt: `What matters to you about ${name}?`, options: [
+    option('usage', 'How I would use it', `You want to consider how ${name} would fit your everyday use. Its features still need checking.`),
+    option('design', 'The design and fit', `You want to explore the design and fit of ${name}. No dimensions or compatibility have been verified.`),
+    option('compare', 'Price and alternatives', `You want to compare ${name} with other options. No current price or product match has been verified.`), inspiration]};
+}
+
 export function questionFor({ title = '', excerpt = '', note = '', kind = 'page', contentType = '', textBasis = '' }) {
-  // shortcut: local keyword questions, not visual AI. Replace when Haydn's typed question endpoint is ready.
+  // shortcut: text-only fallback; shared AI supplies content-specific visual prompts when connected.
   const match = (value) => topics.find(topic => topic.matches.test(value));
-  const topic = match(note) || (contentType === 'conversation' ? conversation : null) || match(title) || match(excerpt);
+  // A full page can mention many unrelated activities; only use a caption or an
+  // explicit text selection as a topic source, never arbitrary page-body keywords.
+  const focusedText = contentType === 'social' || /post caption|text you selected/.test(textBasis);
+  const topic = (contentType === 'conversation' ? conversation : productQuestion(title, contentType))
+    || match(note) || match(title) || (focusedText ? match(excerpt) : null);
   return {
-    id: `${topic?.id || 'purpose'}-v1`,
-    engine: 'local-rules-v1',
+    id: `${topic?.id || 'purpose'}-${topic?.id === 'product' ? 'v2' : 'v1'}`,
+    engine: 'local-rules-v2',
     basis: contentType === 'conversation' ? 'the conversation type you chose, not the words in the image' : textBasis || (kind === 'image' ? 'your note and the image name' : 'the page text and your note'),
     prompt: topic?.prompt || 'What would make this save useful to you?',
-    options: topic?.options || [option('find', 'Find something like this', 'You want to explore similar options. No product identity or current price has been verified.'), option('version', 'Make it my version', 'You want to adapt this idea. Your own space, style or constraints can shape the next step.'), option('friends', 'Do this with someone', 'Focus saved: a shared experience. No purchase or booking has been made.'), inspiration]
+    options: topic?.options || [option('find', 'Find something like this', 'You want to explore similar options. No product identity or current price has been verified.'), option('version', 'Make it my version', 'You want to adapt this idea. Your own space, style or constraints can shape the next step.'), option('learn', 'Learn more about it', 'You want to understand this find better. Its contents have not been visually analysed.'), inspiration]
   };
+}
+
+/** Refresh old basic prompts on read; preserve AI prompts and every saved answer. */
+export function refreshLocalQuestion(item) {
+  return item?.question?.engine?.startsWith('local-rules-') ? {...item, question: questionFor(item)} : item;
 }
 
 export function safeUrl(value) {
@@ -65,7 +84,7 @@ export function createSave(input) {
   const saved = {
     id: crypto.randomUUID(),
     kind: input.kind,
-    contentType: ['conversation', 'social', 'article', 'selected-image'].includes(input.contentType) ? input.contentType : '',
+    contentType: ['conversation', 'social', 'article', 'product', 'selected-image'].includes(input.contentType) ? input.contentType : '',
     textBasis: String(input.textBasis || '').slice(0, 200),
     imageCapture: input.imageCapture === 'visible-crop' ? 'visible-crop' : input.imageCapture === 'image' ? 'image' : '',
     imageUrl: safeUrl(input.imageUrl),

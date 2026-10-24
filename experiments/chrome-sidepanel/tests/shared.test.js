@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {syncSave, accountScope, capturePayload} from '../shared.js';
+import {syncSave, accountScope, capturePayload, reconcileRemote} from '../shared.js';
 
 function fixture() {
   let item = {id:'local', title:'Conversation', kind:'image', image:'data:image/png;base64,YQ==', url:'', question:{id:'local'}, answer:null};
@@ -59,4 +59,60 @@ test('basic backend rules do not replace richer local topic choices',async()=>{
   f.args.api.waitForSave=async()=>({...remote,features:{data_mode:'demo_rules'}});
   const result=await syncSave(f.args);
   assert.equal(result.question.id,'local');
+});
+
+test('modern photo captures use the shared iOS/web image contract without an empty URL', async()=>{
+  const f=fixture();Object.assign(f.args.connection,{modern:true,productAnalysis:true,ai:true,maxImageBytes:3145728});
+  const result=await syncSave(f.args);
+  const payload=f.calls[0][1];
+  assert.equal(payload.url,undefined);assert.equal(payload.image_data,undefined);
+  assert.equal(payload.image_data_url,f.read().image);assert.equal(result.shared.remoteId,'remote');
+});
+test('new AI contract uses analyze, recognizes astra and refreshes after an answer',async()=>{
+  const f=fixture();Object.assign(f.args.connection,{modern:true,productAnalysis:true,ai:true});
+  let remote={...await f.args.api.waitForSave(),features:{data_mode:'astra'},analysis:{summary:'A reading lamp',products:[]}};
+  f.args.api.waitForSave=async()=>remote;
+  f.args.api.analyzeSave=async(id,opts)=>f.calls.push(['analyze',id,opts]);
+  await syncSave(f.args);
+  assert.match(f.read().question.basis,/AI interpretation/);
+  f.set({...f.read(),answer:{kind:'text',label:'For reading'}});
+  f.args.api.respond=async()=>{remote={...remote,analysis:{summary:'A lamp for reading',products:[]}};};
+  const result=await syncSave({...f.args,retryUnderstanding:true});
+  assert.equal(f.calls[1][0],'analyze');
+  assert.equal(result.shared.remote.analysis.summary,'A lamp for reading');
+  assert.equal(result.answer.label,'For reading');
+});
+test('upgrade does not rewrite an uncertain legacy request under the same key',async()=>{
+  const f=fixture();let fail=true;
+  f.args.api.capture=async(body,opts)=>{f.calls.push([body,opts]);if(fail){fail=false;throw Error('offline');}return{id:'remote'};};
+  await assert.rejects(syncSave(f.args),/offline/);
+  f.args.connection.modern=true;
+  await syncSave(f.args);
+  assert.deepEqual(f.calls[0],f.calls[1]);assert.ok(f.calls[1][0].image_data);
+});
+test('definite validation rejection leaves an editable local save, not an uncertain shared upload',async()=>{
+  const f=fixture();f.args.api.capture=async()=>{throw Object.assign(Error('Private URL'),{status:422});};
+  await assert.rejects(syncSave(f.args),/Private URL/);
+  assert.equal(f.read().shared,undefined);assert.equal(f.read().title,'Conversation');
+});
+test('first share runs one analysis through capture, rather than requesting a second analysis',async()=>{
+  const f=fixture();Object.assign(f.args.connection,{modern:true,productAnalysis:true});
+  f.args.api.analyzeSave=async()=>assert.fail('capture already schedules analysis');
+  await syncSave({...f.args,retryUnderstanding:true});
+});
+test('a response for another saved image cannot replace this find or its prompts', async()=>{
+  const f=fixture(); await syncSave(f.args);
+  const before=structuredClone(f.read());
+  f.args.api.waitForSave=async()=>({id:'different-photo',revision:2,title:'Hiking',suggestions:[{id:'try',text:'Try it once'}],features:{question:'Explore this activity?'}});
+  await assert.rejects(syncSave(f.args),/different find/);
+  assert.deepEqual(f.read(),before);
+});
+test('late older AI revisions cannot overwrite newer product-specific prompts',async()=>{
+  const f=fixture(); await syncSave(f.args);
+  const newer={...f.read().shared.remote,revision:3,features:{data_mode:'astra',question:'What interests you about this watch?'},suggestions:[{id:'design',text:'The strap and case design'}]};
+  const current=reconcileRemote(f.read(),newer);
+  const stale={...newer,revision:2,features:{question:'Explore this activity?'},suggestions:[{id:'try',text:'Try it once'}]};
+  assert.equal(reconcileRemote(current,stale),current);
+  assert.match(current.question.prompt,/watch/);
+  assert.equal(capturePayload({title:'X1 Pro',url:'https://shop.example/x1',contentType:'product'},true).source,'product');
 });

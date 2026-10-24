@@ -1,70 +1,61 @@
-# Mynah Finds — Chrome capture and intent experiment
+# Mynah Finds — Chrome extension 0.4.1
 
-This is Chime’s standalone, side-panel extension, version 0.3.0 with optional shared-library sync. It belongs to the Coupang main challenge. It uses the repository’s shared backend; the older `extension/` popup scaffold remains separate and from the earlier hackathon games.
+Capture a page, screenshot or selected image, understand its products, and explore recommendations from the same shared library as the web app. This is the installed side-panel extension in `experiments/chrome-sidepanel/`; the older `extension/` popup is a separate scaffold.
 
-## Try it
+## Run and connect
 
-Load this folder unpacked in Chrome. If you already installed the previous local `mynah-finds/` folder, update its files in place and click **Reload** on the existing extension in `chrome://extensions`. Keep the same folder and installation to preserve its extension ID and saved library. Do not uninstall it.
+There is no build step. Load this folder unpacked in Chrome, or run `python3 scripts/package_handoff.py --sidepanel` at the repository root for `dist/mynah-finds-sidepanel.zip`.
 
-1. Open a regular website and click the Mynah Finds toolbar icon to grant access to that tab.
-2. Click **Save page**, then tap one suggested intent. There is no required typing. **Add a note**, a custom answer, **Just save for later**, and inspiration-only choices remain available.
-3. **Screenshot** saves the visible page. **Upload image** accepts PNG, JPEG or WebP up to 8 MB. **Conversation screenshot** uses the same picker. Local/basic mode offers honest general choices; configured AI mode reads the uploaded image to generate contextual choices.
-4. Right-click an image and choose **Save image to Mynah Finds**. The panel opens with the image and its intent choices. The image is copied locally, along with its page source and available alt text/caption. When browser cross-origin protections prevent copying pixels directly, the extension saves a labelled crop of the visible image. Bring the whole image into view if you need the full picture. Protected embedded frames may require opening the image in a new tab or uploading it.
+For an existing installation, replace its files **in the same unpacked folder** and click Reload in `chrome://extensions`. Keep the extension ID to preserve IndexedDB saves; do not uninstall. Back up the source folder first. Reloading or restarting Chrome clears the session credential, so reconnect in settings.
 
-The updated toolbar and panel use the team’s existing bird icons. No build step is needed. Local saving needs no server or key. Optional shared mode needs the local backend below. Run `npm test` for the tests.
+1. Open the extension's **Library connection settings**.
+2. Use **https://mynah-finds.vercel.app** and the same **Mynah account access key** as the web app. Never use an OpenAI provider key here.
+3. Approve Chrome's permission for that backend hostname. New saves and answers go to the shared account; existing unshared saves remain local until **Get AI suggestions for this find** (or **Share with library** on a basic server).
+4. Open a normal page and click the toolbar bird to grant active-tab access. **Save page** captures visible article text/selection; **Screenshot** captures the visible page. Upload accepts JPEG, PNG or WebP. Right-click an image to save that detail.
+5. **Library** combines local finds with the account's shared finds. **Refresh**, reopening the panel or returning to it pulls changes from other clients.
+6. Open a shared find for **Based on your find**: AI summary, products, observed or inferred attributes, supporting evidence and uncertainties. Choose an intent or write a note. **Refresh AI insights** requests a fresh analysis.
+7. **Explore** shows catalog matches based on analyzed shared saves, or an explicit product search. **Why this?** explains the match and opens the saved evidence. Each result retains its source and license attribution.
 
-## Side-panel design
+Unshared local saves do not influence shared recommendations. If iOS still says **On this iPhone / Local Library**, it is not syncing yet: it must use the same URL, account and shared API contract. This branch makes no iOS changes. Native iOS Radar/notifications are not part of this extension update.
 
-The home view puts **Save page** and **Screenshot** first, followed by image upload and the saved library. Opening or saving a find presents its question in a dedicated view; a single choice saves the intent. **All finds** returns to the library. Notes and custom answers remain optional. Connection setup is in a native dialog, with keyboard focus and Escape dismissal.
+## Prompts that match the saved content
 
-The visual direction follows the teammate’s `codex/ios-app` source (`NativeTheme.swift` and `LibraryPresentation.swift`): white surfaces, system typography, black capsule actions, soft cards and the existing bird artwork. Chrome keeps capture controls close to the current page instead of copying the iOS navigation tabs.
+Version 0.4.1 recognizes product metadata and named devices such as Apple Watch before incidental activity keywords. Basic prompts no longer infer a topic from arbitrary full-page body text. Existing local basic prompts refresh when reopened; saved images, answers and pending sync requests stay intact.
 
-Mobbin references inspected for this pass:
+**On this device · Basic suggestions** uses saved text, not visual AI. Unnamed image uploads receive neutral choices. Use **Connect for AI suggestions**, connect to the shared backend above, then **Get AI suggestions for this find** to share that specific local save for analysis. Connecting alone does not upload existing local finds. Shared AI responses are checked against the find ID and revision before replacing prompts.
 
-- [Pinterest — Saving a pin](https://mobbin.com/flows/1aa81943-6b3c-4d7b-a807-176a589eee42): save immediately, confirm, then offer optional organisation.
-- [ElevenReader — Library](https://mobbin.com/screens/569b6dc6-5c00-4576-8941-44f8e7b0519b): compact saved-item rows with a clear title and restrained controls.
+## Shared backend contract
 
-These inform interaction and hierarchy; no third-party artwork is bundled. Design-taste draw: `achromatic-ledger`, seed `457204930`; rounded cards follow the supplied iOS reference. The only shadow belongs to the modal overlay. Visual checks use the permitted computer-use tool in actual Chrome, rather than a separate browser automation script.
+The default production backend runs contract 0.4, with server-side product AI and the imported ABO catalog. No AI credential, catalog dump or database connection string ships in the extension.
 
-## Connect to the local backend
+| Function | API |
+| --- | --- |
+| Connection and features | `GET /v1/me`, `/v1/capabilities` |
+| Capture | `POST /v1/saves` (`image_data_url`, optional URL) |
+| All shared finds | `GET /v1/collection` (paginated) |
+| Details and private image | `GET /v1/saves/{id}`, `/v1/saves/{id}/image` |
+| Intent / refreshed AI | `POST /v1/saves/{id}/responses`, `/analyze` |
+| Recommendations / search | `GET /v1/explore` |
+| Shared deletion | `DELETE /v1/saves/{id}` |
 
-From the repository root, install `requirements.lock` into `.venv` and run `make run`. Open **Library connection settings** (the sliders button) in the side panel and use `http://127.0.0.1:8000` with the development token `demo-alex`. Grant access to that local backend. The web library opens at the same URL and uses the same demo account.
+The deployed AI observes saved content; the recommendation endpoint ranks catalog records with attributed reasons. It does not establish a verified product identity or live stock/price. Historical prices are labelled; unverified catalog records never get a live-offer link. Only the existing public ABO image host is allowed for remote product thumbnails; other sources receive text placeholders.
 
-After connecting, new captures and answers sync. Existing local saves stay local until you choose **Share with library**. Tokens last only for the Chrome session; reconnect after a browser restart. No provider key belongs in the extension.
+Legacy local 0.3 servers still support capture, intents and sync using their original `image_data` and `/retry` contract. They cannot provide the 0.4 Explore interface. Default URL is production; use a loopback URL only for a deliberately local demo.
 
-For real image/text understanding, configure `ANNOTATION_PROVIDER=openai`, `OPENAI_MODEL=gpt-6-luna` (or another compatible model) and `OPENAI_API_KEY` in the server’s Git-ignored `.env`, then restart `make run`. Reconnect Chrome so it reads the updated capabilities. **Refresh / retry sync** can upgrade a previously basic result or retry failed understanding. Do not paste API keys into chat or shared docs.
+## Privacy and recovery
 
-The server uses the [Responses image-input API](https://developers.openai.com/api/docs/guides/images-vision) and [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs). The default model supports both [image input and structured output](https://developers.openai.com/api/docs/models/gpt-6-luna).
+- Local originals stay in IndexedDB `saved-shopping/saves` with no schema migration. Outgoing images alone are resized if necessary to fit the backend limit, capped at 3 MiB for the deployed request budget. Local uploads accept up to 8 MB before resizing.
+- Session tokens are kept in `chrome.storage.session`; cached shared finds and pending mutations are bound to backend origin plus confirmed user ID. A different account's cached finds are hidden. Reconnect to the original account to access its cached saves; they are not deleted or silently copied to a new account.
+- Every mutation stores its body and idempotency key before sending. An uncertain request retries unchanged. An in-flight legacy request is not silently rewritten during an upgrade.
+- Explicit shared removal affects that account across clients. Server removal finishes before the local mirror is deleted. Remote deletion is respected on the next successful refresh; offline local data is retained.
+- Private images use an authenticated request to the chosen backend and temporary blob URLs, revoked on navigation/account changes. Tokens never enter image URLs or catalog links.
+- Saving is explicit. No background crawling or browser-history access. Captured text/images go to the configured backend AI provider. Captions are saved for video posts; full audio/video is not analyzed.
+- Intents save context; they do not purchase, schedule reminders or enable live price monitoring. Individual sign-in remains a separate follow-up to the shared-account demo.
 
-## What the question uses
+## Ownership and validation
 
-Local mode uses captured article text, selected text, social captions, image alt text/captions, optional notes, and the chosen conversation type. It preserves the existing birdwatching/creative intent choices. Basic backend mode never claims to read an image. AI mode sends only the explicitly shared save’s text/image to the server-side model, returning one question, possible intents and supporting evidence. “Just inspiration” and “Just save for later” remain available.
+`panel.js` owns navigation and account refresh; `intelligence.js` renders product insights and Explore; `shared.js` owns durable capture/answer retries; `library-view.js` merges local and remote data; `connection.js` requests host access; `storage.js` preserves saved originals and answers while refreshing outdated basic prompts.
 
-Text evidence is checked against captured text. Image evidence is labelled as an unverified AI reading. A quote from a friend or article is not independent verification of its claim. The model has no browsing or action tools; out-of-scope/unclear/refused results get a neutral fallback, unsupported text evidence fails safely, and numeric price/discount assertions are filtered. These controls reduce mistakes; they do not guarantee perfect model accuracy.
+The transport and feed/presentation helpers in `lib/` were taken from the deployed web branch at `898a6d8`, with a legacy `retrySave` adapter. The generic handoff packager must not overwrite this SDK with the older root SDK. No dependencies were added.
 
-Reels use captured captions only, unless you explicitly save a visible frame as an image. Video/audio is not downloaded or analysed. Choosing an intent saves context and a next-step prompt; it does not book, purchase, recommend live products or start monitoring.
-
-## Data, retries and deletion
-
-- Local records remain in IndexedDB `saved-shopping` / `saves`. Existing records are readable without a destructive migration.
-- `activeTab`, `scripting`, `sidePanel`, `contextMenus` and `storage` support explicit capture and short-lived connection state. Optional host permission is requested only for the backend hostname you choose. No browser-history access or background crawling.
-- The token lives in `chrome.storage.session`. Captures, answer attempts and mutation keys are durable in IndexedDB and bound to the backend plus server-confirmed user ID. Unknown results retry with the original body/key; switching accounts does not replay them.
-- Use **Refresh / retry sync** after a network failure or to pull a newer answer from the web app. Uploads remain local when disconnected; there is no unattended sync promise.
-- Images resize to ≤2048 pixels. Backend accepts single-frame PNG/JPEG/WebP ≤4 MiB and ≤16 MP; large images that exceed the limit remain saved locally with an error. The local file picker limit is 8 MB before resizing.
-- Right-click capture retains its original source and available alt text; protected image copying falls back to a labelled crop of the visible pixels. Unsupported frames report a recovery message.
-- Remove requires a second click. Shared records are removed from the backend before the local copy is deleted; reconnect to the owning account to finish. Uninstalling/clearing Chrome extension data erases local records, but cannot erase server records.
-- Server images are private authenticated attachments. Deleting a save deletes its image and invalidates old mutation receipts.
-
-## Integration for Haydn and Adi
-
-Use the existing `POST /v1/saves`, collection and response routes. The additive media/retry contract, limits and ownership are described in [the team handoff](../../docs/team-handoff.md). Generated OpenAPI/TypeScript and Swift models include images and next steps. Adi’s native UI is still separate work.
-
-`shared.js` owns account-scoped capture/answer retries; `connection.js` owns explicit connection/permissions; `storage.js` retains local records. `lib/client.js` is copied from the shared SDK by `scripts/package_handoff.py`; keep copies identical. The provider lives in `backend/app/content.py`. CORS settings belong on the backend, and the OpenAI key stays there.
-
-## Test sources
-
-- NParks: https://www.nparks.gov.sg/publications-resources/articles/how-now-brown-bird
-- Instagram: https://www.instagram.com/p/Dd1Z-TWs20c/ (requires availability/access in the current browser; uses caption only)
-- `tests/conversation-sample.html`: clearly fictional conversation for a screenshot-upload test.
-
-See `TESTING.md` for results and remaining limits. Browser context menu behavior follows [Chrome’s contextMenus API](https://developer.chrome.com/docs/extensions/reference/api/contextMenus).
+Run `npm test` in this folder. See [TESTING.md](TESTING.md) for verification and remaining limits. `tests/shopping-sample.html` is explicitly synthetic and contains no real offer; it supports manual screenshot-capture QA.
