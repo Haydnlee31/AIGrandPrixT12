@@ -21,9 +21,14 @@
     </section>
     <p id="status" class="status" role="status" aria-live="polite"></p>
     <p id="error" class="error" role="alert" hidden></p>
+    <details class="connection-box"><summary id="connection-label">Connect a shared library</summary>
+      <p>When connected, new saves and answers go to your backend. In AI mode, saved text and images are also sent to OpenAI. Existing local saves stay local until you share them.</p>
+      <form id="connection-form"><label for="backend-url">Backend URL</label><input id="backend-url" type="url" value="http://127.0.0.1:8000" required><label for="backend-token">Backend access token</label><input id="backend-token" type="password" autocomplete="off" placeholder="Local demo: demo-alex" required><button type="submit" class="secondary">Connect</button></form>
+      <p id="connection-status" role="status"></p><button id="disconnect" class="text-button" hidden>Disconnect</button><a id="shared-library" target="_blank" rel="noopener noreferrer" hidden>Open web library ↗</a>
+    </details>
     <section id="detail" aria-label="Selected save" hidden></section>
     <section class="collection" aria-label="Your collection"><div class="section-heading"><h2>Your collection</h2><span id="count">0 saves</span></div><div id="library"></div></section>
-    <footer>Private to this Chrome profile. No uploads or account.<br><span>Suggestions use available text or your chosen content type. Images and videos are not analysed.</span></footer>
+    <footer>Local saving works without an account.<br><span id="privacy-copy">Connect a backend to share new saves and use server-side AI. Reels use captured captions; full video is not analysed.</span></footer>
   </main>
   <template id="detail-template">
     <article class="saved-detail">
@@ -33,6 +38,7 @@
       <div class="source-meta"><span class="kind-badge"></span><a class="source-link" target="_blank" rel="noopener noreferrer">Open original ↗</a></div>
       <h2 class="saved-title"></h2><p class="saved-note" hidden></p>
       <details class="source-text" hidden><summary>Captured page text</summary><p></p></details>
+      <div class="shared-status"><p class="sync-state"></p><button class="sync-save secondary">Share with library</button><p class="understanding" hidden></p><ul class="content-evidence" hidden></ul></div>
       <div class="question-block"><div class="question-heading"><span class="question-icon" aria-hidden="true">✳</span><span>TAP AN INTENT</span></div><h3 class="question-title"></h3><div class="choices"></div><details class="custom-answer"><summary>Something else? Add your own words</summary><form class="answer-form"><label for="own-answer">Or, in your own words</label><div class="answer-input"><input id="own-answer" maxlength="500" placeholder="I’m thinking about…" autocomplete="off"><button type="submit" class="answer-submit" aria-label="Save my answer">↗</button></div></form></details><button class="skip text-button">Not now</button><p class="question-basis"></p></div>
       <div class="answer-block" hidden><div class="answer-top"><span class="eyebrow">CONTEXT SAVED</span><button class="edit-answer text-button">Change</button></div><p class="answer-label"></p><p class="answer-next"></p></div>
     </article>

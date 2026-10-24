@@ -1,6 +1,6 @@
 # Mynah Finds — Chrome capture and intent experiment
 
-This is Chime’s standalone, locally stored side-panel extension, version 0.2.0. It belongs to the Coupang main challenge. It is separate from the repository’s backend-connected `extension/` scaffold and from the earlier hackathon games.
+This is Chime’s standalone, side-panel extension, version 0.3.0 with optional shared-library sync. It belongs to the Coupang main challenge. It uses the repository’s shared backend; the older `extension/` popup scaffold remains separate and from the earlier hackathon games.
 
 ## Try it
 
@@ -8,32 +8,45 @@ Load this folder unpacked in Chrome. If you already installed the previous local
 
 1. Open a regular website and click the Mynah Finds toolbar icon to grant access to that tab.
 2. Click **Save page**, then tap one suggested intent. There is no required typing. **Add a note**, a custom answer, **Not now**, and inspiration-only choices remain available.
-3. **Screenshot** saves the visible page. **Upload an image** accepts PNG, JPEG or WebP up to 8 MB. **Conversation screenshot** uses the same picker and offers conversation-specific intent choices without reading the image’s words.
+3. **Screenshot** saves the visible page. **Upload an image** accepts PNG, JPEG or WebP up to 8 MB. **Conversation screenshot** uses the same picker. Local/basic mode offers honest general choices; configured AI mode reads the uploaded image to generate contextual choices.
 4. Right-click an image and choose **Save image to Mynah Finds**. The panel opens with the image and its intent choices. The image is copied locally, along with its page source and available alt text/caption. When browser cross-origin protections prevent copying pixels directly, the extension saves a labelled crop of the visible image. Bring the whole image into view if you need the full picture. Protected embedded frames may require opening the image in a new tab or uploading it.
 
-The updated toolbar and panel use the team’s existing bird icons. No build step, server or API key is needed. Run `npm test` for the tests.
+The updated toolbar and panel use the team’s existing bird icons. No build step is needed. Local saving needs no server or key. Optional shared mode needs the local backend below. Run `npm test` for the tests.
 
-## What questions use
+## Connect to the local backend
 
-Available article text, explicit selections, social-post captions, image alt text/captions, an optional note, or the explicitly selected conversation type. The NParks bird article has learning, binoculars, outing and inspiration choices. A claymation caption offers creative-activity choices. Unknown content gets general choices. Notes take precedence.
+From the repository root, install `requirements.lock` into `.venv` and run `make run`. Open **Connect a shared library** in the side panel and use `http://127.0.0.1:8000` with the development token `demo-alex`. Grant access to that local backend. The web library opens at the same URL and uses the same demo account.
 
-These are local keyword suggestions, not generative AI. Images are not OCR’d; video/audio is not analysed or downloaded. A saved social link is not proof that its media was understood. Choices record the user’s intent for that item; they do not start shopping, price monitoring, booking or purchasing. Prices and exact product identities are never invented.
+After connecting, new captures and answers sync. Existing local saves stay local until you choose **Share with library**. Tokens last only for the Chrome session; reconnect after a browser restart. No provider key belongs in the extension.
 
-## Data and permissions
+For real image/text understanding, configure `ANNOTATION_PROVIDER=openai`, `OPENAI_MODEL=gpt-6-luna` (or another compatible model) and `OPENAI_API_KEY` in the server’s Git-ignored `.env`, then restart `make run`. Reconnect Chrome so it reads the updated capabilities. **Refresh / retry sync** can upgrade a previously basic result or retry failed understanding. Do not paste API keys into chat or shared docs.
 
-- IndexedDB `saved-shopping`, store `saves`, retains images and answers locally. The original record shape remains readable; new provenance fields are additive. No migration or deletion runs on update.
-- `activeTab` and `scripting`: read the specific tab after a toolbar/menu action; `sidePanel`: the UI; `contextMenus`: the explicit image action; `storage`: short-lived context-action status shared between worker and panel.
-- No host permissions, browser-history access, background crawling, account access, analytics, remote requests or uploads. CSP keeps extension connections disabled.
-- Images resize to at most 2048 pixels. This is a convenient saved copy, not an archival original. Failed captures are reported without discarding existing saves. Changing tabs or moving a protected image during capture cancels the operation.
-- Removing an item requires a second confirmation click. Clearing extension data or uninstalling it removes the local library.
+The server uses the [Responses image-input API](https://developers.openai.com/api/docs/guides/images-vision) and [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs). The default model supports both [image input and structured output](https://developers.openai.com/api/docs/models/gpt-6-luna).
 
-## Integration boundary for Haydn and Adi
+## What the question uses
 
-The current shared handoff accepts URL/title/selected text/note, but has no image-upload or editable-save-metadata endpoint. This experiment deliberately does not call those backend APIs, change their contracts, or claim cross-device sync. Its optional intents expand the experience requested by Chime without changing the shared library scaffold.
+Local mode uses captured article text, selected text, social captions, image alt text/captions, optional notes, and the chosen conversation type. It preserves the existing birdwatching/creative intent choices. Basic backend mode never claims to read an image. AI mode sends only the explicitly shared save’s text/image to the server-side model, returning one question, possible intents and supporting evidence. “Just inspiration” and “Not now” remain available.
 
-Review `questions.js` for the typed question/choice/answer shape, `capture.js` for page and upload inputs, and `image-capture.js` for right-click capture and provenance. A backend integration needs an agreed media upload contract, privacy/retention rules, stored intent updates, and real question generation. API credentials must stay server-side. Local screenshot data must not silently become an uploaded artifact.
+Text evidence is checked against captured text. Image evidence is labelled as an unverified AI reading. A quote from a friend or article is not independent verification of its claim. The model has no browsing or action tools; out-of-scope/unclear/refused results get a neutral fallback, unsupported text evidence fails safely, and numeric price/discount assertions are filtered. These controls reduce mistakes; they do not guarantee perfect model accuracy.
 
-The team handoff currently spells the app “Mymah Finds”; this experiment uses the user-confirmed “Mynah Finds.” Shared naming changes are not included.
+Reels use captured captions only, unless you explicitly save a visible frame as an image. Video/audio is not downloaded or analysed. Choosing an intent saves context and a next-step prompt; it does not book, purchase, recommend live products or start monitoring.
+
+## Data, retries and deletion
+
+- Local records remain in IndexedDB `saved-shopping` / `saves`. Existing records are readable without a destructive migration.
+- `activeTab`, `scripting`, `sidePanel`, `contextMenus` and `storage` support explicit capture and short-lived connection state. Optional host permission is requested only for the backend hostname you choose. No browser-history access or background crawling.
+- The token lives in `chrome.storage.session`. Captures, answer attempts and mutation keys are durable in IndexedDB and bound to the backend plus server-confirmed user ID. Unknown results retry with the original body/key; switching accounts does not replay them.
+- Use **Refresh / retry sync** after a network failure or to pull a newer answer from the web app. Uploads remain local when disconnected; there is no unattended sync promise.
+- Images resize to ≤2048 pixels. Backend accepts single-frame PNG/JPEG/WebP ≤4 MiB and ≤16 MP; large images that exceed the limit remain saved locally with an error. The local file picker limit is 8 MB before resizing.
+- Right-click capture retains its original source and available alt text; protected image copying falls back to a labelled crop of the visible pixels. Unsupported frames report a recovery message.
+- Remove requires a second click. Shared records are removed from the backend before the local copy is deleted; reconnect to the owning account to finish. Uninstalling/clearing Chrome extension data erases local records, but cannot erase server records.
+- Server images are private authenticated attachments. Deleting a save deletes its image and invalidates old mutation receipts.
+
+## Integration for Haydn and Adi
+
+Use the existing `POST /v1/saves`, collection and response routes. The additive media/retry contract, limits and ownership are described in [the team handoff](../../docs/team-handoff.md). Generated OpenAPI/TypeScript and Swift models include images and next steps. Adi’s native UI is still separate work.
+
+`shared.js` owns account-scoped capture/answer retries; `connection.js` owns explicit connection/permissions; `storage.js` retains local records. `lib/client.js` is copied from the shared SDK by `scripts/package_handoff.py`; keep copies identical. The provider lives in `backend/app/content.py`. CORS settings belong on the backend, and the OpenAI key stays there.
 
 ## Test sources
 

@@ -35,6 +35,18 @@ export const listSaves = () => transaction('readonly', (store, done) => {
 
 export const addSave = item => transaction('readwrite', (store, done) => { store.add(item); done(item); });
 export const deleteSave = id => transaction('readwrite', store => { store.delete(id); });
+export const getSave = id => transaction('readonly', (store, done) => {
+  const request = store.get(id);
+  request.onsuccess = () => done(request.result);
+});
+export const updateSave = (id, change) => transaction('readwrite', (store, done, fail) => {
+  const request = store.get(id);
+  request.onsuccess = () => {
+    if (!request.result) return fail(new Error('This save was removed.'));
+    try { const updated = change(request.result); store.put(updated); done(updated); }
+    catch (error) { fail(error); }
+  };
+});
 
 export const saveAnswer = (id, answer) => transaction('readwrite', (store, done, fail) => {
   const request = store.get(id);

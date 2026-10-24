@@ -1,7 +1,7 @@
 {
   "items": [
     {
-      "id": "7239bf5c677f46dbb411991a24ee433d",
+      "id": "dd6d193a5d1d49ae8743f05fdd88db25",
       "original_url": "https://example.org/desk",
       "canonical_url": "https://example.org/desk",
       "title": "Warm desk lighting",
@@ -9,7 +9,7 @@
       "client": "ios_share_extension",
       "selected_text": "",
       "note": "Warm lighting for my small desk",
-      "captured_at": 1792857396.427017,
+      "captured_at": 1792863461.523745,
       "status": "ready",
       "features": {
         "desk_related": true,
@@ -19,64 +19,71 @@
       "revision": 1,
       "suggestions": [
         {
-          "id": "12cda228020b408f8aecabc35202c493",
-          "item_id": "7239bf5c677f46dbb411991a24ee433d",
+          "id": "ddcfaf80e3ac4c97919cf4390840c3b8",
+          "item_id": "dd6d193a5d1d49ae8743f05fdd88db25",
           "kind": "attraction",
           "text": "I like the warm lighting",
           "claim": "warm_lighting",
           "model_version": "demo-rules-v1",
-          "status": "proposed"
+          "status": "proposed",
+          "next_step": "Keep the source as inspiration. Decide which detail you want to explore before looking for products."
         },
         {
-          "id": "82d05332f48c456bae54ab843b3d3954",
-          "item_id": "7239bf5c677f46dbb411991a24ee433d",
+          "id": "32813ce7384d4ec0965a214ff649b21c",
+          "item_id": "dd6d193a5d1d49ae8743f05fdd88db25",
           "kind": "constraint",
           "text": "This could fit my small desk",
           "claim": "compact_space",
           "model_version": "demo-rules-v1",
-          "status": "proposed"
+          "status": "proposed",
+          "next_step": "Keep the source as inspiration. Decide which detail you want to explore before looking for products."
         },
         {
-          "id": "cfa3a25e41a84eda8615a18917e2f047",
-          "item_id": "7239bf5c677f46dbb411991a24ee433d",
+          "id": "ed293dee7ea24f11bb33cb15877eb84f",
+          "item_id": "dd6d193a5d1d49ae8743f05fdd88db25",
           "kind": "attraction",
           "text": "I want less clutter",
           "claim": "low_clutter",
           "model_version": "demo-rules-v1",
-          "status": "proposed"
+          "status": "proposed",
+          "next_step": "Keep the source as inspiration. Decide which detail you want to explore before looking for products."
         },
         {
-          "id": "3fa0461c17e3488c9d61be4da324b57b",
-          "item_id": "7239bf5c677f46dbb411991a24ee433d",
+          "id": "4643378a528647e9b5240169feb25a59",
+          "item_id": "dd6d193a5d1d49ae8743f05fdd88db25",
           "kind": "stage",
           "text": "Just inspiration, not shopping",
           "claim": "inspiration_only",
           "model_version": "demo-rules-v1",
-          "status": "proposed"
+          "status": "proposed",
+          "next_step": "Keep the source as inspiration. Decide which detail you want to explore before looking for products."
         }
       ],
       "responses": [
         {
-          "id": "9378bfc6d44348cb94fd45628ae3c4c5",
-          "item_id": "7239bf5c677f46dbb411991a24ee433d",
+          "id": "88dcc4d8be77468282685dd7753cdd19",
+          "item_id": "dd6d193a5d1d49ae8743f05fdd88db25",
           "event_type": "capture_note",
           "payload": {
             "text": "Warm lighting for my small desk"
           },
-          "occurred_at": 1792857396.427805
+          "occurred_at": 1792863461.524676
         },
         {
-          "id": "3ab234ed5f634b048c1980403d3191a6",
-          "item_id": "7239bf5c677f46dbb411991a24ee433d",
+          "id": "e756687cfaa7433da7d9f27e63475165",
+          "item_id": "dd6d193a5d1d49ae8743f05fdd88db25",
           "event_type": "annotation_response",
           "payload": {
             "action": "select",
-            "suggestion_id": "12cda228020b408f8aecabc35202c493",
-            "text": ""
+            "suggestion_id": "ddcfaf80e3ac4c97919cf4390840c3b8",
+            "text": "",
+            "label": "I like the warm lighting",
+            "next_step": "Keep the source as inspiration. Decide which detail you want to explore before looking for products."
           },
-          "occurred_at": 1792857396.441612
+          "occurred_at": 1792863461.552057
         }
-      ]
+      ],
+      "has_image": false
     }
   ],
   "next_offset": null

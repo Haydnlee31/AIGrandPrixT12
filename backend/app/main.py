@@ -22,7 +22,8 @@ from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException
 
 from .contracts import AnnotationResponse, Capture, CreateWatch, DiscoveryEvent, HypothesisFeedback, SimulatedPrice, StartDiscovery, UpdateWatch, canonical_url
-from .db import Base, DiscoverySession, Evidence, Job, Mutation, Notification, Observation, SavedItem, Suggestion, UserEvent, UserState, Watch, make_database
+from .db import Base, DiscoverySession, Evidence, Job, Mutation, Notification, Observation, SavedItem, SavedMedia, Suggestion, UserEvent, UserState, Watch, make_database
+from .content import MAX_IMAGE_BYTES, NEXT_STEPS, decode_image, provider_name
 from .intelligence import CATALOG, claims_in, context, shortlist
 from .worker import enqueue, run_forever
 from . import responses as schema
@@ -63,7 +64,7 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
             worker.join(timeout=5)
         engine.dispose()
 
-    app = FastAPI(title="Mymah Finds API", version="0.2.0", lifespan=lifespan,
+    app = FastAPI(title="Mynah Finds API", version="0.3.0", lifespan=lifespan,
         description="Shared Chrome and iOS backend. Local development bearer tokens; integer minor-unit prices; Unix seconds UTC. Mutation requests require Idempotency-Key. Demo inference and commerce are explicitly labeled.",
         responses={status: {"model": schema.ErrorEnvelope} for status in [400, 401, 404, 409, 410, 422, 500, 503]})
     app.state.factory = factory
@@ -81,10 +82,21 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
     @app.middleware("http")
     async def request_metadata(request, call_next):
         request.state.request_id = uuid.uuid4().hex
+        # Bound streaming uploads as well as requests with Content-Length.
+        if request.method in {"POST", "PATCH"}:
+            chunks, size = [], 0
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > 6 * 1024 * 1024:
+                    return error_response(request, 413, "payload_too_large", "Capture exceeds the 6 MiB request limit")
+                chunks.append(chunk)
+            request._body = b"".join(chunks)
         response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
+        if request.url.path.startswith("/v1/"):
+            response.headers["Cache-Control"] = "no-store"
         response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'"
         if request.url.path in {"/docs", "/redoc"}:
             # FastAPI's optional documentation UI uses its standard CDN bundles.
@@ -178,7 +190,9 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
         return response
 
     def item_view(db, item):
-        return {**row_dict(item), "suggestions": [{**row_dict(s), "status": "proposed"} for s in db.scalars(select(Suggestion).where(Suggestion.item_id == item.id, Suggestion.user_id == item.user_id))], "responses": [row_dict(e) for e in db.scalars(select(UserEvent).where(UserEvent.item_id == item.id, UserEvent.user_id == item.user_id))]}
+        return {**row_dict(item), "has_image": db.scalar(select(SavedMedia.item_id).where(SavedMedia.item_id == item.id, SavedMedia.user_id == item.user_id)) is not None,
+                "suggestions": [{**row_dict(s), "status": "proposed", "next_step": NEXT_STEPS.get(s.kind, NEXT_STEPS["explore"])} for s in db.scalars(select(Suggestion).where(Suggestion.item_id == item.id, Suggestion.user_id == item.user_id))],
+                "responses": [row_dict(e) for e in db.scalars(select(UserEvent).where(UserEvent.item_id == item.id, UserEvent.user_id == item.user_id).order_by(UserEvent.occurred_at, UserEvent.id))]}
 
     def session_view(db, session):
         current = context(db, session.user_id)
@@ -191,24 +205,25 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
 
     @app.get("/health", response_model=schema.Health, tags=["System"])
     def health():
-        return {"status": "ok", "demo_mode": demo_mode, "inference_provider": "demo-rules-v1"}
+        return {"status": "ok", "demo_mode": demo_mode, "inference_provider": provider_name()}
 
     @app.get("/v1/me", response_model=schema.Identity, tags=["System"])
     def me(user_id=Depends(user)):
-        return {"user_id": user_id, "demo_mode": demo_mode, "inference_provider": "demo-rules-v1"}
+        return {"user_id": user_id, "demo_mode": demo_mode, "inference_provider": provider_name()}
 
     @app.get("/v1/capabilities", response_model=schema.Capabilities, tags=["System"])
     def capabilities(user_id=Depends(user)):
-        return {"api_version": "v1", "contract_version": "0.2.0", "authentication": "development_bearer",
-            "capture": {"clients": ["web", "chrome_extension", "ios_app", "ios_share_extension"], "content_types": ["url", "selected_text", "note"], "max_url_length": 2048, "max_title_length": 300, "max_selected_text_length": 12000, "max_note_length": 2000},
-            "data_modes": {"annotations": "demo_rules", "catalog": "fixture", "tracking": "simulated"},
-            "features": {"annotations": True, "discovery": True, "watches": True, "price_simulation": demo_mode, "demo_reset": demo_mode, "image_upload": False, "live_price_monitoring": False, "push_notifications": False, "merchant_handoff": False, "personal_agent_connector": False},
+        return {"api_version": "v1", "contract_version": "0.3.0", "authentication": "development_bearer",
+            "capture": {"clients": ["web", "chrome_extension", "ios_app", "ios_share_extension"], "content_types": ["url", "selected_text", "note", "image"], "max_url_length": 2048, "max_title_length": 300, "max_selected_text_length": 12000, "max_note_length": 2000, "max_image_bytes": MAX_IMAGE_BYTES},
+            "data_modes": {"annotations": provider_name(), "catalog": "fixture", "tracking": "simulated"},
+            "features": {"annotations": True, "discovery": True, "watches": True, "price_simulation": demo_mode, "demo_reset": demo_mode, "image_upload": True, "multimodal_ai": provider_name() == "openai" and bool(os.getenv("OPENAI_API_KEY")), "live_price_monitoring": False, "push_notifications": False, "merchant_handoff": False, "personal_agent_connector": False},
             "currencies": ["SGD"], "refresh": {"strategy": "poll_on_foreground", "pending_save_interval_ms": 1500, "pending_save_timeout_ms": 30000, "incremental_sync": False}}
 
     @app.post("/v1/saves", status_code=201, response_model=schema.CaptureResult, tags=["Capture"])
     def capture(body: Capture, user_id=Depends(user), db=Depends(database), key: str = Header(default="", alias="Idempotency-Key")):
         def operation():
-            canonical = canonical_url(body.url)
+            image_hash = hashlib.sha256(decode_image(body.image_data)).hexdigest() if body.image_data else ""
+            canonical = f"image:{image_hash}" if image_hash else canonical_url(body.url)
             item = db.scalar(select(SavedItem).where(SavedItem.user_id == user_id, SavedItem.canonical_url == canonical))
             if item and not item.deleted:
                 return {"id": item.id, "status": item.status, "duplicate": True}
@@ -225,8 +240,10 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
                 item = SavedItem(user_id=user_id, original_url=body.url, canonical_url=canonical, title=body.title, source=body.source, client=body.client, selected_text=body.selected_text, note=body.note)
                 db.add(item)
                 db.flush()
+            if body.image_data:
+                db.merge(SavedMedia(item_id=item.id, user_id=user_id, image_data=body.image_data))
             normalized = " ".join(body.selected_text.casefold().split())
-            item.content_hash = hashlib.sha256(normalized.encode()).hexdigest() if normalized else ""
+            item.content_hash = image_hash or (hashlib.sha256(normalized.encode()).hexdigest() if normalized else "")
             enqueue(db, user_id, "enrich", {"item_id": item.id, "revision": item.revision})
             if body.note.strip():
                 event = UserEvent(user_id=user_id, item_id=item.id, event_type="capture_note", payload={"text": body.note})
@@ -249,10 +266,31 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
     def get_save(item_id: str, user_id=Depends(user), db=Depends(database)):
         return item_view(db, owned(db, SavedItem, item_id, user_id))
 
+    @app.get("/v1/saves/{item_id}/media", response_model=schema.SavedMediaView, tags=["Capture"])
+    def get_media(item_id: str, user_id=Depends(user), db=Depends(database)):
+        owned(db, SavedItem, item_id, user_id)
+        media = db.get(SavedMedia, item_id)
+        if not media or media.user_id != user_id:
+            raise APIError(404, "not_found", "Image not found")
+        return {"image_data": media.image_data}
+
+    @app.post("/v1/saves/{item_id}/retry", response_model=schema.CaptureResult, tags=["Capture"])
+    def retry_save(item_id: str, user_id=Depends(user), db=Depends(database), key: str = Header(default="", alias="Idempotency-Key")):
+        def operation():
+            item = owned(db, SavedItem, item_id, user_id)
+            if item.status == "enrichment_failed" or (item.status == "ready" and provider_name() == "openai" and item.features.get("data_mode") != "openai"):
+                item.revision += 1
+                item.status = "pending"
+                item.features = {}
+                db.execute(delete(Suggestion).where(Suggestion.item_id == item.id, Suggestion.user_id == user_id))
+                enqueue(db, user_id, "enrich", {"item_id": item.id, "revision": item.revision})
+            return {"id": item.id, "status": item.status, "duplicate": False}
+        return mutate(db, user_id, key, f"retry:{item_id}", {}, operation)
+
     @app.post("/v1/saves/{item_id}/responses", response_model=schema.AnnotationResult, tags=["Capture"])
     def respond(item_id: str, body: AnnotationResponse, user_id=Depends(user), db=Depends(database), key: str = Header(default="", alias="Idempotency-Key")):
         def operation():
-            owned(db, SavedItem, item_id, user_id)
+            item = owned(db, SavedItem, item_id, user_id)
             suggestion = owned(db, Suggestion, body.suggestion_id, user_id) if body.suggestion_id else None
             if suggestion and suggestion.item_id != item_id:
                 raise APIError(422, "wrong_suggestion", "Suggestion belongs to a different save")
@@ -261,12 +299,14 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
             if body.action == "edit" and not body.text.strip():
                 raise APIError(422, "text_required", "An edit needs your own explanation")
             # Responses supersede earlier evidence for this proposal, retaining history.
-            if suggestion:
+            if suggestion or item.features.get("question"):
                 prior = db.scalars(select(UserEvent).where(UserEvent.user_id == user_id, UserEvent.item_id == item_id)).all()
-                prior_ids = [e.id for e in prior if e.payload.get("suggestion_id") == suggestion.id]
+                prior_ids = [e.id for e in prior if e.event_type == "annotation_response" and (item.features.get("question") or e.payload.get("suggestion_id") == suggestion.id)]
                 if prior_ids:
                     db.execute(update(Evidence).where(Evidence.user_id == user_id, Evidence.event_id.in_(prior_ids)).values(active=False))
-            event = UserEvent(user_id=user_id, item_id=item_id, event_type="annotation_response", payload=body.model_dump())
+            event = UserEvent(user_id=user_id, item_id=item_id, event_type="annotation_response", payload={**body.model_dump(),
+                              "label": suggestion.text if suggestion and body.action == "select" else body.text,
+                              "next_step": NEXT_STEPS.get(suggestion.kind, NEXT_STEPS["explore"]) if suggestion else "Your context is saved. No purchase or monitoring has been started."})
             db.add(event)
             db.flush()
             if body.action in {"select", "edit"}:
@@ -290,6 +330,7 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
             db.execute(update(Evidence).where(Evidence.item_id == item_id, Evidence.user_id == user_id).values(active=False, text="[removed]"))
             db.execute(update(UserEvent).where(UserEvent.item_id == item_id, UserEvent.user_id == user_id).values(payload={"removed": True}))
             db.execute(delete(Suggestion).where(Suggestion.item_id == item_id, Suggestion.user_id == user_id))
+            db.execute(delete(SavedMedia).where(SavedMedia.item_id == item_id, SavedMedia.user_id == user_id))
             # Cached mutation responses may contain an old evidence snapshot.
             db.execute(update(Mutation).where(Mutation.user_id == user_id).values(response={"_expired": True}))
             state_for(db, user_id).version += 1
@@ -462,7 +503,7 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
         if not demo_mode:
             raise APIError(404, "not_found", "Demo reset is disabled")
         def operation():
-            for model in [Notification, Observation, Watch, DiscoverySession, Evidence, Suggestion, UserEvent, Job, SavedItem, Mutation]:
+            for model in [Notification, Observation, Watch, DiscoverySession, Evidence, Suggestion, UserEvent, Job, SavedMedia, SavedItem, Mutation]:
                 db.execute(delete(model).where(model.user_id == user_id))
             state = state_for(db, user_id)
             state.version += 1

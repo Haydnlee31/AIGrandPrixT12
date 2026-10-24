@@ -1,6 +1,7 @@
 import { capturePage, importImage } from './capture.js';
 import { addSave, listSaves, saveAnswer, deleteSave } from './storage.js';
 import { safeUrl } from './questions.js';
+import { connect, disconnect, getConnection, sync, removeShared } from './connection.js';
 
 const $ = selector => document.querySelector(selector);
 const detail = $('#detail');
@@ -11,6 +12,7 @@ let editing = false;
 let uploadType = '';
 let contextRevision;
 let refreshPending = false;
+let connection = null;
 const kindLabel = { page: 'Saved page', screenshot: 'Screenshot', image: 'Uploaded image' };
 const channel = new BroadcastChannel('saved-shopping');
 
@@ -50,6 +52,7 @@ async function refresh() {
 }
 
 function render() {
+  $('.local-badge').textContent = connection ? (connection.ai ? 'CONNECTED · AI' : 'CONNECTED · BASIC') : 'LOCAL';
   $('#count').textContent = `${items.length} ${items.length === 1 ? 'save' : 'saves'}`;
   const library = $('#library');
   library.replaceChildren();
@@ -88,6 +91,16 @@ function renderDetail(item) {
   else find('.source-link').hidden = true;
   if (item.note) { find('.saved-note').textContent = item.note; find('.saved-note').hidden = false; }
   if (item.excerpt) { find('.source-text').hidden = false; find('.source-text p').textContent = item.excerpt; }
+  find('.sync-state').textContent = item.shared ? `Shared library · ${item.shared.remote?.status === 'ready' ? 'Saved' : item.shared.remote?.status === 'enrichment_failed' ? 'Saved; understanding failed' : 'Waiting to finish syncing'}` : 'Saved on this device';
+  if (item.shared?.duplicate) find('.sync-state').textContent += ' · Already saved; original details kept';
+  find('.sync-save').textContent = item.shared ? 'Refresh / retry sync' : 'Share with library';
+  find('.sync-save').addEventListener('click', () => run(() => share(item.id, true)));
+  const features = item.shared?.remote?.features;
+  if (features?.summary) { find('.understanding').hidden = false; find('.understanding').textContent = `${features.data_mode === 'openai' ? 'AI interpretation: ' : ''}${features.summary}`; }
+  for (const evidence of features?.evidence || []) {
+    find('.content-evidence').hidden = false;
+    find('.content-evidence').append(element('li', '', `${evidence.text} — ${evidence.source === 'image' ? 'AI reading of image; check against the original' : 'Quote from saved content; not independently verified'}`));
+  }
   const showQuestion = !item.answer || editing;
   find('.question-block').hidden = !showQuestion;
   find('.answer-block').hidden = showQuestion;
@@ -117,13 +130,15 @@ function renderDetail(item) {
       event.currentTarget.setAttribute('aria-label', 'Confirm remove this save');
       return;
     }
-    run(async () => { await deleteSave(item.id); selectedId = undefined; editing = false; await refresh(); channel.postMessage('changed'); $('#status').textContent = 'Removed from this device.'; });
+    run(async () => { await removeShared(item.id); await deleteSave(item.id); selectedId = undefined; editing = false; await refresh(); channel.postMessage('changed'); $('#status').textContent = item.shared ? 'Removed from your device and shared library.' : 'Removed from this device.'; });
   });
 }
 
 function answer(id, response) {
   run(async () => {
     await saveAnswer(id, response);
+    const original = items.find(item => item.id === id);
+    if (original?.shared) await share(id);
     editing = false;
     await refresh();
     channel.postMessage('changed');
@@ -143,12 +158,38 @@ async function keep(capture) {
   $('#capture-note').value = '';
   await refresh();
   channel.postMessage('changed');
+  if (connection) await share(item.id);
   $('#status').textContent = 'Saved. Tap an intent below — no typing needed.';
   const heading = detail.querySelector('.question-title');
   heading.setAttribute('tabindex', '-1');
   heading.focus();
   detail.querySelector('.question-block').scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
+
+async function share(id, retryUnderstanding = false) {
+  $('#status').textContent = 'Local copy saved. Syncing with your library…';
+  try {
+    await sync(id, retryUnderstanding);
+    $('#status').textContent = 'Saved to your shared library. Choose an intent below.';
+  } finally { await refresh(); channel.postMessage('changed'); }
+}
+
+async function refreshConnection() {
+  connection = await getConnection();
+  $('#connection-label').textContent = connection ? `Library connected · ${connection.userId}` : 'Connect a shared library';
+  $('#connection-status').textContent = connection ? (connection.ai ? 'AI understanding enabled on the server.' : 'Basic mode. No live AI key is configured on this server.') : 'Access tokens are kept only until Chrome restarts.';
+  $('#disconnect').hidden = !connection;
+  $('#shared-library').hidden = !connection;
+  if (connection) { $('#shared-library').href = connection.baseURL; $('#backend-url').value = connection.baseURL; }
+  render();
+}
+$('#connection-form').addEventListener('submit', event => {
+  event.preventDefault();
+  // Start permission request in the original user gesture.
+  const pending = connect($('#backend-url').value, $('#backend-token').value);
+  run(async () => { await pending; $('#backend-token').value = ''; await refreshConnection(); });
+});
+$('#disconnect').addEventListener('click', () => run(async () => { await disconnect(); await refreshConnection(); }));
 
 $('#save-page').addEventListener('click', () => run(() => keep(() => capturePage('page', $('#capture-note').value))));
 $('#save-screenshot').addEventListener('click', () => run(() => keep(() => capturePage('screenshot', $('#capture-note').value))));
@@ -176,6 +217,7 @@ async function syncContext() {
   await refresh();
   if (imageCapture?.id && selectedId === imageCapture.id) detail.querySelector('.question-block')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
-chrome.storage?.onChanged.addListener((changes, area) => { if (area === 'session' && changes.imageCapture) syncContext().catch(showError); });
+chrome.storage?.onChanged.addListener((changes, area) => { if (area === 'session' && changes.imageCapture) syncContext().catch(showError); if (area === 'session' && changes.sharedConnection) refreshConnection().catch(showError); });
 channel.onmessage = () => { if (!busy) refresh().catch(showError); else refreshPending = true; };
 syncContext().catch(showError);
+refreshConnection().catch(showError);

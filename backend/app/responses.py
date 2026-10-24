@@ -40,6 +40,7 @@ class CaptureCapabilities(Response):
     max_title_length: int
     max_selected_text_length: int
     max_note_length: int
+    max_image_bytes: int = 4194304
 
 
 class Capabilities(Response):
@@ -67,6 +68,7 @@ class SuggestionView(Response):
     claim: str
     model_version: str
     status: Literal["proposed"]
+    next_step: str = ""
 
 
 class EventView(Response):
@@ -92,6 +94,11 @@ class SavedItemView(Response):
     revision: int
     suggestions: list[SuggestionView]
     responses: list[EventView]
+    has_image: bool = False
+
+
+class SavedMediaView(Response):
+    image_data: str
 
 
 class CollectionPage(Response):

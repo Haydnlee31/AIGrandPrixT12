@@ -27,7 +27,7 @@ def main():
     parser.add_argument("--all", action="store_true", help="Include the backend and both client frameworks")
     args = parser.parse_args()
     DIST.mkdir(exist_ok=True)
-    for directory in ["extension/lib", "frontend/lib"]:
+    for directory in ["extension/lib", "frontend/lib", "experiments/chrome-sidepanel/lib"]:
         bundled = ROOT / directory / "client.js"
         bundled.parent.mkdir(exist_ok=True)
         shutil.copy2(ROOT / "clients/javascript/client.js", bundled)

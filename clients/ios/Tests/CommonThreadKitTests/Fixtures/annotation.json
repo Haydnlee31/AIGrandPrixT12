@@ -1,5 +1,5 @@
 {
-  "event_id": "3ab234ed5f634b048c1980403d3191a6",
+  "event_id": "e756687cfaa7433da7d9f27e63475165",
   "hypothesis": {
     "id": "desk-lighting",
     "goal": "A calmer, more personal desk",
@@ -13,24 +13,24 @@
     ],
     "evidence": [
       {
-        "id": "9230422efa3e4f4a9b435e1c1e0d5d68",
-        "item_id": "7239bf5c677f46dbb411991a24ee433d",
+        "id": "c56b5f9871ec499793c0cd068e57419c",
+        "item_id": "dd6d193a5d1d49ae8743f05fdd88db25",
         "claim": "warm_lighting",
         "text": "Warm lighting for my small desk",
         "origin": "explicit_statement",
         "relation": "supports"
       },
       {
-        "id": "ef77cce802ed433cb201acd9a4d950d8",
-        "item_id": "7239bf5c677f46dbb411991a24ee433d",
+        "id": "461bca54c47344b6aba0eaeaceb8eb40",
+        "item_id": "dd6d193a5d1d49ae8743f05fdd88db25",
         "claim": "compact_space",
         "text": "Warm lighting for my small desk",
         "origin": "explicit_statement",
         "relation": "supports"
       },
       {
-        "id": "25a791e02e84493b9b3791f6a02f54cb",
-        "item_id": "7239bf5c677f46dbb411991a24ee433d",
+        "id": "a52ad8af1e3643b0acb63753dd1afaa4",
+        "item_id": "dd6d193a5d1d49ae8743f05fdd88db25",
         "claim": "warm_lighting",
         "text": "I like the warm lighting",
         "origin": "confirmed_annotation",
@@ -42,9 +42,9 @@
     "decision": {
       "action_type": "wait",
       "evidence_ids": [
-        "9230422efa3e4f4a9b435e1c1e0d5d68",
-        "ef77cce802ed433cb201acd9a4d950d8",
-        "25a791e02e84493b9b3791f6a02f54cb"
+        "c56b5f9871ec499793c0cd068e57419c",
+        "461bca54c47344b6aba0eaeaceb8eb40",
+        "a52ad8af1e3643b0acb63753dd1afaa4"
       ],
       "missing_information": [
         "budget",

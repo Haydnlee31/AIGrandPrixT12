@@ -2,7 +2,8 @@ from typing import Literal
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 import ipaddress
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from .content import MAX_IMAGE_DATA_LENGTH, decode_image
 
 
 class Contract(BaseModel):
@@ -28,18 +29,34 @@ def canonical_url(value: str):
 
 
 class Capture(Contract):
-    url: str = Field(max_length=2048)
+    url: str = Field(default="", max_length=2048)
     title: str = Field(min_length=1, max_length=300)
     source: Literal["web", "pinterest", "instagram", "article", "product"] = "web"
     client: Literal["web", "chrome_extension", "ios_app", "ios_share_extension"] = "web"
     selected_text: str = Field(default="", max_length=12000)
     note: str = Field(default="", max_length=2000)
+    image_data: str | None = Field(default=None, max_length=MAX_IMAGE_DATA_LENGTH,
+                                  description="Optional inline PNG/JPEG/WebP data URL. Maximum decoded size 4 MiB. Never a remote image URL.")
 
     @field_validator("url")
     @classmethod
     def valid_url(cls, value):
-        canonical_url(value)
+        if value:
+            canonical_url(value)
         return value
+
+    @field_validator("image_data")
+    @classmethod
+    def valid_image(cls, value):
+        if value is not None:
+            decode_image(value)
+        return value
+
+    @model_validator(mode="after")
+    def content_required(self):
+        if not self.url and not self.image_data:
+            raise ValueError("A public URL or an image is required")
+        return self
 
 
 class AnnotationResponse(Contract):

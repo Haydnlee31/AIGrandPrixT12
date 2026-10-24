@@ -4,8 +4,7 @@ setup:
 	uv pip install --python .venv/bin/python -r requirements.lock
 
 run:
-	.venv/bin/alembic upgrade head
-	.venv/bin/uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+	.venv/bin/python scripts/run_local.py
 
 worker:
 	.venv/bin/python -m backend.app.worker
@@ -14,6 +13,7 @@ test:
 	.venv/bin/python -m pytest -q
 	node --check frontend/app.js
 	node --test clients/javascript/test/*.test.js extension/tests/*.test.js frontend/test/*.test.mjs
+	node --test experiments/chrome-sidepanel/tests/*.test.js
 	$(MAKE) check-contracts
 
 migrate:

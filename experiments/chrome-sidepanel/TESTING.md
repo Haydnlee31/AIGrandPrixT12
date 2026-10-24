@@ -1,4 +1,20 @@
-# Mynah Finds 0.2.0 — verification
+# Mynah Finds 0.3.0 — shared-flow verification
+
+Checked 25 October 2026. This branch extends the original local capture experiment.
+
+- Final automated results: **37 backend tests and 57 JavaScript tests passed** (29 shared/web/scaffold, 28 side-panel), with OpenAPI/TypeScript drift checks, HTTP image-capture smoke checks and the standalone Swift harness passing. Upgrading an existing database retained its saved item.
+- Backend automated checks cover image validation, bounded uploads, independent images from the same page, private media access, duplicate/idempotent capture, shared answers, media deletion, refusal/out-of-scope fallbacks, unsupported text quotes, numeric discount claims, and deletion while inference is running. Existing framework/journey tests remain included.
+- Side-panel tests cover retained capture/answer keys, account/backend mismatch, local intent preservation in basic mode, and importing a newer web answer without overwriting it.
+- Shared SDK, original extension and web library tests run with `make test`; OpenAPI/TypeScript drift is checked. Swift wire models support image-only capture and new media/next-step fields; the standalone Swift harness passes. Native UI, device builds and App Store signing are not tested here.
+- Chrome for Testing 151, isolated profile: connected to the local backend through the real hostname permission prompt; saved the real NParks article; uploaded the existing clearly fictional conversation screenshot; selected **Plan something from it** with one click; opened the web library and verified the original image and same persisted intent/next-step text. Changed the intent to **Explore the idea** in the web app, refreshed the side panel, and verified Chrome showed that newer answer without overwriting it.
+- Regular Chrome: user reloaded the existing installation; all four earlier saves remained visible. Connected to the local backend, shared the existing NParks article and retained its **Explore binoculars for birdwatching** answer. Duplicate capture correctly reused the existing backend item.
+- Real OpenAI calls have **not** been run because no server key is configured. Provider tests use mocked HTTP responses, not fake live-AI results. Browser testing uses visibly labelled basic mode. Full video/audio, live product recommendations/prices, autonomous monitoring and production identity remain unimplemented.
+
+The original v0.2 capture-only test history follows. Its limits describe that earlier version, not the v0.3 backend contract.
+
+---
+
+## Mynah Finds 0.2.0 — earlier verification
 
 Checked 25 October 2026. This is the standalone side-panel experiment, not the backend-connected extension scaffold.
 

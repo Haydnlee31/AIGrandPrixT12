@@ -5,8 +5,9 @@ import uuid
 
 from sqlalchemy import and_, or_, select, update
 
-from .db import Job, Notification, Observation, SavedItem, Suggestion, Watch, make_database
+from .db import Job, Notification, Observation, SavedItem, SavedMedia, Suggestion, Watch, make_database
 from .intelligence import DemoAnnotationProvider
+from .content import OpenAIContentProvider, neutral_result, provider_name
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +19,14 @@ def enqueue(db, user, kind, payload):
     return job.id
 
 
-def process_job(db, job, provider):
+def process_job(db, job, provider, prepared=None):
     if job.kind == "enrich":
         item = db.scalar(select(SavedItem).where(SavedItem.id == job.payload["item_id"], SavedItem.user_id == job.user_id).with_for_update())
         if not item or item.deleted or item.revision != job.payload["revision"] or item.status == "ready":
             return
-        result = provider.understand(item.title, item.selected_text)
+        result = prepared
+        if result is None:
+            raise ValueError("missing_prepared_understanding")
         # The adapter receives captured content as data, has no tools, and may only
         # suggest annotations. No provider output becomes user evidence.
         if not isinstance(result.get("features"), dict) or not 1 <= len(result.get("suggestions", [])) <= 5:
@@ -32,7 +35,7 @@ def process_job(db, job, provider):
         for suggestion in result["suggestions"]:
             if suggestion.get("claim") not in allowed_claims or not isinstance(suggestion.get("text"), str) or not 1 <= len(suggestion["text"]) <= 200:
                 raise ValueError("invalid_provider_output")
-            if suggestion.get("kind") not in {"attraction", "constraint", "stage"}:
+            if suggestion.get("kind") not in {"attraction", "constraint", "stage", "explore", "compare", "plan", "inspiration"}:
                 raise ValueError("invalid_provider_output")
             db.add(Suggestion(user_id=job.user_id, item_id=item.id, model_version=provider.version, **suggestion))
         item.features = result["features"]
@@ -65,7 +68,7 @@ def process_job(db, job, provider):
 
 
 def run_once(factory, provider=None):
-    provider = provider or DemoAnnotationProvider()
+    provider = provider or (OpenAIContentProvider() if provider_name() == "openai" else DemoAnnotationProvider())
     now = time.time()
     eligible = or_(and_(Job.status == "pending", Job.due_at <= now), and_(Job.status == "running", Job.lease_until < now))
     token = uuid.uuid4().hex
@@ -77,11 +80,33 @@ def run_once(factory, provider=None):
         if claimed.rowcount != 1:
             return False
     try:
+        prepared = None
+        # Read a snapshot and release the transaction before waiting on a model.
+        with factory() as db:
+            job = db.get(Job, candidate)
+            if job and job.kind == "enrich":
+                item = db.get(SavedItem, job.payload["item_id"])
+                if item and item.user_id == job.user_id and not item.deleted and item.revision == job.payload["revision"]:
+                    media = db.get(SavedMedia, item.id)
+                    if media and media.user_id != job.user_id:
+                        raise ValueError("media_owner_mismatch")
+                    snapshot = (item.title, item.selected_text, item.note, media.image_data if media else None)
+                else:
+                    snapshot = None
+            else:
+                snapshot = None
+        if snapshot:
+            if hasattr(provider, "understand_capture"):
+                prepared = provider.understand_capture(*snapshot)
+            elif snapshot[3]:
+                prepared = neutral_result("Image saved. AI image understanding is not enabled on this server.", "demo_rules")
+            else:
+                prepared = provider.understand(snapshot[0], snapshot[1])
         with factory.begin() as db:
             job = db.scalar(select(Job).where(Job.id == candidate, Job.lease_token == token).with_for_update())
             if not job:
                 return True
-            process_job(db, job, provider)
+            process_job(db, job, provider, prepared)
             job.status = "done"
             job.lease_token = None
     except Exception as error:
@@ -96,7 +121,7 @@ def run_once(factory, provider=None):
                 job.lease_token = None
                 if job.status == "failed" and job.kind == "enrich":
                     item = db.get(SavedItem, job.payload["item_id"])
-                    if item and item.user_id == job.user_id and not item.deleted:
+                    if item and item.user_id == job.user_id and not item.deleted and item.revision == job.payload["revision"]:
                         item.status = "enrichment_failed"
     return True
 

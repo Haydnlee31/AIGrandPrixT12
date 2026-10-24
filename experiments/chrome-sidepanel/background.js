@@ -1,5 +1,6 @@
 import { captureSelectedImage } from './image-capture.js';
 import { addSave } from './storage.js';
+import { getConnection, sync } from './connection.js';
 
 // The action click grants activeTab before opening the panel.
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(console.error);
@@ -26,6 +27,10 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     const item = await captureSelectedImage(info, tab);
     await addSave(item);
     await status({ state: 'saved', id: item.id });
+    if (await getConnection()) {
+      try { await sync(item.id); await status({state: 'saved', id: item.id}); }
+      catch (error) { await status({state: 'saved', id: item.id, error: `Image saved locally. ${error.message}`}); }
+    }
   })().catch(error => status({ state: 'failed', error: error.message || 'Could not save that image. Try again.' }))
     .catch(console.error).finally(() => { capturing = false; });
 });

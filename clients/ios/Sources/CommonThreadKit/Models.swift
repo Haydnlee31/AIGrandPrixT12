@@ -38,11 +38,14 @@ public struct CaptureRequest: Codable, Sendable, Equatable {
     public var selectedText: String
     public var note: String
     public var client: CaptureClient
-    public init(url: String, title: String, source: CaptureSource = .web, selectedText: String = "", note: String = "", client: CaptureClient = .iosApp) {
+    public var imageData: String?
+    public init(url: String = "", title: String, source: CaptureSource = .web, selectedText: String = "", note: String = "", client: CaptureClient = .iosApp, imageData: String? = nil) {
         self.url = url; self.title = title; self.source = source; self.selectedText = selectedText; self.note = note; self.client = client
+        self.imageData = imageData
     }
 }
 public struct CaptureReceipt: Codable, Sendable { public let id: String; public let status: String; public let duplicate: Bool }
+public struct SavedMedia: Codable, Sendable { public let imageData: String }
 public struct CollectionPage: Codable, Sendable { public let items: [SavedItem]; public let nextOffset: Int? }
 public struct ItemList<Item: Codable & Sendable>: Codable, Sendable { public let items: [Item]; public let nextOffset: Int? }
 public struct SavedItem: Codable, Sendable, Identifiable {
@@ -60,12 +63,14 @@ public struct SavedItem: Codable, Sendable, Identifiable {
     public let revision: Int
     public let suggestions: [Suggestion]
     public let responses: [UserEvent]
+    public let hasImage: Bool?
     public var isEnriching: Bool { status == "pending" || status == "processing" }
     public var capturedDate: Date { Date(timeIntervalSince1970: capturedAt) }
 }
 public struct Suggestion: Codable, Sendable, Identifiable {
     public let id: String; public let itemId: String; public let kind: String; public let text: String
     public let claim: String; public let modelVersion: String; public let status: String
+    public let nextStep: String?
 }
 public struct UserEvent: Codable, Sendable, Identifiable {
     public let id: String; public let itemId: String?; public let eventType: String
@@ -158,5 +163,6 @@ public struct Capabilities: Codable, Sendable {
     public struct CaptureLimits: Codable, Sendable {
         public let clients: [String]; public let contentTypes: [String]; public let maxUrlLength: Int
         public let maxTitleLength: Int; public let maxSelectedTextLength: Int; public let maxNoteLength: Int
+        public let maxImageBytes: Int?
     }
 }

@@ -2,7 +2,7 @@
 export const SOURCE_NAMES = {web:'Web links',article:'Articles',product:'Product links',pinterest:'Pinterest',instagram:'Instagram'};
 export function sourceHost(item) {
   try { return new URL(item.original_url).hostname.replace(/^www\./,''); }
-  catch { return 'Saved link'; }
+  catch { return item.has_image ? 'Image upload' : 'Saved link'; }
 }
 export function safeLink(value) {
   try { const url = new URL(value); return ['https:','http:'].includes(url.protocol) && !url.username && !url.password ? url.href : null; }

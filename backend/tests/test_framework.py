@@ -51,9 +51,9 @@ def test_capabilities_require_auth_and_label_available_demo_features(client):
     capabilities = response.json()
     assert capabilities["authentication"] == "development_bearer"
     assert capabilities["data_modes"] == {"annotations": "demo_rules", "catalog": "fixture", "tracking": "simulated"}
-    for feature in ["annotations", "discovery", "watches", "price_simulation", "demo_reset"]:
+    for feature in ["annotations", "discovery", "watches", "price_simulation", "demo_reset", "image_upload"]:
         assert capabilities["features"][feature] is True
-    for feature in ["image_upload", "live_price_monitoring", "push_notifications", "merchant_handoff", "personal_agent_connector"]:
+    for feature in ["live_price_monitoring", "push_notifications", "merchant_handoff", "personal_agent_connector"]:
         assert capabilities["features"][feature] is False
     assert set(capabilities["capture"]["clients"]) == {"web", "chrome_extension", "ios_app", "ios_share_extension"}
     assert capabilities["refresh"]["incremental_sync"] is False

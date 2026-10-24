@@ -1,8 +1,8 @@
-# Mymah Finds — shared app framework
+# Mynah Finds — shared app framework
 
 A shared backend for a **Chrome extension/browser experience** and a **native iOS app with a Share Extension**. Current navigation is exactly **Library, Search, Profile**. Library contains the person's saved links and details; Search finds that saved content; Profile owns account and connection controls. No Map or Community.
 
-The saved-library approach takes inspiration from [Albo](https://albo.inc/) with an independent Mymah Finds visual identity. Intelligence and product catalog integration are deferred: teammates should not wire recommendations, discovery, watches, or commerce into the current frontend. There are no prototype/demo labels in the product interface.
+The saved-library approach takes inspiration from [Albo](https://albo.inc/) with an independent Mynah Finds visual identity. The current branch adds image capture, one contextual question, and shared intent answers. It distinguishes basic suggestions from AI interpretation. Product recommendations, live prices, and monitoring remain future work.
 
 **Start with [the team handoff](docs/team-handoff.md).** Platform setup: [Chrome](docs/platform-chrome.md) · [iOS](docs/platform-ios.md). API snapshot: [OpenAPI](contracts/openapi.json) · [response examples](contracts/examples).
 
@@ -14,17 +14,17 @@ This implements the framework behind the [backend plan](https://chatgpt.com/spac
 | --- | --- |
 | Backend | FastAPI, typed contracts, user isolation, durable jobs, migrations, idempotency, version conflicts, capabilities, pagination |
 | JavaScript | Dependency-free transport, generated TypeScript types, bounded polling, cancellation, structured errors and retained mutation keys |
-| Chrome | Load-unpacked MV3 extension, toolbar popup, explicit URL/text capture, service worker, backend settings and scoped permissions |
+| Chrome | Chime’s side panel in `experiments/chrome-sidepanel/`: page/screenshot/image capture, optional shared library, one-tap intents, durable retries. Original `extension/` popup scaffold remains available. |
 | iOS | Swift API package, typed models, account-scoped capture outbox, SwiftUI host and Share Extension templates, Keychain/App Group setup |
 | Browser UI | Responsive Library / Search / Profile in `frontend/`, saved-content filters, grid/list views, full-library local search, capture, details, deletion and account controls |
 
 The reference UI is not the final design for either interface. Native Xcode targets still need generation, signing, building, and device testing. Chrome installation is provided as an unpacked package, not a published Web Store listing.
 
-**Backend development boundary:** existing deterministic annotation rules, fixture catalog, discovery sessions, simulated watches and alerts remain available for later integration and regression testing. The current frontend does not request or display them. Production login, uploads, push and live commerce remain future backend work. `/v1/capabilities` describes technical support, not permission to expand the agreed frontend scope.
+**Backend boundary:** OpenAI image/text understanding is optional and server-side. Without a key, basic mode stays usable and labelled. Catalogs and price checks remain fixtures/simulations; production identity, private object storage and live commerce remain future work.
 
 ## Start the backend
 
-Prerequisites: Python 3.11+ (validated with 3.13), Node 20+ for JavaScript checks, and optionally `uv`.
+Prerequisites: Python 3.11+ (validated for this update with 3.12), Node 20+ for JavaScript checks, and optionally `uv`.
 
 ```sh
 make setup
@@ -39,7 +39,7 @@ python3 -m venv .venv
 make run
 ```
 
-`make run` applies migrations and starts the API with an embedded worker at **http://127.0.0.1:8000**. Local development uses `demo-alex`; `demo-sam` is a separate user. Profile → Connect/Switch account accepts the access key without showing developer credential examples in the UI. Use the same API origin and token on both interfaces to share a library. An iPhone cannot reach a Mac's loopback address; use an HTTPS development endpoint for device integration.
+Copy `.env.example` to `.env` to configure the server (the file is Git-ignored). `make run` loads these settings, applies migrations and starts the API with an embedded worker at **http://127.0.0.1:8000**. Local development uses `demo-alex`; `demo-sam` is a separate user. Profile → Connect/Switch account accepts the access key without showing developer credential examples in the UI. Use the same API origin and token on both interfaces to share a library. An iPhone cannot reach a Mac's loopback address; use an HTTPS development endpoint for device integration.
 
 - Interactive API: http://127.0.0.1:8000/docs. Use **Authorize** with a development token. Swagger assets need internet.
 - Offline schema: http://127.0.0.1:8000/openapi.json.
@@ -82,7 +82,7 @@ const saved = await api.capture({
 const item = await api.getSave(saved.id); // A receipt means saved; do not wait for intelligence.
 ```
 
-`source` records the content platform; `client` records the capture interface. Timestamps are Unix seconds UTC. Refresh collections on foreground and after mutations; there is no delta sync or push yet. Browser Search loads all pages before local matching. Internal `CommonThreadClient` and `CommonThreadKit` names remain compatible with existing integrations; visible branding is Mymah Finds. Details and recovery are in [the handoff](docs/team-handoff.md).
+`source` records the content platform; `client` records the capture interface. Timestamps are Unix seconds UTC. Refresh collections on foreground and after mutations; there is no delta sync or push yet. Browser Search loads all pages before local matching. Internal `CommonThreadClient` and `CommonThreadKit` names remain compatible with existing integrations; visible branding is Mynah Finds. Details and recovery are in [the handoff](docs/team-handoff.md).
 
 ## Checks and contract changes
 

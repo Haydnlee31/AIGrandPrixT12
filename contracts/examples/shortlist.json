@@ -1,5 +1,5 @@
 {
-  "id": "e76c6a7f03874230a0ff104f932cc0cf",
+  "id": "88ee0519fbdb4526972032f7c9fc6546",
   "version": 3,
   "stage": "comparing",
   "preferences": {
@@ -11,12 +11,12 @@
     "selected_variant": null
   },
   "evidence_ids": [
-    "9230422efa3e4f4a9b435e1c1e0d5d68",
-    "ef77cce802ed433cb201acd9a4d950d8",
-    "25a791e02e84493b9b3791f6a02f54cb"
+    "c56b5f9871ec499793c0cd068e57419c",
+    "461bca54c47344b6aba0eaeaceb8eb40",
+    "a52ad8af1e3643b0acb63753dd1afaa4"
   ],
   "context_version": 3,
-  "created_at": 1792857396.451781,
+  "created_at": 1792863461.568278,
   "context_stale": false,
   "products": [
     {
@@ -80,9 +80,9 @@
   "next_action": {
     "action_type": "compare",
     "evidence_ids": [
-      "9230422efa3e4f4a9b435e1c1e0d5d68",
-      "ef77cce802ed433cb201acd9a4d950d8",
-      "25a791e02e84493b9b3791f6a02f54cb"
+      "c56b5f9871ec499793c0cd068e57419c",
+      "461bca54c47344b6aba0eaeaceb8eb40",
+      "a52ad8af1e3643b0acb63753dd1afaa4"
     ],
     "missing_information": [],
     "reason_codes": [

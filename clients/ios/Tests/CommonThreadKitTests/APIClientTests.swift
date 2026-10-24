@@ -43,7 +43,7 @@ final class APIClientTests: XCTestCase {
 
     func testActualAPIResponsesDecode() throws {
         let decoder = CommonThreadClient.decoder()
-        XCTAssertEqual(try decoder.decode(Capabilities.self, from: fixture("capabilities")).features["image_upload"], false)
+        XCTAssertEqual(try decoder.decode(Capabilities.self, from: fixture("capabilities")).features["image_upload"], true)
         XCTAssertEqual(try decoder.decode(Account.self, from: fixture("account")).userId, "fixture-user")
         XCTAssertEqual(try decoder.decode(CaptureReceipt.self, from: fixture("capture")).status, "pending")
         XCTAssertTrue(try decoder.decode(SavedItem.self, from: fixture("pending")).isEnriching)

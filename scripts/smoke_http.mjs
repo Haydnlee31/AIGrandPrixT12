@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
 import {CommonThreadClient, newMutationKey} from '../clients/javascript/client.js';
 
 const api = new CommonThreadClient({baseURL:process.env.SMOKE_API_URL, token:process.env.SMOKE_API_TOKEN});
 const mutation = () => ({idempotencyKey:newMutationKey()});
 assert.equal((await api.health()).status,'ok');
-assert.equal((await api.capabilities()).contract_version,'0.2.0');
+assert.equal((await api.capabilities()).contract_version,'0.3.0');
 const payload = {url:'https://example.org/chrome-desk',title:'Warm desk lighting',note:'Warm lighting for my small desk',client:'chrome_extension'};
 const captureKey = mutation();
 const receipt = await api.capture(payload,captureKey);
@@ -35,4 +36,14 @@ assert.equal((await api.getWatch(watch.id)).last_price_minor,6900);
 await api.deleteSave(receipt.id,mutation());
 await assert.rejects(api.capture(payload,captureKey),error=>error.status===410 && error.code==='mutation_expired');
 assert.equal((await api.collection()).items.length,1);
+const {image_data} = JSON.parse(await readFile(new URL('../contracts/examples/image_media.json',import.meta.url),'utf8'));
+const imageReceipt = await api.capture({title:'Screenshot smoke',image_data,client:'chrome_extension'},mutation());
+const screenshot = await api.waitForSave(imageReceipt.id,{intervalMs:100});
+assert.equal(screenshot.has_image,true);
+assert.equal((await api.getMedia(screenshot.id)).image_data,image_data);
+await api.respond(screenshot.id,{action:'select',suggestion_id:screenshot.suggestions[1].id},mutation());
+assert.equal((await api.getSave(screenshot.id)).responses.at(-1).payload.label,'Plan something from it');
+await api.deleteSave(screenshot.id,mutation());
+await assert.rejects(api.getMedia(screenshot.id),error=>error.status===404);
+console.log('Image HTTP smoke passed: image upload → shared question → intent → private media → deletion.');
 console.log('HTTP smoke passed: shared SDK → migrated API → worker → cross-client collection, annotation, session conflict, watch alert, deletion/retry.');

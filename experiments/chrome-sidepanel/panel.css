@@ -109,3 +109,13 @@ footer span { font-size: 9px; }
 .capture-actions { margin-top: 0; }
 .choice { min-height: 44px; }
 .brand-mark { width: 32px; height: 32px; }
+/* Shared-library connection and evidence remain secondary to one-tap capture. */
+.connection-box { margin: 0 0 24px; padding: 16px; border: 1px solid #dcd7ce; border-radius: 12px; font-size: 13px; }
+.connection-box summary { cursor: pointer; font-weight: 650; }
+.connection-box form { display: grid; gap: 8px; }
+.connection-box input { min-width: 0; width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #dcd7ce; border-radius: 8px; font: inherit; }
+.connection-box p, .shared-status p, .content-evidence { line-height: 1.5; }
+.connection-box a { display: block; margin-top: 12px; }
+.shared-status { margin: 18px 0; font-size: 13px; }
+.content-evidence { padding-left: 18px; }
+.connection-box .secondary, .shared-status .secondary { border: 1px solid #dcd7ce; border-radius: 9px; padding: 10px 14px; background: #fffefa; color: #38382e; cursor: pointer; font: inherit; font-weight: 600; }

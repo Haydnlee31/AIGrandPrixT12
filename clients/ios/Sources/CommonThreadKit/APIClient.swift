@@ -111,6 +111,8 @@ public actor CommonThreadClient {
     public func capture(_ request: CaptureRequest, key: MutationKey) async throws -> CaptureReceipt { try await mutation("POST", ["v1", "saves"], request, key: key) }
     public func collection(offset: Int = 0, limit: Int = 30) async throws -> CollectionPage { try await send("GET", ["v1", "collection"], query: page(offset, limit)) }
     public func savedItem(_ id: String) async throws -> SavedItem { try await send("GET", ["v1", "saves", id]) }
+    public func savedMedia(_ id: String) async throws -> SavedMedia { try await send("GET", ["v1", "saves", id, "media"]) }
+    public func retryUnderstanding(_ id: String, key: MutationKey) async throws -> CaptureReceipt { try await mutation("POST", ["v1", "saves", id, "retry"], [String: String](), key: key) }
     public func deleteSavedItem(_ id: String, key: MutationKey) async throws -> DeleteReceipt { try await send("DELETE", ["v1", "saves", id], key: key) }
     public func respond(to id: String, with response: AnnotationRequest, key: MutationKey) async throws -> AnnotationReceipt { try await mutation("POST", ["v1", "saves", id, "responses"], response, key: key) }
     public func hypotheses() async throws -> ItemList<Hypothesis> { try await send("GET", ["v1", "hypotheses"]) }

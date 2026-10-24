@@ -38,6 +38,14 @@ class SavedItem(Base):
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class SavedMedia(Base):
+    __tablename__ = "saved_media"
+    item_id: Mapped[str] = mapped_column(ForeignKey("saved_items.id"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String, index=True)
+    # shortcut: bounded inline storage for the hackathon; move to private object storage before scaling.
+    image_data: Mapped[str] = mapped_column(String)
+
+
 class Suggestion(Base):
     __tablename__ = "annotation_suggestions"
     id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)

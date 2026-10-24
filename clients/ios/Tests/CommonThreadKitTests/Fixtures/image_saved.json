@@ -1,0 +1,53 @@
+{
+  "id": "bb93441d0d554a70b4ea11c9922b3a55",
+  "original_url": "",
+  "canonical_url": "image:36fe6ab71ec56fa1fc84326e4673fbf028c6ad2eb5051ce5a9e6cb0d07c85f4c",
+  "title": "Image contract fixture",
+  "source": "web",
+  "client": "ios_share_extension",
+  "selected_text": "",
+  "note": "",
+  "captured_at": 1792863461.6633952,
+  "status": "ready",
+  "features": {
+    "data_mode": "demo_rules",
+    "summary": "Image saved. AI image understanding is not enabled on this server.",
+    "question": "What would you like to do with this save?",
+    "evidence": []
+  },
+  "revision": 1,
+  "suggestions": [
+    {
+      "id": "ab13e621c25e4885bf7ff174f95866d9",
+      "item_id": "bb93441d0d554a70b4ea11c9922b3a55",
+      "kind": "explore",
+      "text": "Explore the idea",
+      "claim": "needs_clarification",
+      "model_version": "demo-rules-v1",
+      "status": "proposed",
+      "next_step": "Keep the source as inspiration. Decide which detail you want to explore before looking for products."
+    },
+    {
+      "id": "b7d51f4957c14824a0826696d1e50e8f",
+      "item_id": "bb93441d0d554a70b4ea11c9922b3a55",
+      "kind": "plan",
+      "text": "Plan something from it",
+      "claim": "needs_clarification",
+      "model_version": "demo-rules-v1",
+      "status": "proposed",
+      "next_step": "Turn this into a plan: who is it for, what do you already have, and what would you need?"
+    },
+    {
+      "id": "93f34e9dc37b4e368d5e2457f586c166",
+      "item_id": "bb93441d0d554a70b4ea11c9922b3a55",
+      "kind": "inspiration",
+      "text": "Just inspiration",
+      "claim": "inspiration_only",
+      "model_version": "demo-rules-v1",
+      "status": "proposed",
+      "next_step": "Kept as inspiration. This does not start shopping or price monitoring."
+    }
+  ],
+  "responses": [],
+  "has_image": true
+}
