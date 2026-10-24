@@ -94,6 +94,18 @@ def test_actual_image_and_confirmed_context_use_strict_responses_contract():
     assert model.version == "gpt-6-astra:predictive-v2"
 
 
+def test_ios_relay_model_omits_unsupported_reasoning_option():
+    def handle(request):
+        body = json.loads(request.content)
+        assert body["model"] == "gpt-4.1-mini"
+        assert "reasoning" not in body
+        assert body["text"]["format"]["strict"] is True
+        return httpx.Response(200, json=envelope(result()))
+
+    output = provider(handle, model="gpt-4.1-mini").understand_capture(capture())
+    assert output["features"]["data_mode"] == "astra"
+
+
 def test_capture_and_history_are_bounded_without_fetching_urls():
     def handle(request):
         content = json.loads(request.content)["input"][0]["content"]

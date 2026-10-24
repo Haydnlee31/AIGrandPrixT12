@@ -257,7 +257,6 @@ class AstraAnnotationProvider:
             "model": self.model,
             "instructions": INSTRUCTIONS,
             "input": [{"role": "user", "content": content}],
-            "reasoning": {"effort": "low"},
             "max_output_tokens": 3500,
             "store": False,
             "service_tier": self.service_tier,
@@ -266,6 +265,9 @@ class AstraAnnotationProvider:
                 "strict": True, "schema": OUTPUT_SCHEMA,
             }},
         }
+        # The native relay uses GPT-4.1 mini, which does not accept reasoning options.
+        if not self.model.startswith(("gpt-4.", "gpt-4o")):
+            body["reasoning"] = {"effort": "low"}
         try:
             payload = asyncio.run(self._bounded_request(body))
         except (TimeoutError, httpx.TimeoutException):
