@@ -97,3 +97,5 @@ This section supersedes earlier descriptions of the microphone, Explore tab labe
 - Removed Explore's separate Insights list. Product cards show an insight preview; each detail combines highlights and original-source evidence/notes inline.
 - Focused real-data store verification: eight device snapshot records produce six groups; every original ID resolves and the copied source JSON remains unchanged. Tests cover identical photo sets, different URL variants, repeated-share replay, clear/unpin behavior and new context added after merging.
 - Live intent-only Radar examples: a silver retro watch returned 12 real catalog records with 12 photos; a small-desk reading lamp returned 12 records with nine photos. Budget does not imply verified live prices. Some catalog sources omit photos; exact-source recovery is separate from product recommendation.
+
+- Final iPhone acceptance confirms Radar intention → budget slider → photo results, keyboard dismissal and Back navigation work. The signed build is installed; all eight original Library saves remain unchanged behind the grouped presentation.
