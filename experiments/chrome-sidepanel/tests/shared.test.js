@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {syncSave, accountScope, capturePayload} from '../shared.js';
+import {syncSave, accountScope, capturePayload, reconcileRemote} from '../shared.js';
 
 function fixture() {
   let item = {id:'local', title:'Conversation', kind:'image', image:'data:image/png;base64,YQ==', url:'', question:{id:'local'}, answer:null};
@@ -99,4 +99,20 @@ test('first share runs one analysis through capture, rather than requesting a se
   const f=fixture();Object.assign(f.args.connection,{modern:true,productAnalysis:true});
   f.args.api.analyzeSave=async()=>assert.fail('capture already schedules analysis');
   await syncSave({...f.args,retryUnderstanding:true});
+});
+test('a response for another saved image cannot replace this find or its prompts', async()=>{
+  const f=fixture(); await syncSave(f.args);
+  const before=structuredClone(f.read());
+  f.args.api.waitForSave=async()=>({id:'different-photo',revision:2,title:'Hiking',suggestions:[{id:'try',text:'Try it once'}],features:{question:'Explore this activity?'}});
+  await assert.rejects(syncSave(f.args),/different find/);
+  assert.deepEqual(f.read(),before);
+});
+test('late older AI revisions cannot overwrite newer product-specific prompts',async()=>{
+  const f=fixture(); await syncSave(f.args);
+  const newer={...f.read().shared.remote,revision:3,features:{data_mode:'astra',question:'What interests you about this watch?'},suggestions:[{id:'design',text:'The strap and case design'}]};
+  const current=reconcileRemote(f.read(),newer);
+  const stale={...newer,revision:2,features:{question:'Explore this activity?'},suggestions:[{id:'try',text:'Try it once'}]};
+  assert.equal(reconcileRemote(current,stale),current);
+  assert.match(current.question.prompt,/watch/);
+  assert.equal(capturePayload({title:'X1 Pro',url:'https://shop.example/x1',contentType:'product'},true).source,'product');
 });

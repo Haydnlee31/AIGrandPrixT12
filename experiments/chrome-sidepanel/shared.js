@@ -1,7 +1,7 @@
 import {sharedImage} from './shared-image.js';
 /** Account-bound sync. Store mutation keys before sending; retain uncertain requests. */
 export function capturePayload(item, modern = false) {
-  let source = item.contentType === 'article' ? 'article' : 'web';
+  let source = item.contentType === 'product' ? 'product' : item.contentType === 'article' ? 'article' : 'web';
   try { if (/(^|\.)instagram\.com$/.test(new URL(item.url).hostname)) source = 'instagram'; } catch {}
   return {...(modern ? (item.url ? {url: item.url} : {}) : {url: item.url || ''}), title: item.title, source, client: 'chrome_extension',
     selected_text: item.excerpt || '', note: item.note || '', ...(item.image ? {[modern ? 'image_data_url' : 'image_data']: item.image} : {})};
@@ -85,6 +85,8 @@ export async function syncSave({id, connection, api, read, update, retryUndersta
 
 /** Pull server edits only when no local answer is waiting to be sent. */
 export function reconcileRemote(current, remote) {
+  if (current.shared?.remoteId && current.shared.remoteId !== remote.id) throw new Error('The AI response belongs to a different find. Refresh this save to try again.');
+  if (current.shared?.remote?.revision > remote.revision) return current;
   const pending = current.answer && (!current.shared.answerAttempt?.done || current.shared.answerAttempt.fingerprint !== JSON.stringify(answerPayload(current)));
   const latest = [...(remote.responses || [])].reverse().find(event => event.event_type === 'annotation_response');
   const updated = {...current, title: remote.title || current.title, question: sharedQuestion(remote) || current.question,

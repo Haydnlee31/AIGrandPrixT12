@@ -1,14 +1,23 @@
-# Chrome side-panel 0.4 verification — 2026-10-25
+# Chrome side-panel 0.4.1 verification — 2026-10-25
 
 ## Automated
 
-`node --test experiments/chrome-sidepanel/tests/*.test.js`: **40 passed**.
+`node --test experiments/chrome-sidepanel/tests/*.test.js`: **48 passed**.
 
 Coverage includes explicit active-tab capture and navigation guards, supported images, safe source links, local intents, legacy and modern capture formats, uncertain mutation retries, no extra analysis on first share, definitive validation rejection, account boundaries, server answer reconciliation, shared-library deduplication/deletion, pagination, stale search/account cancellation, catalog image allowlisting and historical-offer presentation.
 
 `node --check` passed for side-panel JavaScript. `git diff --check` passed. `python3 scripts/package_handoff.py --sidepanel` produced the source-only ZIP; required modules were present and no credentials, environment files or test data were included.
 
-## Actual installed Chrome and production API
+## 0.4.1 prompt regression
+
+- Before the fix, a synthetic save titled `Apple Watch Series 12 - Apple` with excerpt `Cycling` produced `hobby-v1` and the activity prompt. This is a deliberately minimized test input, not a claim that the teammate's saved text contained that word.
+- After the fix, the same input produces `What matters to you about Apple Watch Series 12?` with usage, design and comparison choices. Product metadata also handles unfamiliar product names; intentional hiking titles and selected text still receive activity choices.
+- Tests cover consecutive different images, refreshing old basic questions without changing images/answers/pending payloads, and rejecting wrong-find or older AI responses.
+- An isolated localhost browser fixture seeded an old `local-rules-v1` Apple Watch save. Opening it through the real IndexedDB/read/render path showed the corrected product question, a visible text-only explanation, and **Connect for AI suggestions**. That button opened the connection form without sharing the fixture.
+- Reloaded the actual unpacked extension to **0.4.1** in the same folder/ID. All three local finds survived. Restored the existing approved connection; the Library showed those three local finds plus the shared lamp demo, and **Shared library up to date**.
+- The teammate's exact captured body was unavailable; the screenshot establishes local basic mode, and the test establishes a matching failure path. No new production test saves were created for this patch.
+
+## Actual installed Chrome and production API (0.4.0)
 
 Updated the existing unpacked folder in place, kept extension ID and IndexedDB, and reloaded version 0.4.0. Original unshared finds remained visible. The user approved the production hostname permission and connection with the existing Mynah account key.
 
