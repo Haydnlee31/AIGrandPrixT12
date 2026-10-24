@@ -23,7 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException
 
 from .contracts import AnnotationResponse, Capture, CreateWatch, DiscoveryEvent, HypothesisFeedback, SimulatedPrice, StartDiscovery, UpdateWatch, canonical_url
-from .db import Base, DiscoverySession, Evidence, Job, Mutation, Notification, Observation, SavedItem, Suggestion, UserEvent, UserState, Watch, make_database
+from .db import Base, DiscoverySession, Evidence, Job, MultimodalAsset, MultimodalCapture, Mutation, Notification, Observation, SavedItem, Suggestion, UserEvent, UserState, Watch, make_database
 from .intelligence import CATALOG, claims_in, context, shortlist
 from .worker import enqueue, run_forever
 from .predictive import get_annotation_provider
@@ -35,6 +35,7 @@ from .catalog.registry import DATASET_SOURCES
 from .catalog.rakuten import RakutenClient
 from . import library as library_service
 from .explore import ExplorePage, explore as explore_products
+from .multimodal import MultimodalService, register_multimodal, erase_for_saved_item, reserve_analysis
 
 
 class APIError(Exception):
@@ -47,9 +48,11 @@ def row_dict(row):
     return {column.name: getattr(row, column.name) for column in row.__table__.columns if column.name not in {"user_id", "image_data_url"}}
 
 
-def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=None, allowed_origins=None, annotation_provider=None, rakuten_client=None):
+def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=None, allowed_origins=None, annotation_provider=None, rakuten_client=None,
+               multimodal_provider=None, multimodal_enabled=None):
     engine, factory = make_database(database_url)
     provider = annotation_provider if annotation_provider is not None else get_annotation_provider()
+    multimodal = MultimodalService(factory, provider=multimodal_provider, enabled=multimodal_enabled)
     rakuten = rakuten_client if rakuten_client is not None else RakutenClient.from_env()
     tokens = tokens if tokens is not None else json.loads(os.getenv("API_TOKENS", '{"demo-alex":"alex","demo-sam":"sam"}'))
     demo_mode = demo_mode if demo_mode is not None else os.getenv("DEMO_MODE", "true").lower() == "true"
@@ -67,7 +70,7 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
         stop = threading.Event()
         worker = None
         if embedded_worker:
-            worker = threading.Thread(target=run_forever, args=(factory, stop, provider), daemon=True)
+            worker = threading.Thread(target=run_forever, args=(factory, stop, provider, multimodal), daemon=True)
             worker.start()
         yield
         stop.set()
@@ -75,6 +78,8 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
             worker.join(timeout=45)
         elif hasattr(provider, "close"):
             provider.close()
+        if not embedded_worker:
+            multimodal.close()
         rakuten.close()
         engine.dispose()
 
@@ -84,6 +89,7 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
     app.state.factory = factory
     app.state.annotation_provider = provider
     app.state.rakuten_client = rakuten
+    app.state.multimodal = multimodal
     app.add_middleware(BodyLimitMiddleware, max_bytes=6 * 1024 * 1024)
     origins = allowed_origins if allowed_origins is not None else json.loads(os.getenv("CORS_ORIGINS", "[]"))
     def exact_origin(origin):
@@ -214,6 +220,9 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
         return {**row_dict(item), "analysis": analysis, "analysis_status": analysis_status, "has_image": item.has_image, "image_path": f"/v1/saves/{item.id}/image" if item.has_image else None,
             "suggestions": [{**row_dict(s), "status": "proposed", "intent": s.claim if s.kind == "intent" else None, "requires_confirmation": True} for s in suggestions], "responses": [row_dict(e) for e in db.scalars(select(UserEvent).where(UserEvent.item_id == item.id, UserEvent.user_id == item.user_id))]}
 
+    register_multimodal(app, multimodal, user=user, database=database, mutate=mutate,
+                        state_for=state_for, APIError=APIError)
+
     def invalidate_predictions(db, user_id, evidence_ids):
         # Recorded provenance lets removal/rejection also retract predictions
         # that have already been published on other saves.
@@ -227,6 +236,17 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
             item.status = "pending"
             library_service.update_search_document(db, item)
             db.execute(delete(Suggestion).where(Suggestion.item_id == item.id, Suggestion.user_id == user_id))
+            if item.canonical_url.startswith("multimodal:"):
+                if not multimodal.enabled:
+                    item.status = "enrichment_failed"
+                    continue
+                try:
+                    reserve_analysis(db, user_id, APIError)
+                except APIError:
+                    # Revoked observations stay withdrawn, while the explicit
+                    # edit/deletion succeeds even if reanalysis is rate limited.
+                    item.status = "enrichment_failed"
+                    continue
             enqueue(db, user_id, "enrich", {"item_id": item.id, "revision": item.revision})
 
     def queue_analysis(db, item, preserve_suggestions=False):
@@ -234,6 +254,10 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
         existing = next((job for job in pending if job.payload.get("item_id") == item.id and job.payload.get("revision") == item.revision), None)
         if item.status == "pending" and existing:
             return {"id": item.id, "status": item.status, "revision": item.revision, "job_id": existing.id, "queued": False}
+        if item.canonical_url.startswith("multimodal:"):
+            if not multimodal.enabled:
+                raise APIError(503, "multimodal_disabled", "Multimodal analysis is not enabled. The saved content is still available.", retryable=False)
+            reserve_analysis(db, item.user_id, APIError)
         item.revision += 1
         item.features = {}
         item.status = "pending"
@@ -430,8 +454,17 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
             state_for(db, user_id).version += 1
             db.flush()
             refinement = None
-            if getattr(provider, "supports_product_analysis", False) and (body.action in {"select", "edit"} or revoked):
-                refinement = queue_analysis(db, item, preserve_suggestions=True)
+            media_save = item.canonical_url.startswith("multimodal:")
+            if (media_save or getattr(provider, "supports_product_analysis", False)) and (body.action in {"select", "edit"} or revoked):
+                try:
+                    refinement = queue_analysis(db, item, preserve_suggestions=True)
+                except APIError as error:
+                    if not media_save or error.code not in {"multimodal_disabled", "multimodal_rate_limited"}:
+                        raise
+                    # Record the person's choice even while AI is unavailable;
+                    # do not display analysis based on superseded preferences.
+                    item.revision += 1
+                    item.features, item.status = {}, "enrichment_failed"
             library_service.update_search_document(db, item)
             return {"event_id": event.id, "hypothesis": context(db, user_id),
                 "intent": suggestion.claim if body.action == "select" and suggestion.kind == "intent" else None,
@@ -443,6 +476,7 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
         def operation():
             item = owned(db, SavedItem, item_id, user_id)
             item.deleted = True
+            erase_for_saved_item(db, user_id, item_id)
             item.revision += 1
             # Erase captured text while keeping a dedupe tombstone and event provenance.
             item.title, item.note, item.selected_text, item.features = "Deleted save", "", "", {}
@@ -625,7 +659,7 @@ def create_app(database_url=None, embedded_worker=None, tokens=None, demo_mode=N
         if not demo_mode:
             raise APIError(404, "not_found", "Demo reset is disabled")
         def operation():
-            for model in [Notification, Observation, Watch, DiscoverySession, Evidence, Suggestion, UserEvent, Job, SavedItem, Mutation]:
+            for model in [Notification, Observation, Watch, DiscoverySession, Evidence, Suggestion, UserEvent, Job, MultimodalAsset, MultimodalCapture, SavedItem, Mutation]:
                 db.execute(delete(model).where(model.user_id == user_id))
             state = state_for(db, user_id)
             state.version += 1

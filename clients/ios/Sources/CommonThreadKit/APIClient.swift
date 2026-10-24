@@ -133,6 +133,85 @@ public actor CommonThreadClient {
     }
     public func account() async throws -> Account { try await send("GET", ["v1", "me"]) }
     public func capabilities() async throws -> Capabilities { try await send("GET", ["v1", "capabilities"]) }
+    public func multimodalCapabilities() async throws -> MultimodalCapabilities {
+        try await send("GET", ["v1", "multimodal", "capabilities"], uncached: true)
+    }
+    /// Creates an analysis draft; does not move or publish anything from the device's local Library.
+    public func createMultimodalCapture(_ request: MultimodalCaptureRequest, key: MutationKey) async throws -> MultimodalCapture {
+        try await mutation("POST", ["v1", "multimodal", "captures"], request, key: key)
+    }
+    public func multimodalCapture(_ id: String) async throws -> MultimodalCapture {
+        try validateMultimodalIdentifier(id)
+        return try await send("GET", ["v1", "multimodal", "captures", id], uncached: true)
+    }
+    public func uploadMultimodalAsset(to id: String, request: MultimodalAssetRequest, key: MutationKey) async throws -> MultimodalCapture {
+        try validateMultimodalIdentifier(id); try validateMultimodalRevision(request.revision)
+        return try await mutation("POST", ["v1", "multimodal", "captures", id, "assets"], request, key: key)
+    }
+    public func updateMultimodalCapture(_ id: String, edit: MultimodalCaptureEdit, key: MutationKey) async throws -> MultimodalCapture {
+        try validateMultimodalIdentifier(id); try validateMultimodalRevision(edit.revision)
+        return try await mutation("PATCH", ["v1", "multimodal", "captures", id], edit, key: key)
+    }
+    /// A reviewed transcript invalidates earlier analysis. Invoke analyzeMultimodalCapture explicitly afterwards.
+    public func updateMultimodalTranscript(_ assetId: String, in id: String, edit: MultimodalTranscriptEdit, key: MutationKey) async throws -> MultimodalCapture {
+        try validateMultimodalIdentifier(id); try validateMultimodalIdentifier(assetId); try validateMultimodalRevision(edit.revision)
+        return try await mutation("PATCH", ["v1", "multimodal", "captures", id, "assets", assetId], edit, key: key)
+    }
+    public func analyzeMultimodalCapture(_ id: String, revision: Int, key: MutationKey) async throws -> MultimodalCapture {
+        try validateMultimodalIdentifier(id); try validateMultimodalRevision(revision)
+        return try await mutation("POST", ["v1", "multimodal", "captures", id, "analyze"], ["revision": revision], key: key)
+    }
+    public func deleteMultimodalAsset(_ assetId: String, from id: String, revision: Int, key: MutationKey) async throws -> MultimodalCapture {
+        try validateMultimodalIdentifier(id); try validateMultimodalIdentifier(assetId); try validateMultimodalRevision(revision)
+        return try await mutation("DELETE", ["v1", "multimodal", "captures", id, "assets", assetId], ["revision": revision], key: key)
+    }
+    /// Published captures must be removed using deleteSavedItem(publishedSaveId), which revokes their evidence.
+    public func deleteMultimodalCapture(_ id: String, key: MutationKey) async throws -> DeleteReceipt {
+        try validateMultimodalIdentifier(id)
+        return try await send("DELETE", ["v1", "multimodal", "captures", id], key: key, uncached: true)
+    }
+    /// Explicitly publishes a ready capture into the shared Library and freezes its attachments and notes.
+    public func publishMultimodalCapture(_ id: String, revision: Int, key: MutationKey) async throws -> CaptureReceipt {
+        try validateMultimodalIdentifier(id); try validateMultimodalRevision(revision)
+        return try await mutation("POST", ["v1", "multimodal", "captures", id, "publish"], ["revision": revision], key: key)
+    }
+
+    /// Foreground polling after analyzeMultimodalCapture. Never publishes or schedules an action.
+    /// The timeout also cancels an in-flight URLSession request; an edit invalidates expectedRevision.
+    public func waitForMultimodalCapture(_ id: String, expectedRevision: Int? = nil, interval: TimeInterval = 1.5, timeout: TimeInterval = 60) async throws -> MultimodalCapture {
+        try validateMultimodalIdentifier(id)
+        if let expectedRevision { try validateMultimodalRevision(expectedRevision) }
+        guard interval.isFinite, interval >= 0.1, timeout.isFinite, (0...86_400).contains(timeout) else { throw MultimodalClientError.invalidPollingOptions }
+        try Task.checkCancellation()
+        guard timeout > 0 else { throw MultimodalClientError.pollingTimedOut }
+        return try await withThrowingTaskGroup(of: MultimodalCapture.self) { group in
+            group.addTask {
+                while true {
+                    try Task.checkCancellation()
+                    let capture = try await self.multimodalCapture(id)
+                    try Task.checkCancellation()
+                    guard capture.id == id, capture.revision > 0 else { throw MultimodalClientError.invalidResponse }
+                    if let expectedRevision, capture.revision != expectedRevision {
+                        throw MultimodalClientError.staleRevision(expected: expectedRevision, actual: capture.revision)
+                    }
+                    if capture.status == "ready" {
+                        guard capture.result != nil else { throw MultimodalClientError.invalidResponse }
+                        return capture
+                    }
+                    if capture.status == "enrichment_failed" { throw MultimodalClientError.analysisFailed(code: capture.errorCode) }
+                    guard capture.status == "pending" else { throw MultimodalClientError.invalidResponse }
+                    try await Task.sleep(nanoseconds: UInt64(min(interval, 86_400) * 1_000_000_000))
+                }
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                throw MultimodalClientError.pollingTimedOut
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else { throw MultimodalClientError.invalidResponse }
+            return result
+        }
+    }
     public func capture(_ request: CaptureRequest, key: MutationKey) async throws -> CaptureReceipt { try await mutation("POST", ["v1", "saves"], request, key: key) }
     public func collection(offset: Int = 0, limit: Int = 30) async throws -> CollectionPage { try await send("GET", ["v1", "collection"], query: page(offset, limit)) }
     /// Searches the account's Library text and analyzed product facets on the server.

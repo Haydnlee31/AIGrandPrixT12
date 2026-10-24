@@ -2,7 +2,7 @@ import os
 import time
 import uuid
 
-from sqlalchemy import JSON, BigInteger, Boolean, Float, ForeignKey, Index, Integer, String, UniqueConstraint, create_engine, event
+from sqlalchemy import JSON, BigInteger, Boolean, Float, ForeignKey, Index, Integer, LargeBinary, String, UniqueConstraint, create_engine, event
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, column_property, mapped_column, sessionmaker
 
@@ -40,6 +40,46 @@ class SavedItem(Base):
     category_text: Mapped[str] = mapped_column(String, default="", server_default="")
     revision: Mapped[int] = mapped_column(Integer, default=1)
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class MultimodalCapture(Base):
+    __tablename__ = "multimodal_captures"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    user_id: Mapped[str] = mapped_column(String, index=True)
+    title: Mapped[str] = mapped_column(String, default="")
+    text: Mapped[str] = mapped_column(String, default="")
+    note: Mapped[str] = mapped_column(String, default="")
+    url: Mapped[str | None] = mapped_column(String, nullable=True)
+    client: Mapped[str] = mapped_column(String, default="web")
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String, default="pending")
+    stage: Mapped[str] = mapped_column(String, default="draft")
+    result: Mapped[dict | None] = mapped_column(Document, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    model_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    published_save_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+    updated_at: Mapped[float] = mapped_column(Float, default=time.time)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class MultimodalAsset(Base):
+    __tablename__ = "multimodal_assets"
+    __table_args__ = (UniqueConstraint("capture_id", "content_hash"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    user_id: Mapped[str] = mapped_column(String, index=True)
+    capture_id: Mapped[str] = mapped_column(ForeignKey("multimodal_captures.id"), index=True)
+    kind: Mapped[str] = mapped_column(String)
+    media_type: Mapped[str] = mapped_column(String)
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    content_hash: Mapped[str] = mapped_column(String)
+    # Separate deferred binary storage keeps listings and JSON responses small.
+    # Metadata and bytes commit/delete together, including on interrupted uploads.
+    content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    status: Mapped[str] = mapped_column(String, default="pending")
+    transcript: Mapped[str | None] = mapped_column(String, nullable=True)
+    transcript_origin: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
 
 
 class Suggestion(Base):

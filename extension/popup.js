@@ -8,15 +8,21 @@ const newCaptureButton = document.querySelector('#new-capture');
 let baseURL = DEFAULT_BASE_URL;
 let activeURL;
 let saving = false;
+let attemptedDraftRevision;
 
 function report(message, kind = '') {
   status.textContent = message;
   status.dataset.kind = kind;
 }
 function formData() { return Object.fromEntries(new FormData(form)); }
-function storeDraft() {
-  const {token, ...draft} = formData();
-  return chrome.storage.session.set({captureDraft:{...draft, baseURL}});
+async function stateRequest(message) {
+  const response = await chrome.runtime.sendMessage(message);
+  if (!response?.ok) throw new Error(response?.error?.message || 'This draft could not be kept. Reopen the popup and retry.');
+  return response.result;
+}
+function storeDraft(data = formData()) {
+  const {token, ...draft} = data;
+  return stateRequest({type:'capture:draft', baseURL, payload:draft});
 }
 document.querySelector('#settings').addEventListener('click', () => chrome.runtime.openOptionsPage());
 
@@ -69,10 +75,11 @@ form.addEventListener('submit', async event => {
   try {
     const input = formData();
     const payload = capturePayload(input);
-    await storeDraft();
     fields.disabled = true;
+    const {revision} = await storeDraft(input);
+    attemptedDraftRevision = revision;
     report('Saving to your Library…');
-    const response = await chrome.runtime.sendMessage({type:'capture:save', baseURL, token:input.token, payload});
+    const response = await chrome.runtime.sendMessage({type:'capture:save', baseURL, token:input.token, payload, draftRevision:revision});
     if (!response?.ok) {
       const error = new Error(response?.error?.message || 'The save request did not respond. Retry without changing your details.');
       error.code = response?.error?.code;
@@ -93,9 +100,11 @@ form.addEventListener('submit', async event => {
 
 // A deletion-invalidated request requires an explicit new intent, never an automatic retry key.
 newCaptureButton.addEventListener('click', async () => {
-  await chrome.storage.session.remove('saveAttempt');
-  newCaptureButton.hidden = true;
-  report('New save started. Review the content, then choose Save to Library.');
-  saveButton.textContent = 'Save to Library';
+  try {
+    await stateRequest({type:'capture:reset', baseURL, draftRevision:attemptedDraftRevision});
+    newCaptureButton.hidden = true;
+    report('New save started. Review the content, then choose Save to Library.');
+    saveButton.textContent = 'Save to Library';
+  } catch (error) { report(error.message, 'error'); }
 });
 initialize();

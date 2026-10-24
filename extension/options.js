@@ -23,11 +23,9 @@ form.addEventListener('submit', async event => {
     const permission = chrome.permissions.request({origins:[backendPermission(baseURL)]});
     connect.disabled = true;
     if (!await permission) throw new Error('Access was not allowed. Your previous backend is still selected.');
-    const oldBaseURL = previous;
-    if (baseURL !== oldBaseURL) {
-      await chrome.storage.session.remove(['auth', 'captureDraft', 'saveAttempt']);
-    }
-    await chrome.storage.local.set({baseURL});
+    const response = await chrome.runtime.sendMessage({type:'capture:backend', baseURL});
+    if (!response?.ok) throw new Error(response?.error?.message || 'Backend settings could not be saved.');
+    const {oldBaseURL} = response.result;
     previous = baseURL;
     field.value = baseURL;
     // Release the old optional origin after committing settings; local default is required.

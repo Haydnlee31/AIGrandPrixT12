@@ -275,6 +275,10 @@ def test_openapi_defines_outputs_bearer_auth_and_required_mutation_keys(client):
                     assert result["content"]["image/jpeg"]["schema"]["format"] == "binary"
                     assert result["content"]["image/png"]["schema"]["format"] == "binary"
                     continue
+                if path == "/v1/multimodal/captures/{capture_id}/assets/{asset_id}" and method == "get":
+                    assert set(result["content"]) == {"image/jpeg", "image/png", "audio/mp4", "audio/wav"}
+                    assert all(value["schema"] == {"type": "string", "format": "binary"} for value in result["content"].values())
+                    continue
                 output = result["content"]["application/json"]["schema"]
                 assert output.get("$ref", "").startswith("#/components/schemas/"), (path, method, output)
             assert operation["responses"]["422"]["content"]["application/json"]["schema"]["$ref"] == "#/components/schemas/ErrorEnvelope"

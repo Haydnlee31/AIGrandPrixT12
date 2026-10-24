@@ -12,6 +12,15 @@ export const newMutationKey = () => crypto.randomUUID();
 const validCatalogSource = source => typeof source === 'string' && /^[a-z][a-z0-9_]{0,63}(?![\s\S])/.test(source);
 const validCatalogItemId = id => typeof id === 'string' && id.length > 0 && [...id].length <= 1024 && !['.', '..'].includes(id) && !/[\\/\u0000-\u001f]/.test(id);
 
+const multimodalID = id => {
+  if (typeof id !== 'string' || !id.length || [...id].length > 200 || ['.', '..'].includes(id) || /[\\/\u0000-\u001f\u007f]/.test(id)) throw new TypeError('Use a single capture or asset ID returned by the multimodal API');
+  return encodeURIComponent(id);
+};
+const multimodalRevision = revision => {
+  if (!Number.isSafeInteger(revision) || revision < 1) throw new TypeError('Use the latest positive capture revision returned by the multimodal API');
+  return revision;
+};
+
 export class CommonThreadClient {
   constructor({baseURL = 'http://127.0.0.1:8000', token, fetchImpl = globalThis.fetch} = {}) {
     const url = new URL(baseURL);
@@ -81,6 +90,40 @@ export class CommonThreadClient {
   health(options) { return this.request('/health', options); }
   me(options) { return this.request('/me', options); }
   capabilities(options) { return this.request('/capabilities', options); }
+  multimodalCapabilities(options) { return this.request('/multimodal/capabilities', options); }
+  /** Creates a private analysis draft. It does not sync or publish the local library. */
+  createMultimodalCapture(payload = {}, options) {
+    return this.request('/multimodal/captures', {...options, method:'POST', body:payload});
+  }
+  getMultimodalCapture(id, options) { return this.request(`/multimodal/captures/${multimodalID(id)}`, options); }
+  /** Keep this exact body and mutation key when retrying; use the returned revision for the next upload. */
+  uploadMultimodalAsset(id, payload, options) {
+    multimodalRevision(payload?.revision);
+    return this.request(`/multimodal/captures/${multimodalID(id)}/assets`, {...options, method:'POST', body:payload});
+  }
+  updateMultimodalCapture(id, payload, options) {
+    multimodalRevision(payload?.revision);
+    return this.request(`/multimodal/captures/${multimodalID(id)}`, {...options, method:'PATCH', body:payload});
+  }
+  /** Reviews an audio transcript, invalidates stale analysis, and leaves reanalysis explicit. */
+  updateMultimodalTranscript(id, assetId, payload, options) {
+    multimodalRevision(payload?.revision);
+    return this.request(`/multimodal/captures/${multimodalID(id)}/assets/${multimodalID(assetId)}`, {...options, method:'PATCH', body:payload});
+  }
+  analyzeMultimodalCapture(id, revision, options) {
+    return this.request(`/multimodal/captures/${multimodalID(id)}/analyze`, {...options, method:'POST', body:{revision:multimodalRevision(revision)}});
+  }
+  deleteMultimodalAsset(id, assetId, revision, options) {
+    return this.request(`/multimodal/captures/${multimodalID(id)}/assets/${multimodalID(assetId)}`, {...options, method:'DELETE', body:{revision:multimodalRevision(revision)}});
+  }
+  /** Published captures are frozen; delete their published_save_id through deleteSave instead. */
+  deleteMultimodalCapture(id, options) {
+    return this.request(`/multimodal/captures/${multimodalID(id)}`, {...options, method:'DELETE'});
+  }
+  /** Explicitly publishes a ready capture into the shared Library. Never called automatically. */
+  publishMultimodalCapture(id, revision, options) {
+    return this.request(`/multimodal/captures/${multimodalID(id)}/publish`, {...options, method:'POST', body:{revision:multimodalRevision(revision)}});
+  }
   capture(payload, options) { return this.request('/saves', {...options, method:'POST', body:payload}); }
   getSave(id, options) { return this.request(`/saves/${encodeURIComponent(id)}`, options); }
   collection({offset = 0, limit = 30, ...options} = {}) { return this.request(`/collection?offset=${offset}&limit=${limit}`, options); }
@@ -134,6 +177,35 @@ export class CommonThreadClient {
   getJob(id, options) { return this.request(`/jobs/${encodeURIComponent(id)}`, options); }
   trace(options) { return this.request('/trace', options); }
   resetDemo(options) { return this.request('/demo/reset', {...options, method:'POST'}); }
+
+  /** Poll only after analyzeMultimodalCapture. Pass its revision to reject stale results after an edit. */
+  async waitForMultimodalCapture(id, {expectedRevision, intervalMs = 1500, timeoutMs = 60000, signal} = {}) {
+    multimodalID(id);
+    if (expectedRevision !== undefined) multimodalRevision(expectedRevision);
+    if (!Number.isFinite(intervalMs) || intervalMs < 100 || !Number.isFinite(timeoutMs) || timeoutMs < 0 || timeoutMs > 86400000) throw new TypeError('Use a finite polling interval of at least 100ms and a timeout from zero to one day');
+    const deadline = Date.now() + timeoutMs;
+    while (true) {
+      if (signal?.aborted) throw signal.reason || new DOMException('Aborted', 'AbortError');
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw new APIError('The capture is stored and still processing. Refresh it later.', {code:'processing_timeout', retryable:true});
+      const item = await this.getMultimodalCapture(id, {signal, timeoutMs:Math.max(1, Math.min(15000, remaining))});
+      if (signal?.aborted) throw signal.reason || new DOMException('Aborted', 'AbortError');
+      if (!item || item.id !== id || !Number.isSafeInteger(item.revision) || item.revision < 1) throw new APIError('The server returned an invalid multimodal capture.', {code:'invalid_response'});
+      if (expectedRevision !== undefined && item.revision !== expectedRevision) throw new APIError('The capture changed while processing. Refresh before applying its analysis.', {code:'stale_revision'});
+      if (item.status === 'ready') {
+        if (item.result?.analysis?.schema_version !== 1 || item.result?.preview?.schema_version !== 2) throw new APIError('The ready capture has an unsupported analysis format.', {code:'invalid_response'});
+        return item;
+      }
+      if (item.status === 'enrichment_failed') throw new APIError('The capture is stored, but analysis failed. Review it before retrying.', {code:item.error_code || 'analysis_failed'});
+      if (item.status !== 'pending') throw new APIError('The server returned an unsupported processing status.', {code:'invalid_response'});
+      await new Promise((resolve, reject) => {
+        const cancel = () => { clearTimeout(timer); reject(signal.reason || new DOMException('Aborted', 'AbortError')); };
+        const timer = setTimeout(() => { signal?.removeEventListener('abort', cancel); resolve(); }, Math.min(intervalMs, Math.max(0, deadline - Date.now())));
+        if (signal?.aborted) cancel();
+        else signal?.addEventListener('abort', cancel, {once:true});
+      });
+    }
+  }
 
   async waitForSave(id, {intervalMs = 1500, timeoutMs = 30000, signal} = {}) {
     if (!Number.isFinite(intervalMs) || !Number.isFinite(timeoutMs) || intervalMs < 100 || timeoutMs < 0) throw new TypeError('Use a finite polling interval of at least 100ms and a finite nonnegative timeout');

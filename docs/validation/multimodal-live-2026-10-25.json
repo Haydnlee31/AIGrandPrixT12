@@ -1,0 +1,111 @@
+{
+  "status": "passed",
+  "mode": "live",
+  "analysis_model": "gpt-6-astra",
+  "transcription_model": "gpt-transcribe",
+  "checks": [
+    "real_response_native_sdk_decode",
+    "explicit_publication",
+    "legacy_library_compatibility",
+    "voice_search",
+    "account_isolation",
+    "deletion_revocation",
+    "retry_tombstone"
+  ],
+  "cases": [
+    {
+      "name": "text_only_uncertain_identity",
+      "status": "passed",
+      "stages": [
+        "analyzing",
+        "ready"
+      ],
+      "checks": [
+        "structured_analysis",
+        "native_preview",
+        "evidence_identity",
+        "no_invented_commerce_facts",
+        "unknown_brand",
+        "preferences_not_product_specs"
+      ],
+      "elapsed_seconds": 11.1
+    },
+    {
+      "name": "single_image_with_note",
+      "status": "passed",
+      "stages": [
+        "analyzing",
+        "ready"
+      ],
+      "checks": [
+        "structured_analysis",
+        "native_preview",
+        "evidence_identity",
+        "no_invented_commerce_facts",
+        "image_predictive_prompts"
+      ],
+      "elapsed_seconds": 13.77
+    },
+    {
+      "name": "multiple_images_with_exclusion",
+      "status": "passed",
+      "stages": [
+        "analyzing",
+        "ready"
+      ],
+      "checks": [
+        "structured_analysis",
+        "native_preview",
+        "evidence_identity",
+        "no_invented_commerce_facts",
+        "multiple_products",
+        "negative_preference"
+      ],
+      "elapsed_seconds": 17.86
+    },
+    {
+      "name": "image_and_recorded_voice",
+      "status": "passed",
+      "stages": [
+        "transcribing",
+        "analyzing",
+        "ready"
+      ],
+      "checks": [
+        "structured_analysis",
+        "native_preview",
+        "evidence_identity",
+        "no_invented_commerce_facts",
+        "transcription_expected_content",
+        "voice_intent",
+        "voice_source_citation"
+      ],
+      "elapsed_seconds": 18.78
+    },
+    {
+      "name": "reviewed_transcript_reanalysis",
+      "status": "passed",
+      "stages": [
+        "analyzing",
+        "ready"
+      ],
+      "checks": [
+        "structured_analysis",
+        "native_preview",
+        "evidence_identity",
+        "no_invented_commerce_facts",
+        "correction_invalidation",
+        "corrected_preference",
+        "no_retranscription"
+      ],
+      "elapsed_seconds": 15.77
+    }
+  ],
+  "counts": {
+    "analysis_invocations": 5,
+    "transcription_invocations": 1,
+    "responses_requests": 5,
+    "transcription_requests": 1
+  },
+  "elapsed_seconds": 101.98
+}

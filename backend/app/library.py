@@ -3,7 +3,7 @@ import base64
 from pydantic import ValidationError
 from sqlalchemy import func, select
 
-from .db import Evidence, SavedItem
+from .db import Evidence, MultimodalAsset, MultimodalCapture, SavedItem
 from .understanding import ProductAnalysis, analysis_terms, normalized_text
 
 
@@ -31,6 +31,15 @@ def update_search_document(db, item):
         Evidence.user_id == item.user_id, Evidence.active.is_(True),
         Evidence.origin.in_(["confirmed_annotation", "explicit_statement"]))).all()
     parts.extend(dict.fromkeys(notes))
+    if item.canonical_url.startswith("multimodal:"):
+        # Index explicitly supplied speech even if it does not match a legacy
+        # preference keyword. Generated prompt text is still excluded.
+        parts.extend(db.scalars(select(MultimodalAsset.transcript).join(MultimodalCapture,
+            MultimodalAsset.capture_id == MultimodalCapture.id).where(
+            MultimodalCapture.published_save_id == item.id, MultimodalCapture.user_id == item.user_id,
+            MultimodalCapture.deleted.is_(False), MultimodalAsset.user_id == item.user_id,
+            MultimodalAsset.kind == "audio", MultimodalAsset.status == "ready",
+            MultimodalAsset.transcript.is_not(None))).all())
     analysis = product_analysis(item)
     categories = []
     if analysis:

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import and_, delete, or_, select, update
 
-from .db import Evidence, Job, Notification, Observation, SavedItem, Suggestion, UserState, Watch, make_database
+from .db import Evidence, Job, MultimodalCapture, Notification, Observation, SavedItem, Suggestion, UserState, Watch, make_database
 from .predictive import ProviderError, get_annotation_provider
 from .library import update_search_document
 
@@ -157,6 +157,33 @@ def enqueue(db, user, kind, payload):
     return job.id
 
 
+def publish_annotation(db, item, annotation, model_version):
+    """Shared atomic publication; suggestions never become confirmed evidence."""
+    previous = {(s.kind, s.claim): s for s in db.scalars(select(Suggestion).where(Suggestion.user_id == item.user_id, Suggestion.item_id == item.id))}
+    retained = set()
+    for suggestion in annotation["suggestions"]:
+        key = (suggestion["kind"], suggestion["claim"])
+        if key in retained:
+            continue
+        retained.add(key)
+        if key in previous:
+            previous[key].text = suggestion["text"]
+            previous[key].model_version = model_version
+        else:
+            identity = uuid.uuid5(uuid.NAMESPACE_URL, f"mymah:{item.id}:{key[0]}:{key[1]}").hex
+            db.add(Suggestion(id=identity, user_id=item.user_id, item_id=item.id, model_version=model_version, **suggestion))
+    for key, old in previous.items():
+        if key not in retained:
+            db.delete(old)
+    item.features = annotation["features"]
+    item.status = "ready"
+    update_search_document(db, item)
+    if isinstance(item.features.get("analysis"), dict):
+        state = db.get(UserState, item.user_id)
+        if state:
+            state.version += 1
+
+
 def process_job(db, job, annotation=None, model_version=None):
     """Persist prepared work only. Provider/network calls must happen outside."""
     if job.kind == "enrich":
@@ -165,33 +192,7 @@ def process_job(db, job, annotation=None, model_version=None):
             return
         if annotation is None:
             raise ValueError("missing_provider_output")
-        # The adapter receives captured content as data, has no tools, and may only
-        # suggest annotations. No provider output becomes user evidence.
-        previous = {(s.kind, s.claim): s for s in db.scalars(select(Suggestion).where(Suggestion.user_id == job.user_id, Suggestion.item_id == item.id))}
-        retained = set()
-        for suggestion in annotation["suggestions"]:
-            key = (suggestion["kind"], suggestion["claim"])
-            if key in retained:
-                continue
-            retained.add(key)
-            if key in previous:
-                previous[key].text = suggestion["text"]
-                previous[key].model_version = model_version
-            else:
-                # Stable identity survives manual reanalysis or a temporarily
-                # omitted option; it is not derived from model wording/rank.
-                identity = uuid.uuid5(uuid.NAMESPACE_URL, f"mymah:{item.id}:{key[0]}:{key[1]}").hex
-                db.add(Suggestion(id=identity, user_id=job.user_id, item_id=item.id, model_version=model_version, **suggestion))
-        for key, old in previous.items():
-            if key not in retained:
-                db.delete(old)
-        item.features = annotation["features"]
-        item.status = "ready"
-        update_search_document(db, item)
-        if isinstance(item.features.get("analysis"), dict):
-            state = db.get(UserState, job.user_id)
-            if state:
-                state.version += 1
+        publish_annotation(db, item, annotation, model_version)
     elif job.kind == "price_check":
         data = job.payload
         watch = db.scalar(select(Watch).where(Watch.id == data["watch_id"], Watch.user_id == job.user_id).with_for_update())
@@ -219,27 +220,41 @@ def process_job(db, job, annotation=None, model_version=None):
         raise ValueError("unknown_job_kind")
 
 
-def run_once(factory, provider=None):
+def run_once(factory, provider=None, multimodal=None):
+    from .multimodal import MultimodalService
     owned_provider = provider is None
     provider = provider if provider is not None else get_annotation_provider()
+    owned_multimodal = multimodal is None
+    multimodal = multimodal if multimodal is not None else MultimodalService(factory)
     try:
-        return _run_once(factory, provider)
+        return _run_once(factory, provider, multimodal)
     finally:
         if owned_provider and hasattr(provider, "close"):
             provider.close()
+        if owned_multimodal:
+            multimodal.close()
 
 
-def _run_once(factory, provider):
+def _run_once(factory, provider, multimodal=None):
+    from .multimodal import JOB_KINDS, MultimodalService
+    multimodal = multimodal if multimodal is not None else MultimodalService(factory, enabled=False)
     now = time.time()
     eligible = or_(and_(Job.status == "pending", Job.due_at <= now), and_(Job.status == "running", Job.lease_until <= now))
     token = uuid.uuid4().hex
     with transaction(factory) as db:
-        candidate = db.scalar(select(Job.id).where(eligible).order_by(Job.due_at, Job.id).limit(1))
+        query = select(Job.id).where(eligible)
+        if not multimodal.enabled:
+            query = query.where(Job.kind.not_in(JOB_KINDS))
+        candidate = db.scalar(query.order_by(Job.due_at, Job.id).limit(1))
         if candidate is None:
             return False
         claimed = db.execute(update(Job).where(Job.id == candidate, eligible).values(status="running", lease_until=now + 60, lease_token=token, attempts=Job.attempts + 1))
         if claimed.rowcount != 1:
             return False
+        kind = db.scalar(select(Job.kind).where(Job.id == candidate))
+    if kind in JOB_KINDS:
+        multimodal.run_claimed(candidate, token)
+        return True
     try:
         with transaction(factory) as db:
             job = leased_job(db, candidate, token)
@@ -253,16 +268,30 @@ def _run_once(factory, provider):
             if not item:
                 finish_job(job)
                 return True
-            contextual = hasattr(provider, "understand_capture")
-            preferences = preference_snapshot(db, job.user_id) if contextual else ()
+            media_capture = db.scalar(select(MultimodalCapture).where(
+                MultimodalCapture.published_save_id == item.id, MultimodalCapture.user_id == job.user_id,
+                MultimodalCapture.deleted.is_(False))) if item.canonical_url.startswith("multimodal:") else None
+            is_multimodal = media_capture is not None
+            contextual = is_multimodal or hasattr(provider, "understand_capture")
+            preferences = preference_snapshot(db, job.user_id) if contextual and not is_multimodal else ()
             current_notes = annotation_snapshot(db, job.user_id, item.id) if contextual else ()
             snapshot = AnnotationInput(title=item.title, selected_text=item.selected_text, note=item.note,
                 image_data_url=item.image_data_url, confirmed_preferences=tuple(f"{claim}: {text}" for _, claim, text in preferences),
                 confirmed_annotations=tuple(dict.fromkeys(note for _, note in current_notes)))
+            if is_multimodal:
+                from .multimodal import snapshot_for_capture
+                if not multimodal.enabled:
+                    raise ProviderError("multimodal_disabled", False)
+                media_snapshot = snapshot_for_capture(db, media_capture, snapshot.confirmed_annotations)
 
         # No session, transaction, connection or row lock survives this boundary.
-        result = provider.understand_capture(snapshot) if contextual else provider.understand(snapshot.title, snapshot.selected_text)
-        model_version = provider.version
+        if is_multimodal:
+            from .multimodal import annotation_from_result
+            model_version = multimodal.provider.version
+            result = annotation_from_result(multimodal.provider.analyze(media_snapshot), model_version, image_present=bool(media_snapshot.images))
+        else:
+            result = provider.understand_capture(snapshot) if contextual else provider.understand(snapshot.title, snapshot.selected_text)
+            model_version = provider.version
         annotation = validate_annotation(result, model_version)
         annotation["features"]["suggestion_order"] = [suggestion["claim"] for suggestion in annotation["suggestions"]]
         if contextual:
@@ -276,7 +305,7 @@ def _run_once(factory, provider):
             job = leased_job(db, candidate, token)
             if not job:
                 return True
-            if contextual and (preference_snapshot(db, job.user_id) != preferences or annotation_snapshot(db, job.user_id, job.payload["item_id"]) != current_notes):
+            if contextual and ((not is_multimodal and preference_snapshot(db, job.user_id) != preferences) or annotation_snapshot(db, job.user_id, job.payload["item_id"]) != current_notes):
                 # Recompute from current evidence after deletion, rejection or a
                 # concurrent edit; never publish from a revoked preference.
                 raise ProviderError("context_changed", retryable=True)
@@ -307,12 +336,14 @@ def _run_once(factory, provider):
     return True
 
 
-def run_forever(factory, stop=None, provider=None):
+def run_forever(factory, stop=None, provider=None, multimodal=None):
+    from .multimodal import MultimodalService
     provider = provider if provider is not None else get_annotation_provider()
+    multimodal = multimodal if multimodal is not None else MultimodalService(factory)
     try:
         while stop is None or not stop.is_set():
             try:
-                worked = run_once(factory, provider)
+                worked = run_once(factory, provider, multimodal)
             except Exception as error:
                 logger.error("worker_iteration_failed error_type=%s", type(error).__name__)
                 worked = False
@@ -324,6 +355,7 @@ def run_forever(factory, stop=None, provider=None):
     finally:
         if hasattr(provider, "close"):
             provider.close()
+        multimodal.close()
 
 
 if __name__ == "__main__":

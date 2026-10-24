@@ -9,7 +9,7 @@ class BodyLimitMiddleware:
         self.app, self.max_bytes = app, max_bytes
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or scope["method"] not in {"POST", "PATCH", "PUT"}:
+        if scope["type"] != "http" or scope["method"] not in {"POST", "PATCH", "PUT", "DELETE"}:
             return await self.app(scope, receive, send)
         chunks, size = [], 0
         while True:

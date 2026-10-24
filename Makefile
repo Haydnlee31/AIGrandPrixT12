@@ -32,6 +32,13 @@ smoke-http:
 smoke-astra:
 	.venv/bin/python scripts/smoke_astra.py
 
+# Explicit opt-in: bounded paid validation with synthetic media and a temporary DB.
+smoke-multimodal-live:
+	.venv/bin/python scripts/validate_multimodal_live.py --env-file .env
+
+smoke-multimodal-swift:
+	sh clients/ios/Scripts/multimodal_smoke.sh
+
 smoke-swift:
 	sh clients/ios/Scripts/smoke.sh
 
