@@ -23,6 +23,34 @@ test('mutations require a retained key; exact retries preserve body and key', as
   assert.equal(calls[0][1].redirect,'error');
 });
 
+test('image-only captures preserve private image payload and annotation intent without executing actions', async () => {
+  const calls=[];
+  const client=new CommonThreadClient({token:'account-token',fetchImpl:async (url,options)=>{
+    calls.push([new URL(url),options]);
+    if (new URL(url).pathname.endsWith('/responses')) return reply({event_id:'intent-1',intent:'remind_later',execution_status:'annotation_only'});
+    if (options.method==='POST') return reply({id:'save-image',status:'pending',duplicate:false},201);
+    return reply({id:'save-image',original_url:'',has_image:true,image_path:'/v1/saves/save-image/image',status:'ready',suggestions:[
+      {id:'suggestion-1',kind:'intent',text:'Remind me about this tomorrow',intent:'remind_later',requires_confirmation:true}
+    ]});
+  }});
+  const payload={title:'Saved chair',source:'product',client:'chrome_extension',image_data_url:'data:image/png;base64,aW1hZ2U='};
+  await client.capture(payload,{idempotencyKey:'image-action'});
+  await client.capture(payload,{idempotencyKey:'image-action'});
+  assert.equal(calls[0][1].body,calls[1][1].body);
+  assert.deepEqual(JSON.parse(calls[0][1].body),payload);
+  assert.equal(calls[0][1].headers.Authorization,'Bearer account-token');
+  const item=await client.getSave('save-image');
+  assert.equal(item.has_image,true);
+  assert.equal(item.image_path,'/v1/saves/save-image/image');
+  assert.equal(item.suggestions[0].requires_confirmation,true);
+  assert.equal(item.suggestions[0].intent,'remind_later');
+  const result=await client.respond(item.id,{action:'select',suggestion_id:'suggestion-1'},{idempotencyKey:'annotation-action'});
+  assert.equal(result.intent,'remind_later');
+  assert.equal(result.execution_status,'annotation_only');
+  assert.deepEqual(calls.map(([url])=>url.pathname),['/v1/saves','/v1/saves','/v1/saves/save-image','/v1/saves/save-image/responses']);
+  assert.deepEqual(JSON.parse(calls[3][1].body),{action:'select',suggestion_id:'suggestion-1'});
+});
+
 test('preserves a stale session response for reconciliation without retrying', async () => {
   let calls=0;
   const client=new CommonThreadClient({fetchImpl:async ()=>{calls++;return reply({error:{code:'stale_version',message:'Refresh',retryable:false,request_id:'server-id',current:{version:4}}},409);}});
@@ -81,4 +109,48 @@ test('stalled requests time out without forgetting mutation identity', async () 
 test('timeout while reading the body remains distinguishable from invalid JSON', async () => {
   const client = new CommonThreadClient({fetchImpl:async (_, {signal}) => ({headers:new Headers(),status:200,ok:true,json:() => new Promise((resolve,reject) => signal.addEventListener('abort',()=>reject(signal.reason),{once:true}))})});
   await assert.rejects(client.me({timeoutMs:5}),e=>e.code==='request_timeout');
+});
+
+test('catalog queries preserve source, Unicode text and record IDs without caching response data', async () => {
+  const requests=[];
+  const client=new CommonThreadClient({token:'local-test',fetchImpl:async (url,options)=>{
+    requests.push([new URL(url),options]); return reply({items:[]});
+  }});
+  await client.catalogSources();
+  await client.searchProducts({source:'open_beauty_facts',query:'lamp + café & q=other',limit:10,offset:10001});
+  await client.catalogItem('uci_retail','sku:123 + café #1?');
+  assert.equal(requests[0][0].pathname,'/v1/commerce/sources');
+  assert.equal(requests[1][0].searchParams.get('q'),'lamp + café & q=other');
+  assert.equal(requests[1][0].searchParams.get('source'),'open_beauty_facts');
+  assert.equal(requests[1][0].searchParams.get('offset'),'10001');
+  assert.equal(requests[1][0].searchParams.has('delivery_country'),false);
+  assert.equal(requests[2][0].pathname,'/v1/commerce/items/uci_retail/sku%3A123%20%2B%20caf%C3%A9%20%231%3F');
+  assert.ok(requests.every(([,options])=>options.cache==='no-store' && options.method==='GET' && !options.body));
+  for (const source of ['', '../sources', 'Uppercase', 'abo\n', 'a'.repeat(65)]) {
+    assert.throws(()=>client.searchProducts({source,query:'lamp'}),TypeError);
+    assert.throws(()=>client.catalogItem(source,'sku'),TypeError);
+  }
+  for (const query of ['', '  ', 'a'.repeat(101), 'lamp\n']) assert.throws(()=>client.searchProducts({source:'abo',query}),TypeError);
+  for (const [limit,offset] of [[0,0],[51,0],[20,-1],[20,1000000],[2.5,0]]) assert.throws(()=>client.searchProducts({source:'abo',query:'lamp',limit,offset}),TypeError);
+  for (const id of ['', '.', '..', '../sku', 'sku\\name', 'sku\n', 'a'.repeat(1025)]) assert.throws(()=>client.catalogItem('abo',id),TypeError);
+  assert.throws(()=>client.searchProducts({source:'abo',query:'lamp',deliveryCountry:'SG'}),TypeError);
+  assert.equal(requests.length,3);
+});
+
+test('catalog preserves absent current-offer facts and lets the backend reject unregistered sources', async () => {
+  const record={source_id:'uci_retail',source_record_id:'sku',data_kind:'open_dataset',
+    offer:{url:null,observed_at:null,expires_at:null,price_minor:null,shipping_minor:null},
+    provenance:{license_id:'CC-BY-4.0'}};
+  const client=new CommonThreadClient({fetchImpl:async url=>{
+    if (new URL(url).searchParams.get('source')==='future_source') {
+      return reply({error:{code:'unknown_source',message:'Unknown source.',retryable:false,request_id:'catalog-source'}},422);
+    }
+    return reply(record);
+  }});
+  const product=await client.catalogItem('uci_retail','sku');
+  assert.equal(product.data_kind,'open_dataset');
+  assert.equal(product.offer.expires_at,null);
+  assert.equal(product.offer.price_minor,null);
+  assert.equal(product.provenance.license_id,'CC-BY-4.0');
+  await assert.rejects(client.searchProducts({source:'future_source',query:'lamp'}),e=>e.code==='unknown_source' && !e.retryable && e.requestId==='catalog-source');
 });

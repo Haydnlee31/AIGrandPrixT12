@@ -15,6 +15,8 @@ public struct MutationKey: Codable, Sendable, Hashable {
 }
 public enum ClientError: Error, LocalizedError {
     case invalidBaseURL, missingToken, invalidMutationKey, invalidResponse, invalidPagination, invalidPollingOptions
+    case invalidCatalogSearch, invalidCatalogPagination, invalidCatalogSource, invalidCatalogItemId
+    case invalidSavedImageId
     case pollingTimedOut(lastKnown: SavedItem)
     public var errorDescription: String? {
         switch self {
@@ -24,6 +26,11 @@ public enum ClientError: Error, LocalizedError {
         case .invalidResponse: return "The server returned an unexpected response."
         case .invalidPagination: return "Use a nonnegative offset and a limit between 1 and 100."
         case .invalidPollingOptions: return "Use a finite positive polling interval and a finite timeout from zero to one day."
+        case .invalidCatalogSearch: return "Enter a search query of 1–100 characters without control characters."
+        case .invalidCatalogPagination: return "Use a catalog limit of 1–50 and an offset below 1000000."
+        case .invalidCatalogSource: return "Use a catalog source name returned by the backend."
+        case .invalidCatalogItemId: return "Use a bounded single record ID returned by product search."
+        case .invalidSavedImageId: return "Use a single saved-item ID returned by the Library."
         case .pollingTimedOut: return "Your save is stored. Processing is still pending; refresh later."
         }
     }
@@ -77,18 +84,29 @@ public actor CommonThreadClient {
     public static func encoder() -> JSONEncoder {
         let encoder = JSONEncoder(); encoder.keyEncodingStrategy = .convertToSnakeCase; encoder.outputFormatting = [.sortedKeys]; return encoder
     }
-    private func send<Response: Decodable>(_ method: String = "GET", _ path: [String], query: [URLQueryItem] = [], body: Data? = nil, key: MutationKey? = nil) async throws -> Response {
+    private func send<Response: Decodable>(_ method: String = "GET", _ path: [String], query: [URLQueryItem] = [], body: Data? = nil, key: MutationKey? = nil, uncached: Bool = false) async throws -> Response {
+        let data = try await sendData(method, path, query: query, body: body, key: key, uncached: uncached)
+        return try Self.decoder().decode(Response.self, from: data)
+    }
+    private func sendData(_ method: String = "GET", _ path: [String], query: [URLQueryItem] = [], body: Data? = nil, key: MutationKey? = nil, uncached: Bool = false, image: Bool = false) async throws -> Data {
         var url = baseURL
         for component in path { url.appendPathComponent(component) }
         guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw ClientError.invalidBaseURL }
         parts.queryItems = query.isEmpty ? nil : query
+        // URLQueryItem permits literal '+', but the server's query parser reads it
+        // as a space. Preserve searches such as "USB-C + lamp" exactly.
+        parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         guard let requestURL = parts.url else { throw ClientError.invalidBaseURL }
         var request = URLRequest(url: requestURL)
+        if uncached {
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+        }
         request.httpMethod = method; request.httpBody = body
         let token = try await tokenProvider()
         guard !token.isEmpty, !token.contains("\r"), !token.contains("\n") else { throw ClientError.missingToken }
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(image ? "image/jpeg, image/png, image/webp" : "application/json", forHTTPHeaderField: "Accept")
         if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let key { request.setValue(key.rawValue, forHTTPHeaderField: "Idempotency-Key") }
         let (data, response) = try await session.data(for: request)
@@ -97,7 +115,10 @@ public actor CommonThreadClient {
             let detail = try? Self.decoder().decode(ErrorEnvelope.self, from: data).error
             throw APIError(status: http.statusCode, code: detail?.code ?? "http_error", message: detail?.message ?? "The server returned HTTP \(http.statusCode).", retryable: detail?.retryable ?? [429, 503].contains(http.statusCode), requestId: detail?.requestId ?? http.value(forHTTPHeaderField: "X-Request-ID"), current: detail?.current)
         }
-        return try Self.decoder().decode(Response.self, from: data)
+        if image {
+            guard ["image/jpeg", "image/png", "image/webp"].contains(http.mimeType ?? ""), data.count <= 4 * 1024 * 1024 else { throw ClientError.invalidResponse }
+        }
+        return data
     }
     private func mutation<Body: Encodable, Response: Decodable>(_ method: String = "POST", _ path: [String], _ body: Body, key: MutationKey) async throws -> Response {
         try await send(method, path, body: Self.encoder().encode(body), key: key)
@@ -111,6 +132,12 @@ public actor CommonThreadClient {
     public func capture(_ request: CaptureRequest, key: MutationKey) async throws -> CaptureReceipt { try await mutation("POST", ["v1", "saves"], request, key: key) }
     public func collection(offset: Int = 0, limit: Int = 30) async throws -> CollectionPage { try await send("GET", ["v1", "collection"], query: page(offset, limit)) }
     public func savedItem(_ id: String) async throws -> SavedItem { try await send("GET", ["v1", "saves", id]) }
+    /// Load private image bytes with the current account's bearer token and no local URL cache.
+    public func savedImage(_ id: String) async throws -> Data {
+        guard !id.isEmpty, id.count <= 200, ![".", ".."].contains(id), !id.contains("/"), !id.contains("\\"),
+              id.unicodeScalars.allSatisfy({ $0.value >= 32 && $0.value != 127 }) else { throw ClientError.invalidSavedImageId }
+        return try await sendData("GET", ["v1", "saves", id, "image"], uncached: true, image: true)
+    }
     public func deleteSavedItem(_ id: String, key: MutationKey) async throws -> DeleteReceipt { try await send("DELETE", ["v1", "saves", id], key: key) }
     public func respond(to id: String, with response: AnnotationRequest, key: MutationKey) async throws -> AnnotationReceipt { try await mutation("POST", ["v1", "saves", id, "responses"], response, key: key) }
     public func hypotheses() async throws -> ItemList<Hypothesis> { try await send("GET", ["v1", "hypotheses"]) }
@@ -120,6 +147,35 @@ public actor CommonThreadClient {
     public func discovery(_ id: String) async throws -> DiscoverySession { try await send("GET", ["v1", "discovery-sessions", id]) }
     public func apply(_ event: DiscoveryEvent, to id: String, key: MutationKey) async throws -> DiscoverySession { try await mutation("POST", ["v1", "discovery-sessions", id, "events"], event, key: key) }
     public func catalog() async throws -> Catalog { try await send("GET", ["v1", "catalog"]) }
+    /// Source readiness and permitted retrieval modes; never contains provider secrets.
+    public func catalogSources() async throws -> CatalogSources {
+        try await send("GET", ["v1", "commerce", "sources"], uncached: true)
+    }
+    /// Search one licensed dataset or approved feed. Source data does not guarantee delivery.
+    public func searchProducts(source: CatalogSource, query: String, limit: Int = 20, offset: Int = 0) async throws -> CatalogSearchPage {
+        try validateCatalogSource(source)
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, query.unicodeScalars.count <= 100,
+              query.unicodeScalars.allSatisfy({ $0.value >= 32 }) else { throw ClientError.invalidCatalogSearch }
+        guard (1...50).contains(limit), (0..<1000000).contains(offset) else { throw ClientError.invalidCatalogPagination }
+        let parameters = [URLQueryItem(name: "source", value: source.rawValue), URLQueryItem(name: "q", value: query),
+                          URLQueryItem(name: "limit", value: String(limit)), URLQueryItem(name: "offset", value: String(offset))]
+        return try await send("GET", ["v1", "commerce", "search"], query: parameters, uncached: true)
+    }
+    /// Refresh a source record. Missing offer timestamps or URL must remain unknown.
+    public func catalogItem(source: CatalogSource, id: String) async throws -> CatalogRecord {
+        try validateCatalogSource(source)
+        guard !id.isEmpty, id.unicodeScalars.count <= 1024, ![".", ".."].contains(id),
+              !id.contains("/"), !id.contains("\\"), id.unicodeScalars.allSatisfy({ $0.value >= 32 }) else {
+            throw ClientError.invalidCatalogItemId
+        }
+        return try await send("GET", ["v1", "commerce", "items", source.rawValue, id], uncached: true)
+    }
+    private func validateCatalogSource(_ source: CatalogSource) throws {
+        guard source.rawValue.range(of: #"\A[a-z][a-z0-9_]{0,63}\z"#, options: .regularExpression) != nil else {
+            throw ClientError.invalidCatalogSource
+        }
+    }
     public func createWatch(_ request: WatchRequest, key: MutationKey) async throws -> PriceWatch { try await mutation("POST", ["v1", "watches"], request, key: key) }
     public func watches(offset: Int = 0, limit: Int = 30) async throws -> ItemList<PriceWatch> { try await send("GET", ["v1", "watches"], query: page(offset, limit)) }
     public func watch(_ id: String) async throws -> PriceWatch { try await send("GET", ["v1", "watches", id]) }

@@ -51,9 +51,9 @@ def test_capabilities_require_auth_and_label_available_demo_features(client):
     capabilities = response.json()
     assert capabilities["authentication"] == "development_bearer"
     assert capabilities["data_modes"] == {"annotations": "demo_rules", "catalog": "fixture", "tracking": "simulated"}
-    for feature in ["annotations", "discovery", "watches", "price_simulation", "demo_reset"]:
+    for feature in ["annotations", "discovery", "watches", "price_simulation", "demo_reset", "image_upload"]:
         assert capabilities["features"][feature] is True
-    for feature in ["image_upload", "live_price_monitoring", "push_notifications", "merchant_handoff", "personal_agent_connector"]:
+    for feature in ["live_price_monitoring", "push_notifications", "merchant_handoff", "personal_agent_connector", "reminder_scheduling"]:
         assert capabilities["features"][feature] is False
     assert set(capabilities["capture"]["clients"]) == {"web", "chrome_extension", "ios_app", "ios_share_extension"}
     assert capabilities["refresh"]["incremental_sync"] is False
@@ -268,6 +268,13 @@ def test_openapi_defines_outputs_bearer_auth_and_required_mutation_keys(client):
             success = [value for code, value in operation["responses"].items() if code.startswith("2")]
             assert success, (path, method)
             for result in success:
+                if path == "/v1/commerce/datasets/{source}/export":
+                    assert result["content"]["application/x-ndjson"]["schema"]["type"] == "string"
+                    continue
+                if path == "/v1/saves/{item_id}/image":
+                    assert result["content"]["image/jpeg"]["schema"]["format"] == "binary"
+                    assert result["content"]["image/png"]["schema"]["format"] == "binary"
+                    continue
                 output = result["content"]["application/json"]["schema"]
                 assert output.get("$ref", "").startswith("#/components/schemas/"), (path, method, output)
             assert operation["responses"]["422"]["content"]["application/json"]["schema"]["$ref"] == "#/components/schemas/ErrorEnvelope"

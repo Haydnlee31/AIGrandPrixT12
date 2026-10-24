@@ -40,6 +40,7 @@ class CaptureCapabilities(Response):
     max_title_length: int
     max_selected_text_length: int
     max_note_length: int
+    max_image_bytes: int = 4194304
 
 
 class Capabilities(Response):
@@ -67,6 +68,8 @@ class SuggestionView(Response):
     claim: str
     model_version: str
     status: Literal["proposed"]
+    intent: Literal["buy_intent", "track_discount", "remind_later", "save_inspiration", "compare_options"] | None = None
+    requires_confirmation: bool = True
 
 
 class EventView(Response):
@@ -92,6 +95,8 @@ class SavedItemView(Response):
     revision: int
     suggestions: list[SuggestionView]
     responses: list[EventView]
+    has_image: bool = False
+    image_path: str | None = None
 
 
 class CollectionPage(Response):
@@ -135,6 +140,8 @@ class Hypotheses(Response):
 
 
 class AnnotationResult(Response):
+    intent: str | None = None
+    execution_status: Literal["annotation_only"] = "annotation_only"
     event_id: str
     hypothesis: HypothesisView
 

@@ -9,6 +9,7 @@ sys.path.insert(0, str(ROOT))
 from fastapi.testclient import TestClient
 from backend.app.main import create_app
 from backend.app.worker import run_once
+from backend.app.intelligence import DemoAnnotationProvider
 
 OUT = Path(__file__).resolve().parents[1] / "Tests/CommonThreadKitTests/Fixtures"
 SHARED = ROOT / "contracts/examples"
@@ -24,13 +25,13 @@ def save(name, response, expected=200):
 
 
 with tempfile.TemporaryDirectory() as directory:
-    app = create_app(database_url=f"sqlite:///{directory}/fixture.db", embedded_worker=False, tokens={"fixture-token": "fixture-user"}, demo_mode=True)
+    app = create_app(database_url=f"sqlite:///{directory}/fixture.db", embedded_worker=False, tokens={"fixture-token": "fixture-user"}, demo_mode=True, annotation_provider=DemoAnnotationProvider())
     with TestClient(app, headers={"Authorization": "Bearer fixture-token"}) as client:
         save("capabilities", client.get("/v1/capabilities"))
         save("account", client.get("/v1/me"))
         receipt = save("capture", client.post("/v1/saves", json={"url": "https://example.org/desk", "title": "Warm desk lighting", "note": "Warm lighting for my small desk", "client": "ios_share_extension"}, headers={"Idempotency-Key": "capture"}), 201)
         save("pending", client.get(f"/v1/saves/{receipt['id']}"))
-        run_once(app.state.factory)
+        run_once(app.state.factory, app.state.annotation_provider)
         item = save("saved", client.get(f"/v1/saves/{receipt['id']}"))
         save("annotation", client.post(f"/v1/saves/{receipt['id']}/responses", json={"action": "select", "suggestion_id": item["suggestions"][0]["id"]}, headers={"Idempotency-Key": "annotation"}))
         save("collection", client.get("/v1/collection"))
@@ -46,7 +47,7 @@ with tempfile.TemporaryDirectory() as directory:
         save("watches", client.get("/v1/watches"))
         save("watch_detail", client.get(f"/v1/watches/{watch['id']}"))
         simulation = save("simulation", client.post(f"/v1/watches/{watch['id']}/simulate", json={"variant_id": "halo-cream", "currency": "SGD", "amount_minor": 6900}, headers={"Idempotency-Key": "simulation"}))
-        run_once(app.state.factory)
+        run_once(app.state.factory, app.state.annotation_provider)
         save("job", client.get(f"/v1/jobs/{simulation['job_id']}"))
         save("notifications", client.get("/v1/notifications"))
         save("unauthorized", client.get("/v1/me", headers={"Authorization": "Bearer invalid"}), 401)

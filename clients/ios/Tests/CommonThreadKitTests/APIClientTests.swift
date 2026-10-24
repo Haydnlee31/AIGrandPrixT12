@@ -43,7 +43,7 @@ final class APIClientTests: XCTestCase {
 
     func testActualAPIResponsesDecode() throws {
         let decoder = CommonThreadClient.decoder()
-        XCTAssertEqual(try decoder.decode(Capabilities.self, from: fixture("capabilities")).features["image_upload"], false)
+        XCTAssertEqual(try decoder.decode(Capabilities.self, from: fixture("capabilities")).features["image_upload"], true)
         XCTAssertEqual(try decoder.decode(Account.self, from: fixture("account")).userId, "fixture-user")
         XCTAssertEqual(try decoder.decode(CaptureReceipt.self, from: fixture("capture")).status, "pending")
         XCTAssertTrue(try decoder.decode(SavedItem.self, from: fixture("pending")).isEnriching)
@@ -63,6 +63,26 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(try decoder.decode(JobReceipt.self, from: fixture("simulation")).dataMode, "simulated")
         XCTAssertEqual(try decoder.decode(JobStatus.self, from: fixture("job")).status, "done")
         XCTAssertEqual(try decoder.decode(ItemList<AppNotification>.self, from: fixture("notifications")).items.count, 1)
+    }
+    func testImageOnlyCaptureAndPrivateImageTransport() async throws {
+        let dataURL = "data:image/png;base64,aW1hZ2U="
+        let capture = CaptureRequest(title: "Chair", source: .product, imageDataUrl: dataURL)
+        let encoded = try CommonThreadClient.encoder().encode(capture)
+        let body = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+        XCTAssertNil(body["url"])
+        XCTAssertEqual(body["image_data_url"] as? String, dataURL)
+        XCTAssertEqual(try CommonThreadClient.decoder().decode(CaptureRequest.self, from: encoded), capture)
+        let bytes = Data([137, 80, 78, 71])
+        let api = try client()
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/v1/saves/save-image/image")
+            XCTAssertNil(request.url?.query)
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer unit-test-token")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Cache-Control"), "no-store")
+            return (200, bytes, ["Content-Type":"image/png"])
+        }
+        let received = try await api.savedImage("save-image")
+        XCTAssertEqual(received, bytes)
     }
     func testCaptureRetryRetainsPayloadAndKeyAfterTransportFailure() async throws {
         let response = try fixture("capture")

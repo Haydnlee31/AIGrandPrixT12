@@ -2,7 +2,7 @@
 
 A shared backend for a **Chrome extension/browser experience** and a **native iOS app with a Share Extension**. Current navigation is exactly **Library, Search, Profile**. Library contains the person's saved links and details; Search finds that saved content; Profile owns account and connection controls. No Map or Community.
 
-The saved-library approach takes inspiration from [Albo](https://albo.inc/) with an independent Mymah Finds visual identity. Intelligence and product catalog integration are deferred: teammates should not wire recommendations, discovery, watches, or commerce into the current frontend. There are no prototype/demo labels in the product interface.
+The saved-library approach takes inspiration from [Albo](https://albo.inc/) with an independent Mymah Finds visual identity. The backend now includes licensed local product datasets, a separate synthetic catalog, and optional approved impact.com/CJ feed imports. Their presentation remains deferred: teammates should not wire recommendations, discovery, watches, or commerce into the current frontend. There are no prototype/demo labels in the product interface.
 
 **Start with [the team handoff](docs/team-handoff.md).** Platform setup: [Chrome](docs/platform-chrome.md) · [iOS](docs/platform-ios.md). API snapshot: [OpenAPI](contracts/openapi.json) · [response examples](contracts/examples).
 
@@ -13,6 +13,8 @@ This implements the framework behind the [backend plan](https://chatgpt.com/spac
 | Area | Ready for teammate development |
 | --- | --- |
 | Backend | FastAPI, typed contracts, user isolation, durable jobs, migrations, idempotency, version conflicts, capabilities, pagination |
+| Predictive annotations | Astra image understanding and ranked intent chips, private image capture, confirmed-preference context, server-only keys |
+| Catalog foundation | Licensed datasets and synthetic products, attribution/exports, atomic bulk imports, optional approved feeds, shared JavaScript/Swift contracts |
 | JavaScript | Dependency-free transport, generated TypeScript types, bounded polling, cancellation, structured errors and retained mutation keys |
 | Chrome | Load-unpacked MV3 extension, toolbar popup, explicit URL/text capture, service worker, backend settings and scoped permissions |
 | iOS | Swift API package, typed models, account-scoped capture outbox, SwiftUI host and Share Extension templates, Keychain/App Group setup |
@@ -20,7 +22,9 @@ This implements the framework behind the [backend plan](https://chatgpt.com/spac
 
 The reference UI is not the final design for either interface. Native Xcode targets still need generation, signing, building, and device testing. Chrome installation is provided as an unpacked package, not a published Web Store listing.
 
-**Backend development boundary:** existing deterministic annotation rules, fixture catalog, discovery sessions, simulated watches and alerts remain available for later integration and regression testing. The current frontend does not request or display them. Production login, uploads, push and live commerce remain future backend work. `/v1/capabilities` describes technical support, not permission to expand the agreed frontend scope.
+**Backend development boundary:** Astra predictive annotations and private image capture are ready for client integration; follow [the annotation guide](docs/predictive-annotations.md). Existing deterministic rules, fixture discovery, simulated watches and alerts remain available for regression testing. `/v1/commerce/*` routes search imported licensed datasets and a separate synthetic source; historical records do not imply current offers. Production login, Dots knowledge access, checkout, reminder execution, live tracking and push remain future work. Annotation selection records intent only. `/v1/capabilities` reports configured behavior.
+
+**Catalog setup:** follow [the integration guide](docs/catalog-integration.md). `make catalog-load` imports the reviewed downloads in this workspace; `make catalog-bundle` creates a portable dataset handoff with licenses. No provider API keys are needed. Keep raw data in ignored `local-data/`. Product data is not yet passed into AI models.
 
 ## Start the backend
 
@@ -45,6 +49,7 @@ make run
 - Offline schema: http://127.0.0.1:8000/openapi.json.
 - SQLite data: ignored `prototype.db`.
 - Settings: [.env.example](.env.example). Export variables; `.env` is not loaded automatically.
+- Astra: set `ASTRA_API_KEY` (or `OPENAI_API_KEY`) in the backend environment. `ANNOTATION_PROVIDER=astra` requires a key; the default `auto` selects Astra when a key is available. Clients never receive or configure that key. See [configuration and live verification](docs/predictive-annotations.md).
 - Separate worker: `EMBEDDED_WORKER=false make run`, then `make worker` in another terminal with matching database settings. The default setup already includes a worker.
 - Separate web dev origin: set `CORS_ORIGINS='["http://localhost:5173"]'`. Use exact origins. CORS is not authentication.
 
@@ -96,7 +101,7 @@ make smoke-http
 
 `make test` checks backend behavior, both JavaScript layers, and generated-contract drift. The Swift smoke compiles and exercises the package without XCTest. The HTTP smoke starts an isolated, migrated loopback API and runs the shared JavaScript client through the real worker journey; it never uses your demo database. See the iOS guide for full Xcode validation.
 
-Contract inputs live in `backend/app/contracts.py`; outputs in `backend/app/responses.py`. Changes should ship with regenerated OpenAPI/TypeScript, updated Swift models, fixture decoding, and migrations when applicable. See [validation status](docs/team-handoff.md#validation-and-release-boundary) for what was exercised.
+Contract inputs live in `backend/app/contracts.py`; outputs in `backend/app/responses.py` and `backend/app/catalog/schemas.py`. Changes should ship with regenerated OpenAPI/TypeScript, updated Swift models, fixture decoding, and migrations when applicable. See [validation status](docs/team-handoff.md#validation-and-release-boundary) for what was exercised.
 
 ## PostgreSQL development
 

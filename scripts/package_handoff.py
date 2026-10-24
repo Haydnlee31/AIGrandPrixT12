@@ -12,7 +12,8 @@ IGNORE = {".git", ".venv", "__pycache__", ".pytest_cache", ".build", ".swiftpm",
 def source_file(path):
     generated_ios = path.parts[:3] == ("clients", "ios", "Configuration")
     retired_preview = str(path) in {"docs/prototype-preview.jpg", "docs/ios-preview.jpg", "docs/ios-capture.jpg", "docs/ios-discovery.jpg"}
-    return not generated_ios and not retired_preview and not any(part in IGNORE or part.endswith(".xcodeproj") or part.endswith(".xcworkspace") for part in path.parts) and path.suffix not in {".db", ".pyc"} and not path.name.endswith((".db-wal", ".db-shm"))
+    environment_file = path.name.startswith(".env") and path.name != ".env.example"
+    return not generated_ios and not retired_preview and not environment_file and not any(part in IGNORE or part.endswith(".xcodeproj") or part.endswith(".xcworkspace") for part in path.parts) and path.suffix not in {".db", ".pyc"} and not path.name.endswith((".db-wal", ".db-shm"))
 
 
 def archive(path, files, prefix=""):
@@ -37,7 +38,7 @@ def main():
     shutil.copytree(ROOT / "extension", unpacked, ignore=shutil.ignore_patterns("tests", "package.json", ".DS_Store"))
     archive(DIST / "mymah-finds-chrome-extension.zip", [(p, p.relative_to(unpacked)) for p in unpacked.rglob("*") if p.is_file()])
     if args.all:
-        entries = ["backend", "clients", "contracts", "docs", "extension", "frontend", "scripts", "README.md", "Makefile", "pyproject.toml", "requirements.lock", "alembic.ini", "compose.yaml", ".env.example", ".gitignore"]
+        entries = ["backend", "clients", "contracts", "docs", "extension", "frontend", "scripts", "README.md", "Makefile", "pyproject.toml", "requirements.lock", "alembic.ini", "compose.yaml", ".env.example", ".gitignore", "reports/Immediately usable product datasets.md"]
         files = []
         for entry in entries:
             base = ROOT / entry

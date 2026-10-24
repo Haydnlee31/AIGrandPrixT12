@@ -36,7 +36,7 @@ struct Smoke {
         func fixture(_ name: String) throws -> Data { try Data(contentsOf: root.appendingPathComponent(name).appendingPathExtension("json")) }
         func decode<T: Decodable>(_ type: T.Type, _ name: String) throws -> T { try CommonThreadClient.decoder().decode(type, from: fixture(name)) }
         let capabilities = try decode(Capabilities.self, "capabilities")
-        try check(capabilities.features["image_upload"] == false, "capability flag")
+        try check(capabilities.features["image_upload"] == true, "capability flag")
         _ = try decode(Account.self, "account"); _ = try decode(CaptureReceipt.self, "capture")
         _ = try decode(SavedItem.self, "pending"); _ = try decode(SavedItem.self, "saved")
         _ = try decode(CollectionPage.self, "collection"); _ = try decode(AnnotationReceipt.self, "annotation")
@@ -54,6 +54,156 @@ struct Smoke {
 
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [StubProtocol.self]
         let api = try CommonThreadClient(baseURL: URL(string: "https://api.example.org")!, session: URLSession(configuration: config)) { "test-token" }
+        let imageBytes = Data([137, 80, 78, 71, 13, 10, 26, 10])
+        let imageDataURL = "data:image/png;base64,\(imageBytes.base64EncodedString())"
+        let imageCapture = CaptureRequest(title: "Saved chair", source: .product, client: .iosShareExtension, imageDataUrl: imageDataURL)
+        let imageEncoded = try CommonThreadClient.encoder().encode(imageCapture)
+        let imageCaptureJSON = try JSONSerialization.jsonObject(with: imageEncoded) as! [String: Any]
+        try check(imageCaptureJSON["url"] == nil && imageCaptureJSON["image_data_url"] as? String == imageDataURL, "image-only capture sends bytes without an invented URL")
+        let restoredImageCapture = try CommonThreadClient.decoder().decode(CaptureRequest.self, from: imageEncoded)
+        try check(restoredImageCapture == imageCapture, "image capture survives outbox encoding")
+        let oldCaptureJSON = Data(#"{"url":"https://example.org/chair","title":"Chair","source":"product","selected_text":"","note":"","client":"ios_app"}"#.utf8)
+        let oldCapture = try CommonThreadClient.decoder().decode(CaptureRequest.self, from: oldCaptureJSON)
+        try check(oldCapture.url == "https://example.org/chair" && oldCapture.imageDataUrl == nil, "existing queued URL captures remain decodable")
+        var imageItemJSON = try JSONSerialization.jsonObject(with: fixture("saved")) as! [String: Any]
+        imageItemJSON["original_url"] = ""; imageItemJSON["has_image"] = true; imageItemJSON["image_path"] = "/v1/saves/save-image/image"
+        imageItemJSON["suggestions"] = [["id":"suggestion-image", "item_id":"save-image", "kind":"intent", "text":"Remind me about this tomorrow", "claim":"remind_later", "model_version":"astra-v1", "status":"suggested", "intent":"remind_later", "requires_confirmation":true]]
+        let imageItem = try CommonThreadClient.decoder().decode(SavedItem.self, from: JSONSerialization.data(withJSONObject: imageItemJSON))
+        try check(imageItem.hasImage && imageItem.imagePath == "/v1/saves/save-image/image" && imageItem.originalUrl.isEmpty, "private image resource decode")
+        try check(imageItem.suggestions[0].intent == .remindLater && imageItem.suggestions[0].requiresConfirmation, "typed predictive intent and confirmation decode")
+        var annotationJSON = try JSONSerialization.jsonObject(with: fixture("annotation")) as! [String: Any]
+        annotationJSON["intent"] = "remind_later"; annotationJSON["execution_status"] = "annotation_only"
+        let intentReceipt = try CommonThreadClient.decoder().decode(AnnotationReceipt.self, from: JSONSerialization.data(withJSONObject: annotationJSON))
+        try check(intentReceipt.intent == .remindLater && intentReceipt.executionStatus == "annotation_only", "confirmed intent is not a scheduled action")
+        var imageRequests: [URLRequest] = []
+        StubProtocol.handler = { request in
+            imageRequests.append(request)
+            return (200, imageBytes, ["Content-Type":"image/png", "Cache-Control":"no-store"])
+        }
+        let loadedImage = try await api.savedImage("save-image")
+        try check(loadedImage == imageBytes && imageRequests[0].url?.path == "/v1/saves/save-image/image", "image fetch returns bytes")
+        try check(imageRequests[0].value(forHTTPHeaderField: "Authorization") == "Bearer test-token" && imageRequests[0].url?.query == nil, "image auth stays in the header")
+        try check(imageRequests[0].cachePolicy == .reloadIgnoringLocalCacheData && imageRequests[0].value(forHTTPHeaderField: "Cache-Control") == "no-store", "private images bypass URL cache")
+        for invalidID in ["", "..", "../another-user", "a/b", "a\\b", "id\n"] {
+            do { _ = try await api.savedImage(invalidID); throw SmokeFailure.assertion("invalid image ID accepted") }
+            catch ClientError.invalidSavedImageId {}
+        }
+        try check(imageRequests.count == 1, "invalid image paths never reach transport")
+        StubProtocol.handler = { _ in (200, Data("<html>login</html>".utf8), ["Content-Type":"text/html"]) }
+        do { _ = try await api.savedImage("save-image"); throw SmokeFailure.assertion("non-image response accepted") }
+        catch ClientError.invalidResponse {}
+        let missingImage = Data(#"{"error":{"code":"not_found","message":"Image unavailable.","retryable":false,"request_id":"private-image"}}"#.utf8)
+        StubProtocol.handler = { _ in (404, missingImage, ["Content-Type":"application/json"]) }
+        do { _ = try await api.savedImage("save-image"); throw SmokeFailure.assertion("missing image accepted") }
+        catch let error as APIError { try check(error.code == "not_found" && error.requestId == "private-image" && !error.retryable, "image errors use the same typed API contract") }
+        print("PASS image-only capture, typed annotation intent, private image authentication and error handling")
+        // Invented dataset records exercise the local catalog wire contract.
+        let catalogItemData = Data(#"""
+        {
+          "source_id":"uci_retail", "source_record_id":"sku:123 + café #1?", "data_kind":"open_dataset", "title":"Reading lamp",
+          "description":null, "category":null, "brand":null, "attributes":{"custom_flag":false},
+          "product_key":null, "variant_key":null,
+          "merchant":{"id":null,"name":null,"platform":"uci_retail"},
+          "offer":{
+            "id":"sku:123 + café #1?", "price_minor":null, "currency":null, "shipping_minor":null,
+            "availability":"unknown", "condition":null, "url":null,
+            "image_url":null, "observed_at":null, "expires_at":null,
+            "marketplace_id":null, "environment":"local"
+          },
+          "provenance":{"source_record_id":"sku:123 + café #1?", "license_id":"CC-BY-4.0", "optional_value":null}
+        }
+        """#.utf8)
+        let catalogSourceData = Data(#"""
+        {"items":[
+          {"source_id":"impact","configured":false,"enabled_feeds":0,"fresh_records":0,"record_count":0,
+           "data_kind":"merchant_feed","name":"Impact feeds","license_id":null,"license_url":null,"attribution":null,
+           "environment":"production","marketplace":null,"retrieval":"approved_feed","allowed_uses":[],"ai_use":"disabled","persistence":"approved_snapshot"},
+          {"source_id":"uci_retail","configured":true,"enabled_feeds":1,"fresh_records":null,"record_count":3958,
+           "data_kind":"open_dataset","name":"UCI Online Retail","license_id":"CC-BY-4.0","license_url":"https://creativecommons.org/licenses/by/4.0/","attribution":"Chen, D. (2015). Online Retail. UCI.",
+           "environment":"local","marketplace":null,"retrieval":"local_dataset","allowed_uses":["direct_display","deterministic_search"],"ai_use":"disabled","persistence":"licensed_dataset"},
+          {"source_id":"synthetic","configured":true,"enabled_feeds":1,"fresh_records":null,"record_count":100,
+           "data_kind":"synthetic","name":"Generated catalog","license_id":null,"license_url":null,"attribution":null,
+           "environment":"local","marketplace":null,"retrieval":"local_dataset","allowed_uses":["direct_display","deterministic_search"],"ai_use":"disabled","persistence":"synthetic"}
+        ]}
+        """#.utf8)
+        let catalogItemJSON = try JSONSerialization.jsonObject(with: catalogItemData) as! [String: Any]
+        let catalogPageData = try JSONSerialization.data(withJSONObject: [
+            "items": [catalogItemJSON], "source_id": "uci_retail", "next_offset": NSNull(), "total": 1,
+            "fetched_at": 1700000000.25, "expires_at": NSNull(),
+            "environment": "local", "marketplace": NSNull(), "retrieval": "local_dataset"
+        ])
+        var catalogRequests: [URLRequest] = []
+        StubProtocol.handler = { request in
+            catalogRequests.append(request)
+            switch request.url?.path {
+            case "/v1/commerce/sources": return (200, catalogSourceData, ["Cache-Control": "no-store"])
+            case "/v1/commerce/search": return (200, catalogPageData, ["Cache-Control": "no-store"])
+            default: return (200, catalogItemData, ["Cache-Control": "no-store"])
+            }
+        }
+        let catalogSources = try await api.catalogSources()
+        try check(catalogSources.items.map(\.sourceId) == [.impact, .uciRetail, .synthetic], "catalog source identities")
+        try check(catalogSources.items[1].freshRecords == nil && catalogSources.items[1].recordCount == 3958, "historical count is not fresh-offer count")
+        try check(catalogSources.items[1].licenseId == "CC-BY-4.0" && catalogSources.items[1].attribution != nil, "source license and attribution decode")
+        let catalogQuery = "USB-C + lamp & café #1?"
+        let catalogPage = try await api.searchProducts(source: .uciRetail, query: catalogQuery, limit: 10, offset: 10001)
+        try check(catalogPage.sourceId == .uciRetail && catalogPage.nextOffset == nil && catalogPage.total == 1 && catalogPage.expiresAt == nil, "dataset page decode")
+        let catalogItem = try await api.catalogItem(source: .uciRetail, id: "sku:123 + café #1?")
+        try check(catalogItem.dataKind == "open_dataset" && catalogItem.merchant.id == nil && catalogItem.merchant.name == nil, "source kind and unknown merchant preserved")
+        try check(catalogItem.offer.url == nil && catalogItem.offer.priceMinor == nil && catalogItem.offer.shippingMinor == nil && catalogItem.offer.availability == "unknown", "unknown offer facts preserved")
+        try check(catalogItem.offer.isExpired() == nil && !catalogItem.offer.hasCurrentObservation(), "missing expiry does not become an evergreen current offer")
+        try check(catalogItem.attributes["custom_flag"] == .bool(false) && catalogItem.provenance["optional_value"] == .null, "dynamic metadata preserved")
+        let catalogSearchURL = URLComponents(url: catalogRequests[1].url!, resolvingAgainstBaseURL: false)!
+        let catalogParameters = Dictionary(uniqueKeysWithValues: catalogSearchURL.queryItems!.map { ($0.name, $0.value ?? "") })
+        try check(catalogParameters == ["source": "uci_retail", "q": catalogQuery, "limit": "10", "offset": "10001"], "catalog parameters encode exactly")
+        try check(catalogSearchURL.percentEncodedQuery!.contains("%2B") && !catalogSearchURL.percentEncodedQuery!.contains("+"), "literal plus survives server form query parsing")
+        try check(catalogRequests[2].url?.lastPathComponent == "sku:123 + café #1?", "record ID remains one encoded path component")
+        try check(catalogRequests[2].url?.path.hasPrefix("/v1/commerce/items/uci_retail/") == true && catalogRequests[2].url?.query == nil, "record ID cannot become a query")
+        try check(catalogRequests.allSatisfy { $0.httpMethod == "GET" && $0.value(forHTTPHeaderField: "Authorization") == "Bearer test-token" && $0.value(forHTTPHeaderField: "Idempotency-Key") == nil }, "catalog reads use app auth without mutation keys")
+        try check(catalogRequests.allSatisfy { $0.cachePolicy == .reloadIgnoringLocalCacheData && $0.value(forHTTPHeaderField: "Cache-Control") == "no-store" }, "catalog bypasses local cache")
+        for query in ["", "  ", String(repeating: "a", count: 101), "lamp\n"] {
+            do { _ = try await api.searchProducts(source: .abo, query: query); throw SmokeFailure.assertion("invalid catalog query accepted") }
+            catch ClientError.invalidCatalogSearch {}
+        }
+        for (limit, offset) in [(0, 0), (51, 0), (20, -1), (20, 1000000)] {
+            do { _ = try await api.searchProducts(source: .abo, query: "lamp", limit: limit, offset: offset); throw SmokeFailure.assertion("invalid catalog pagination accepted") }
+            catch ClientError.invalidCatalogPagination {}
+        }
+        for source in ["", "Uppercase", "../sources", String(repeating: "a", count: 65)] {
+            do { _ = try await api.searchProducts(source: CatalogSource(rawValue: source), query: "lamp"); throw SmokeFailure.assertion("invalid source accepted") }
+            catch ClientError.invalidCatalogSource {}
+        }
+        for itemId in ["", ".", "..", "../search", "sku\\other", "sku\n", String(repeating: "a", count: 1025)] {
+            do { _ = try await api.catalogItem(source: .abo, id: itemId); throw SmokeFailure.assertion("invalid record ID accepted") }
+            catch ClientError.invalidCatalogItemId {}
+        }
+        try check(catalogRequests.count == 3, "invalid catalog input never reaches transport")
+        var exactMoneyItem = catalogItemJSON
+        exactMoneyItem["source_id"] = "synthetic"; exactMoneyItem["data_kind"] = "synthetic"
+        exactMoneyItem["merchant"] = ["id": "fictional-seller", "name": "Fictional merchant", "platform": "synthetic"]
+        var exactMoneyOffer = exactMoneyItem["offer"] as! [String: Any]
+        exactMoneyOffer["price_minor"] = Int(9_000_000_000_000_000); exactMoneyOffer["currency"] = "SGD"
+        exactMoneyOffer["observed_at"] = 1699999900; exactMoneyOffer["expires_at"] = 1700000300
+        exactMoneyItem["offer"] = exactMoneyOffer
+        let exactMoneyData = try JSONSerialization.data(withJSONObject: exactMoneyItem)
+        let exactMoneyRecord = try CommonThreadClient.decoder().decode(CatalogRecord.self, from: exactMoneyData)
+        try check(exactMoneyRecord.dataKind == "synthetic" && exactMoneyRecord.offer.priceMinor == 9_000_000_000_000_000, "synthetic origin and exact minor-unit money decode")
+        try check(exactMoneyRecord.offer.hasCurrentObservation(at: Date(timeIntervalSince1970: 1700000000)), "bounded observation window")
+        try check(exactMoneyRecord.offer.isExpired(at: Date(timeIntervalSince1970: 1700000300)) == true, "expired observation remains expired")
+        let unknownCatalog = Data(#"{"error":{"code":"unknown_source","message":"Unknown source.","retryable":false,"request_id":"catalog-source"}}"#.utf8)
+        StubProtocol.handler = { request in
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems!
+            try check(query.first(where: { $0.name == "source" })?.value == "future_source", "new syntactically valid source reaches backend validation")
+            return (422, unknownCatalog, [:])
+        }
+        do { _ = try await api.searchProducts(source: CatalogSource(rawValue: "future_source"), query: "lamp"); throw SmokeFailure.assertion("unknown source error expected") }
+        catch let error as APIError { try check(error.code == "unknown_source" && !error.retryable && error.requestId == "catalog-source", "backend remains source registry authority") }
+        let disabledCatalog = Data(#"{"error":{"code":"catalog_not_configured","message":"Import source data first.","retryable":false,"request_id":"catalog-disabled"}}"#.utf8)
+        StubProtocol.handler = { _ in (503, disabledCatalog, [:]) }
+        do { _ = try await api.searchProducts(source: .abo, query: "lamp"); throw SmokeFailure.assertion("disabled catalog error expected") }
+        catch let error as APIError { try check(error.code == "catalog_not_configured" && !error.retryable && error.requestId == "catalog-disabled", "explicit non-retryable catalog error") }
+        print("PASS dataset catalog models, source licenses, null offer semantics, exact money, URL encoding and no-cache transport")
+
         for url in ["http://api.example.org", "https://api.example.org/v1", "https://user:pass@api.example.org", "https://api.example.org?x=1"] {
             do { _ = try CommonThreadClient(baseURL: URL(string: url)!) { "token" }; throw SmokeFailure.assertion("invalid URL accepted") }
             catch ClientError.invalidBaseURL {}

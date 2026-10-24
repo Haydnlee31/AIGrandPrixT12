@@ -1,6 +1,6 @@
 # Mymah Finds — Chrome extension handoff
 
-The Mymah Finds Chrome extension saves links, selected text, and notes into the user's Library through the shared `/v1` API. The product structure is **Library**, **Search**, and **Profile**, with only the user's saved content in view. The Chrome teammate owns capture and browser interactions in `extension/`; persistence and access control belong in the backend. Intelligence, recommendations, product catalogs, and commerce tracking are later work and do not appear in the current interface.
+The Mymah Finds Chrome extension saves content into the user's Library through the shared `/v1` API. The product structure is **Library**, **Search**, and **Profile**. The Chrome teammate owns capture and browser interactions in `extension/`; persistence and access control belong in the backend. The next feature is [image capture and predictive annotations](predictive-annotations.md). Recommendations, product catalogs and live commerce tracking remain later interface work.
 
 ## Run and load
 
@@ -38,7 +38,7 @@ const capabilities = await client.capabilities();
 const page = await client.collection({offset:0, limit:20});
 ```
 
-`/v1/capabilities` declares content types, size limits, feature support, and data modes. Currently capture accepts a URL, title, selected text, and note; it does not accept image/video binaries or screenshots. The existing `collection()` SDK method supplies the user's Library; its API name is unchanged. Search should operate on that user's saved content, and Profile should contain account and connection controls. Do not surface fixture products, generated annotations, intelligence scores, or tracking demonstrations in this version. Follow the shared API contract for mutation keys, version conflicts, pagination, and authorization; timestamps are Unix seconds UTC.
+`/v1/capabilities` declares content types, size limits, feature support, and data modes. Capture accepts a URL or JPEG/PNG/WebP data URL, plus title, selected text and note. The backend image contract and SDK are ready; adding an explicit image-selection path to the existing URL-capture popup remains teammate work. The existing `collection()` SDK method supplies the user's Library. Search should operate on that user's saved content, and Profile should contain account and connection controls. Add optional annotation chips as described in the [shared guide](predictive-annotations.md); keep fixture products, internal scores, provider keys and tracking demonstrations out of product screens. Follow mutation keys, version conflicts, pagination and authorization; timestamps are Unix seconds UTC.
 
 ## State and retry rules
 
@@ -48,7 +48,7 @@ A key is persisted before sending. An unchanged retry uses that same key, includ
 
 Successful retries still contact the backend. If an earlier save was invalidated by deletion, the backend returns `410 mutation_expired`; the popup keeps the key and offers **Start a new save**. Only that explicit action clears the previous attempt. Do not silently generate a fresh key after `mutation_expired`, a timeout, or a server error.
 
-The popup recovers the URL/title from tab metadata when script injection is blocked on an otherwise supported public page. Browser-internal pages, local file URLs, and unsupported links show an explanation instead of attempting to capture. The server remains the final URL validator. Selection extraction is from the main document; iframe selections and image-only content require separate feature design.
+The popup recovers the URL/title from tab metadata when script injection is blocked on an otherwise supported public page. Browser-internal pages, local file URLs, and unsupported links show an explanation instead of attempting to capture. The server remains the final URL validator. Selection extraction is from the main document. Image selection and iframe handling are not implemented in this scaffold; use the new image contract only after adding an explicit, reviewed capture path.
 
 ## Chrome-specific work for the interface teammate
 
@@ -58,7 +58,8 @@ The popup recovers the URL/title from tab metadata when script injection is bloc
 - If adding offline capture, build an explicit durable queue with per-entry mutation keys, account/origin scoping, retention, visible retry/cancel controls, and token revalidation. The present session draft intentionally does not promise persistence across browser restart.
 - Add proper hosted authentication and logout/session-expiry UX with the backend owner. The existing local bearer tokens are development credentials. A real browser auth flow may need `chrome.identity`; request it only as part of that feature.
 - Notifications and commerce tracking are later features. Browser notifications would require a separate permission, user controls, and real delivery integration. Worker lifetime is event-driven; do not rely on a popup remaining open or an in-memory timer for delivery.
-- Image capture/upload, screenshots, OCR, extracted product media, iframe selections, automatic metadata fetching, and direct purchasing are not implemented. Coordinate any new payload or backend capability before adding these UI affordances.
+- Add selected-image capture via an explicit gesture and necessary scoped permissions. Upload actual bounded bytes through `image_data_url`; do not ask the backend to fetch arbitrary remote URLs. Handle cross-origin image restrictions, popup closure and retries. Screenshot/OCR extraction, iframe selections, automatic metadata fetching and direct purchasing remain separate work.
+- Add optional annotation chips with edit/skip and preserve the server suggestion ID. A selection records an annotation only; it does not schedule a reminder or enable monitoring. Fetch private images with the current account bearer header and revoke object URLs when their view/account changes.
 - Prepare extension icons, screenshots, privacy disclosure, production backend configuration, and Chrome Web Store assets for distribution. Replace the development localhost grant for a production-only package. If a website offers **Add to Chrome**, it must link to the published store listing; a website cannot silently install this extension.
 
 ## Validation
