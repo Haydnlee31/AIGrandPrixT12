@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mynah Finds · Your inspiration</title>
+  <link rel="stylesheet" href="panel.css">
+  <script type="module" src="panel.js"></script>
+</head>
+<body>
+  <header class="brand"><div class="wordmark"><img class="brand-mark" src="icons/icon-48.png" alt="">mynah finds<span class="brand-dot">✳</span></div><span class="local-badge"><i></i> LOCAL</span></header>
+  <main>
+    <section class="intro"><span class="eyebrow">FROM “I LIKE THAT” TO “WHY”</span><h1>Keep the spark.</h1><p>Save what catches your eye.<br>Tap an intent. No typing needed.</p></section>
+    <section class="capture-box" aria-label="Capture inspiration">
+      <p class="capture-hint">Save first. Choose what it means to you next.</p>
+      <div class="capture-actions"><button id="save-page" class="primary"><span aria-hidden="true">＋</span> Save page</button><button id="save-screenshot" class="secondary"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5 9.5 3h5L16 5h4v15H4V5z"/><circle cx="12" cy="12" r="4"/></svg> Screenshot</button></div>
+      <div class="capture-foot"><button id="upload" class="text-button">Upload an image <span aria-hidden="true">↗</span></button><button id="upload-conversation" class="text-button">Conversation screenshot ↗</button></div>
+      <details class="optional-note"><summary>Add a note (optional)</summary><label for="capture-note">Anything you want to add?</label><textarea id="capture-note" rows="2" maxlength="500" placeholder="Only if you want to add something…"></textarea></details>
+      <p class="capture-tip">You can also right-click an image → Save image to Mynah Finds.</p>
+      <input id="image-file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+    </section>
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+    <p id="error" class="error" role="alert" hidden></p>
+    <section id="detail" aria-label="Selected save" hidden></section>
+    <section class="collection" aria-label="Your collection"><div class="section-heading"><h2>Your collection</h2><span id="count">0 saves</span></div><div id="library"></div></section>
+    <footer>Private to this Chrome profile. No uploads or account.<br><span>Suggestions use available text or your chosen content type. Images and videos are not analysed.</span></footer>
+  </main>
+  <template id="detail-template">
+    <article class="saved-detail">
+      <div class="detail-label"><span class="eyebrow">THE THING THAT CAUGHT YOUR EYE</span><button class="delete text-button" aria-label="Remove this save">Remove</button></div>
+      <img class="hero-image" alt="Saved image" hidden><p class="capture-quality" hidden></p>
+      <div class="page-preview" hidden><span aria-hidden="true">↗</span><span class="preview-domain"></span></div>
+      <div class="source-meta"><span class="kind-badge"></span><a class="source-link" target="_blank" rel="noopener noreferrer">Open original ↗</a></div>
+      <h2 class="saved-title"></h2><p class="saved-note" hidden></p>
+      <details class="source-text" hidden><summary>Captured page text</summary><p></p></details>
+      <div class="question-block"><div class="question-heading"><span class="question-icon" aria-hidden="true">✳</span><span>TAP AN INTENT</span></div><h3 class="question-title"></h3><div class="choices"></div><details class="custom-answer"><summary>Something else? Add your own words</summary><form class="answer-form"><label for="own-answer">Or, in your own words</label><div class="answer-input"><input id="own-answer" maxlength="500" placeholder="I’m thinking about…" autocomplete="off"><button type="submit" class="answer-submit" aria-label="Save my answer">↗</button></div></form></details><button class="skip text-button">Not now</button><p class="question-basis"></p></div>
+      <div class="answer-block" hidden><div class="answer-top"><span class="eyebrow">CONTEXT SAVED</span><button class="edit-answer text-button">Change</button></div><p class="answer-label"></p><p class="answer-next"></p></div>
+    </article>
+  </template>
+</body>
+</html>
