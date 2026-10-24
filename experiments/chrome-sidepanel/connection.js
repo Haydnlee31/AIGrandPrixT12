@@ -1,10 +1,39 @@
 import { CommonThreadClient } from './lib/client.js';
 import { normalizeBackendURL } from './lib/platform.js';
-import { getSave, updateSave } from './storage.js';
-import { syncSave, accountScope } from './shared.js';
+import { getSave, updateSave, listSaves } from './storage.js';
+import { syncSave, accountScope, needsSync } from './shared.js';
+import {sessionRequest, sessionToken} from './login.js';
 
-export const getConnection = async () => (await chrome.storage.session.get('sharedConnection')).sharedConnection || null;
-export const disconnect = () => chrome.storage.session.remove('sharedConnection');
+export async function getConnection({allowCached = false} = {}) {
+  const {managedLogin} = await chrome.storage.local.get('managedLogin');
+  if (!managedLogin) return (await chrome.storage.session.get('sharedConnection')).sharedConnection || null;
+  const {baseURL} = managedLogin;
+  const current = async () => (await chrome.storage.local.get('managedLogin')).managedLogin?.generation === managedLogin.generation;
+  const hydrate = metadata => ({...metadata, token:sessionToken({baseURL, subject:metadata.subject, stillConnected:current})});
+  try {
+    const session = await sessionRequest(baseURL, 'get-session?disableCookieCache=true');
+    if (!await current()) return null;
+    if (!session?.user) return allowCached && managedLogin.verified ? hydrate(managedLogin.verified) : null;
+    const subject = session.user.id;
+    if (managedLogin.verified?.subject === subject) return hydrate(managedLogin.verified);
+    const token = sessionToken({baseURL, subject, stillConnected:current});
+    const api = new CommonThreadClient({baseURL, token});
+    const [identity, capabilities] = await Promise.all([api.me(), api.capabilities()]);
+    if (!await current()) return null;
+    const verified = {baseURL, userId:identity.user_id, subject, email:session.user.email, managed:true, ...connectionFeatures(capabilities)};
+    await chrome.storage.local.set({managedLogin:{...managedLogin, verified}});
+    return hydrate(verified);
+  } catch (error) {
+    // Cached identity permits queuing only. Each upload still requires a fresh,
+    // account-checked token, so an offline save cannot switch users later.
+    if (allowCached && managedLogin.verified && await current()) return hydrate(managedLogin.verified);
+    throw error;
+  }
+}
+export async function disconnect() {
+  await chrome.storage.local.remove('managedLogin');
+  await chrome.storage.session.remove('sharedConnection');
+}
 
 export async function connect(baseURL, token) {
   baseURL = normalizeBackendURL(baseURL);
@@ -17,17 +46,32 @@ export async function connect(baseURL, token) {
   const [identity, capabilities] = await Promise.all([api.me(), api.capabilities()]);
   if (!capabilities.features.image_upload) throw new Error('This backend needs the image-capture update before connecting.');
   const connection = {baseURL, token: token.trim(), userId: identity.user_id, ...connectionFeatures(capabilities)};
+  await chrome.storage.local.remove('managedLogin');
   await chrome.storage.session.set({sharedConnection: connection});
   return connection;
 }
 
 export async function sync(id, retryUnderstanding = false) {
   return navigator.locks.request('mynah-shared-sync', async () => {
-    let connection = await getConnection();
+    let connection = await getConnection({allowCached:true});
     if (!connection) throw new Error('Connect your library to share this save. Your local copy is safe.');
     if (connection.modern === undefined) connection = await inspectConnection(connection);
     return syncSave({id, connection, retryUnderstanding, api: new CommonThreadClient({baseURL: connection.baseURL, token: connection.token}), read: getSave, update: updateSave});
   });
+}
+
+export async function retryPending(connection) {
+  const scope = accountScope(connection);
+  for (const item of await listSaves()) {
+    const shared = item.shared;
+    if (!shared || shared.scope !== scope || shared.removing || shared.paused || shared.retryAt > Date.now()) continue;
+    if (!needsSync(item)) continue;
+    try { await sync(item.id); }
+    catch (error) {
+      const paused = [400,404,409,410,413,422].includes(error.status);
+      await updateSave(item.id, current => current.shared ? ({...current, shared:{...current.shared, paused, retryAt:Date.now()+60000}}) : current);
+    }
+  }
 }
 
 export async function removeShared(id) {

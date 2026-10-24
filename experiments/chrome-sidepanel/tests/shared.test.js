@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {syncSave, accountScope, capturePayload, reconcileRemote} from '../shared.js';
+import {syncSave, accountScope, capturePayload, reconcileRemote, needsSync} from '../shared.js';
 
 function fixture() {
   let item = {id:'local', title:'Conversation', kind:'image', image:'data:image/png;base64,YQ==', url:'', question:{id:'local'}, answer:null};
@@ -42,7 +42,23 @@ test('pending upload cannot replay into a different account or server',async()=>
   f.args.connection={...f.args.connection,baseURL:'https://another.example'};
   await assert.rejects(syncSave(f.args),/another shared library/);
   f.args.connection={baseURL:'https://api.example.com',userId:'other'};
+  await assert.rejects(syncSave(f.args),/another shared library/);
+  f.args.connection={baseURL:'https://api.example.com',userId:'chime'};
+  f.args.api.me=async()=>({user_id:'other'});
   await assert.rejects(syncSave(f.args),/account changed/);
+});
+test('automatic retry selects uncertain captures and changed answers without resending settled work', async()=>{
+  const f=fixture();
+  f.args.api.me=async()=>{throw Error('offline');};
+  await assert.rejects(syncSave(f.args),/offline/);
+  assert.equal(needsSync(f.read()),true);
+  f.args.api.me=async()=>({user_id:'chime'});
+  await syncSave(f.args);
+  assert.equal(needsSync(f.read()),false);
+  f.set({...f.read(),answer:{kind:'text',label:'For my desk'}});
+  assert.equal(needsSync(f.read()),true);
+  await syncSave(f.args);
+  assert.equal(needsSync(f.read()),false);
 });
 test('web edits are pulled into Chrome without posting a stale local answer back',async()=>{
   const f=fixture();await syncSave(f.args);
@@ -115,4 +131,13 @@ test('late older AI revisions cannot overwrite newer product-specific prompts',a
   assert.equal(reconcileRemote(current,stale),current);
   assert.match(current.question.prompt,/watch/);
   assert.equal(capturePayload({title:'X1 Pro',url:'https://shop.example/x1',contentType:'product'},true).source,'product');
+});
+
+test('first offline save binds its durable request before checking the network identity',async()=>{
+  const f=fixture();
+  f.args.api.me=async()=>{throw Error('offline');};
+  await assert.rejects(syncSave(f.args),/offline/);
+  assert.equal(f.read().shared.scope,accountScope(f.args.connection));
+  assert.ok(f.read().shared.captureKey);
+  assert.ok(f.read().shared.payload);
 });

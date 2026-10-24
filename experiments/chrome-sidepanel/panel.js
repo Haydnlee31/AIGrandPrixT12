@@ -1,7 +1,9 @@
+import {SyncCheck} from "./sync-check.js";
+import {startLogin} from './login.js';
 import { capturePage, importImage } from './capture.js';
 import { addSave, listSaves, getSave, updateSave, saveAnswer, deleteSave } from './storage.js';
 import { safeUrl } from './questions.js';
-import { connect, disconnect, getConnection, inspectConnection, sync, removeShared } from './connection.js';
+import { connect, disconnect, getConnection, inspectConnection, sync, removeShared, retryPending } from './connection.js';
 
 import {CommonThreadClient} from './lib/client.js';
 import {loadSavedLibrary} from './lib/library.js';
@@ -26,6 +28,8 @@ let imageController;
 let imageURL;
 let view = 'library';
 let lastPull = 0;
+let foregroundSync = false;
+const autoSync = new SyncCheck();
 const client = () => new CommonThreadClient(connection);
 const explore = createExplore({client, connection: () => connection,
   openSettings: () => $('#settings-dialog').showModal(),
@@ -57,7 +61,7 @@ async function hydrateImage(item, image) {
   imageController = new AbortController();
   try {
     const response = await fetch(new URL(`/v1/saves/${encodeURIComponent(item.shared.remoteId)}/image`, connection.baseURL),
-      {headers: {Authorization: `Bearer ${connection.token}`}, cache: 'no-store', redirect: 'error',
+      {headers: {Authorization: `Bearer ${typeof connection.token === 'function' ? await connection.token() : connection.token}`}, cache: 'no-store', redirect: 'error',
         signal: AbortSignal.any([imageController.signal, AbortSignal.timeout(15000)])});
     if (!response.ok || !/^image\/(jpeg|png|webp)(;|$)/i.test(response.headers.get('content-type') || '')) throw new Error('Image unavailable');
     const blob = await response.blob();
@@ -288,6 +292,7 @@ async function share(id, retryUnderstanding = false) {
 }
 
 async function refreshConnection() {
+  autoSync.reset();
   const revision = ++connectionRevision;
   libraryController?.abort(); clearImage(); explore.reset();
   connection = null; remoteItems = null; selectedId = undefined; editing = false;
@@ -302,8 +307,8 @@ async function refreshConnection() {
     } catch (error) { if (revision === connectionRevision) showError(error); }
   }
   if (revision !== connectionRevision) return;
-  $('#connection-label').textContent = connection ? `Library connected · ${connection.userId}` : 'Connect a shared library';
-  $('#connection-status').textContent = connection ? (connection.ai ? 'AI understanding runs on your shared backend. Your OpenAI key stays on the server.' : 'Basic suggestions. Product AI is not enabled on this server.') : 'Use your Mynah account key. It stays in this Chrome session until you disconnect or restart Chrome.';
+  $('#connection-label').textContent = connection ? `Library connected · ${connection.email || connection.userId}` : 'Connect a shared library';
+  $('#connection-status').textContent = connection ? (connection.ai ? 'AI understanding runs on your shared backend. Your OpenAI key stays on the server.' : 'Basic suggestions. Product AI is not enabled on this server.') : 'Sign in through the web app once to remember your shared library in Chrome. Demo access keys are still available below.';
   $('#disconnect').hidden = !connection;
   $('#shared-library').hidden = !connection;
   $('#library-refresh').hidden = !connection;
@@ -321,6 +326,10 @@ $('#connection-form').addEventListener('submit', event => {
   // Start permission request in the original user gesture.
   const pending = connect($('#backend-url').value, $('#backend-token').value);
   run(async () => { await pending; $('#backend-token').value = ''; await refreshConnection(); });
+});
+$('#sign-in').addEventListener('click', () => {
+  const pending = startLogin($('#backend-url').value);
+  run(async () => {await pending; $('#settings-dialog').close(); await refreshConnection();});
 });
 $('#disconnect').addEventListener('click', () => run(async () => { await disconnect(); await refreshConnection(); }));
 $('#open-settings').addEventListener('click', () => { $('#connection-error').hidden = true; $('#settings-dialog').showModal(); });
@@ -359,12 +368,35 @@ $('#library-tab').addEventListener('click', () => showView('library'));
 $('#explore-tab').addEventListener('click', () => showView('explore'));
 $('#library-query').addEventListener('input', render);
 $('#library-refresh').addEventListener('click', () => run(pullLibrary));
-function refreshOnForeground() {
-  if (!busy && connection && Date.now() - lastPull > 10000) {
-    pullLibrary().catch(showError);
-    if (view === 'explore') explore.load();
+async function refreshOnForeground() {
+  if (document.hidden || !navigator.onLine || busy || editing || foregroundSync) return;
+  foregroundSync = true;
+  try {
+  const latest = await getConnection().catch(error => {showError(error); return undefined;});
+  if (latest === undefined) return;
+  if (latest?.userId !== connection?.userId || latest?.baseURL !== connection?.baseURL || latest?.subject !== connection?.subject) {
+    await refreshConnection();
   }
+  if (!connection || document.querySelector('dialog[open]')) return;
+  const api = client(), scope = connection.userId;
+  try {
+    await retryPending(connection);
+    await autoSync.check({scope, state: async () => {
+      try { return await api.request('/sync'); }
+      catch (error) {
+        // Older servers still work while the backend PR is being rolled out.
+        if (error.status === 404) return {user_id:scope, revision:Math.floor(Date.now() / 15000)};
+        throw error;
+      }
+    }, refresh: async () => {
+      await pullLibrary();
+      if (view === 'explore') await explore.load();
+    }});
+  } catch (error) { showError(error); }
+  } finally {foregroundSync = false;}
 }
 window.addEventListener('focus', refreshOnForeground);
+window.addEventListener('online', () => {autoSync.retryAt = 0; refreshOnForeground();});
 document.addEventListener('visibilitychange', () => {if (!document.hidden) refreshOnForeground();});
+setInterval(refreshOnForeground, 15000);
 refreshConnection().then(syncContext).catch(showError);
