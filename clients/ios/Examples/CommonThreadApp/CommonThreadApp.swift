@@ -202,6 +202,13 @@ struct MymahFindsView: View {
             do { try CaptureIntelligence.importDevelopmentConfiguration() }
             catch { errorMessage = "Shopping intelligence setup needs attention. Your local library is still available." }
             #endif
+            #if DEBUG
+            // Explicit device recovery: disconnect without touching local finds or photos.
+            if ProcessInfo.processInfo.arguments.contains("-restoreLocalLibrary"),
+               let saved = try? SharedEnvironment.read() {
+                try? saved.signOut()
+            }
+            #endif
             if let saved = try? SharedEnvironment.read() {
                 connection = saved; apiURL = saved.baseURL.absoluteString
             }
