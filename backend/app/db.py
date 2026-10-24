@@ -219,8 +219,17 @@ class CatalogOffer(Base):
     expires_at: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)
 
 
-def make_database(url=None):
+def database_url(url=None):
     url = url or os.getenv("DATABASE_URL", "sqlite:///./prototype.db")
+    # Hosted Postgres URLs omit the driver; this project installs psycopg 3.
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
+def make_database(url=None):
+    url = database_url(url)
     engine = create_engine(url, connect_args={"check_same_thread": False, "timeout": 20} if url.startswith("sqlite") else {}, pool_pre_ping=True)
     if url.startswith("sqlite"):
         @event.listens_for(engine, "connect")
