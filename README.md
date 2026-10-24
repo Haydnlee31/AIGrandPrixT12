@@ -1,12 +1,15 @@
-# Mymah Finds — shared app framework
+# Mymah Finds — combined app
+
+The native iPhone app, Chrome side panel and web Library are connected to a shared multimodal backend with email sign-in. Start with the [combined app run, install and deployment guide](docs/combined-app.md). The combined launch enables multimodal analysis; provider credentials stay on the backend.
+
 
 The additive [multimodal pipeline](docs/multimodal-pipeline.md) provides durable
 multi-image/voice/text analysis and compatible JavaScript/Swift SDKs. It is
 disabled by default and does not switch existing clients or local libraries.
 
-A shared backend for a **Chrome extension/browser experience** and a **native iOS app with a Share Extension**. The agreed navigation is **Library, Explore, Profile**. Library holds saved content and searches its analyzed product facets; Explore recommends and searches catalog products with source citations; Profile holds account and app controls. No Map or Community.
+A combined application for a **Chrome extension/browser experience** and a **native iOS app with a Share Extension**. The agreed navigation is **Library, Explore, Profile**. Library holds saved content and searches its analyzed product facets; Explore recommends and searches catalog products with source citations; Profile holds account and app controls. No Map or Community.
 
-The saved-library approach takes inspiration from [Albo](https://albo.inc/) with an independent Mymah Finds visual identity. The backend supplies Astra product analysis, predictive annotations, server-side Library search, and cited Explore recommendations over licensed local catalogs. Existing native and browser screens predate this plan; the frontend teammate must connect and design the new flows. Product screens must contain no prototype/demo labels or provider-key controls.
+The saved-library approach takes inspiration from [Albo](https://albo.inc/) with an independent Mymah Finds visual identity. The backend supplies Astra product analysis, predictive annotations, server-side Library search, and cited Explore recommendations over licensed local catalogs. The combined interfaces connect photo, text and voice captures to product understanding and contextual prompts. Product screens must contain no prototype/demo labels or provider-key controls.
 
 The native frontend can still run independently with labeled sample inspiration and on-device URL saves. Those local records do not receive backend analysis or drive Explore; connect the shared account and upload captures for the AI flows.
 
@@ -56,7 +59,7 @@ make run
 - Interactive API: http://127.0.0.1:8000/docs. Use **Authorize** with a development token. Swagger assets need internet.
 - Offline schema: http://127.0.0.1:8000/openapi.json.
 - SQLite data: ignored `prototype.db`.
-- Settings: [.env.example](.env.example). Export variables; `.env` is not loaded automatically.
+- Settings: [.env.example](.env.example). `make run` explicitly loads the ignored `.env`; direct ASGI entrypoints use process settings.
 - Astra: set `ASTRA_API_KEY` (or `OPENAI_API_KEY`) in the backend environment. `ANNOTATION_PROVIDER=astra` requires a key; the default `auto` selects Astra when a key is available. Clients never receive or configure that key. See [configuration and live verification](docs/predictive-annotations.md).
 - Verify the original annotation provider with `make smoke-astra`; it makes one explicit paid image request. The new multimodal path has passed live Astra and transcription validation; see [the handoff and validation record](docs/multimodal-pipeline.md).
 - Separate worker: `EMBEDDED_WORKER=false make run`, then `make worker` in another terminal with matching database settings. The default setup already includes a worker.

@@ -29,10 +29,10 @@ enum LocalShareInboxError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .fieldTooLong(let field): return field
-        case .configuration: return "Sharing isn't configured in this build. Open Mynah Finds and try again."
+        case .configuration: return "Sharing isn't configured in this build. Open Mymah Finds and try again."
         case .keychain: return "This find couldn't be saved securely. Keep this sheet open and try again."
         case .tooLarge: return "Share up to 10 attachments, 4 MB per file and 12 MB in total. Try smaller files or share their link."
-        case .full: return "Open Mynah Finds to finish importing your pending saves, then try again."
+        case .full: return "Open Mymah Finds to finish importing your pending saves, then try again."
         case .incomplete: return "A pending save is incomplete. It has been kept so you can retry importing it."
         case .empty: return "Add a link, text, or a photo before saving."
         }

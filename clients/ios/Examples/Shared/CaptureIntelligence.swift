@@ -8,7 +8,7 @@ import CommonThreadKit
 
 /// The phone holds only a scoped relay credential. The OpenAI key stays on the server.
 enum CaptureIntelligence {
-    struct Configuration: Codable, Sendable, Equatable {
+    struct Configuration: Codable, Sendable, Hashable {
         let baseURL: URL
         let accessToken: String
         var multimodalURL: URL? = nil
@@ -52,8 +52,8 @@ enum CaptureIntelligence {
     }
     private static func accessToken(for configuration: Configuration) async throws -> String {
         guard let account = configuration.loginAccountId else { return configuration.accessToken }
-        guard let environment = try SharedEnvironment.read(), environment.accountId == account,
-              environment.baseURL == configuration.baseURL else { throw Failure.unauthorized }
+        let environment = try SharedEnvironment.read()
+        guard environment.accountId == account, environment.baseURL == configuration.baseURL else { throw Failure.unauthorized }
         return try await environment.accessToken()
     }
     static var isConfigured: Bool { (try? configuration()) != nil }

@@ -50,7 +50,7 @@ def test_main_and_chrome_databases_upgrade_to_one_head_with_private_media(tmp_pa
     command.upgrade(config, "head")
     with engine.connect() as db:
         assert db.execute(text("SELECT version_num FROM alembic_version")).scalars().all() == ["e93ab6824d10"]
-        assert db.execute(text("SELECT count(*) FROM saved_media")).scalar() == 0
+        assert db.execute(text("SELECT count(*) FROM saved_media")).scalar() == (1 if previous == "c4d905a137ab" else 0)
         assert {"saved_items", "multimodal_captures", "multimodal_assets"} <= set(inspect(engine).get_table_names())
     app = create_app(url, embedded_worker=False, tokens={"mine": "owner", "theirs": "other"})
     with TestClient(app, headers={"Authorization": "Bearer mine"}) as client:

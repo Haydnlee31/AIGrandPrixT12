@@ -1,5 +1,7 @@
 # Multimodal backend and client handoff
 
+The original backend-only handoff below is now integrated into the [combined app](combined-app.md). Use that guide for current frontend, account and deployment behavior.
+
 The additive pipeline accepts text, a source link, up to four product photos, and
 one recorded voice note. Astra analyzes their combined context. Transcription has
 a separate durable job and uses the same server-side OpenAI account.

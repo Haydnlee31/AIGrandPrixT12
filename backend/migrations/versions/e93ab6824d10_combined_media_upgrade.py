@@ -1,8 +1,9 @@
 """Merge Chrome and multimodal histories, preserving private saved images.
 
 Both main-only and earlier Chrome installations can upgrade to this one head.
-Legacy media is normalized into the current column before redundant bytes are
-removed. Invalid legacy media stops the migration instead of silently losing it.
+Legacy media is normalized into the current column. The old row is retained for
+rollback and for a previous deployment still serving requests during the build.
+Invalid legacy media stops the migration instead of silently losing it.
 """
 from alembic import op
 import sqlalchemy as sa
@@ -32,13 +33,14 @@ def upgrade():
                                       .where(saved.c.id == item_id)).first()
             if item and item.user_id != user_id:
                 raise RuntimeError("Legacy saved image ownership mismatch; migration stopped without deleting media")
-            if item and not item.deleted and not item.image_data_url:
+            if item and not item.deleted:
                 try:
                     normalized = validate_image_data_url(data)
                 except ValueError:
                     raise RuntimeError("Legacy saved image needs repair before upgrading; no media was discarded") from None
-                connection.execute(saved.update().where(saved.c.id == item_id).values(image_data_url=normalized))
-            connection.execute(media.delete().where(media.c.item_id == item_id))
+                if not item.image_data_url:
+                    connection.execute(saved.update().where(saved.c.id == item_id).values(image_data_url=normalized))
+                connection.execute(media.update().where(media.c.item_id == item_id).values(image_data=normalized))
         cursor = rows[-1].item_id
 
 

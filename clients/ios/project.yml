@@ -32,7 +32,7 @@ targets:
     info:
       path: Configuration/App-Info.plist
       properties:
-        CFBundleDisplayName: Mynah Finds
+        CFBundleDisplayName: Mymah Finds
         CFBundleURLTypes:
           - CFBundleURLName: com.aigrandprix.mymahfinds.navigation
             CFBundleTypeRole: Editor
@@ -75,7 +75,7 @@ targets:
     info:
       path: Configuration/Share-Info.plist
       properties:
-        CFBundleDisplayName: Mynah Finds
+        CFBundleDisplayName: Mymah Finds
         CommonThreadAppGroup: "$(COMMON_THREAD_APP_GROUP)"
         CommonThreadKeychainGroup: "$(COMMON_THREAD_KEYCHAIN_GROUP)"
         NSExtension:

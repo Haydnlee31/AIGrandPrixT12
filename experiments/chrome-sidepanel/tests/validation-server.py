@@ -34,7 +34,7 @@ provider = BudgetedProvider(MeasuredProvider()) if args.live else FakeMultimodal
 app = create_app(main_options={'annotation_provider': DemoAnnotationProvider(),
     'multimodal_provider': provider, 'multimodal_enabled': True},
     relay_options={'price_background': False})
-if not args.live:
+if True:  # Synthetic catalog is confined to this isolated validation database.
     import_dataset(app.state.main.state.factory, 'abo', [{
         'source_id':'abo', 'source_record_id':'synthetic-validation-watch', 'data_kind':'open_dataset',
         'title':'Synthetic validation digital wristwatch', 'category':'Accessories > Watches > Digital watches',

@@ -53,3 +53,18 @@ test('missing capability supports legacy server, authentication errors do not do
   f.api.capture = async (_, opts) => ({id:opts.idempotencyKey});
   assert.deepEqual(await saveSharedCapture(f.api, f.attempt, f.persist), {id:'save-key'});
 });
+
+test('terminal failure stops automatic work and explicit retry reuses uploaded assets', async () => {
+  const f = fixture();
+  f.api.waitForMultimodalCapture = async () => {throw new Error('analysis failed');};
+  f.api.getMultimodalCapture = async () => ({status:'enrichment_failed'});
+  await assert.rejects(saveSharedCapture(f.api, f.attempt, f.persist), error => error.status === 422);
+  assert.equal(f.stored().paused, true);
+  await assert.rejects(saveSharedCapture(f.api, f.stored(), f.persist));
+  f.api.waitForMultimodalCapture = async () => ({status:'ready'});
+  await saveSharedCapture(f.api, f.stored(), f.persist, () => {}, {retryFailed:true});
+  assert.equal(f.calls.filter(call => call[0] === 'upload').length, 1);
+  const analyses = f.calls.filter(call => call[0] === 'analyze');
+  assert.equal(analyses.length, 2);
+  assert.notEqual(analyses[0][2].idempotencyKey, analyses[1][2].idempotencyKey);
+});

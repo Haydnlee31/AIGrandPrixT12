@@ -351,7 +351,7 @@ function preference(id, label, glyph, options) {
 function profile() {
   return (
     header("Profile", "A space that’s yours.") +
-    `<div class="profile-layout"><div><section class="profile-card">${mascot(76)}<div class="profile-name"><h2>Mynah Finds</h2><p>${account ? `Shared library · ${escape(name())}` : "Your finds, kept close."}</p></div><div class="profile-stats"><div><strong>${items.length}</strong><span>Saved finds</span></div><div><strong>${items.filter((item) => item.has_image).length}</strong><span>With images</span></div></div></section><p class="profile-note">Your library updates automatically while the app is open and catches up when you return. Use the same sign-in on each device. Finds saved only on your iPhone stay on that iPhone.</p></div><div><section class="settings-section"><h2>Make it yours</h2><div class="settings-group">${preference(
+    `<div class="profile-layout"><div><section class="profile-card">${mascot(76)}<div class="profile-name"><h2>Mymah Finds</h2><p>${account ? `Shared library · ${escape(name())}` : "Your finds, kept close."}</p></div><div class="profile-stats"><div><strong>${items.length}</strong><span>Saved finds</span></div><div><strong>${items.filter((item) => item.has_image).length}</strong><span>With images</span></div></div></section><p class="profile-note">Your library updates automatically while the app is open and catches up when you return. Use the same sign-in on each device. Finds saved only on your iPhone stay on that iPhone.</p></div><div><section class="settings-section"><h2>Make it yours</h2><div class="settings-group">${preference(
       "appearance",
       "Appearance",
       "appearance",
@@ -365,7 +365,7 @@ function profile() {
             `<option value="${v}" ${appearance === v ? "selected" : ""}>${l}</option>`,
         )
         .join(""),
-    )}${preference("profile-layout", "Library layout", "grid", ["grid", "list"].map((v) => `<option value="${v}" ${layout === v ? "selected" : ""}>${v === "grid" ? "Grid" : "List"}</option>`).join(""))}${preference("profile-sort", "Sort finds", "sort", sortOptions())}</div></section><section class="settings-section"><h2>Your library</h2><div class="settings-group">${setting("account", login ? (loginUser ? "Sign-in details" : "Sign in") : (account ? "Switch account" : "Connect your library"), login ? (loginUser?.email || "One account across your devices") : (account ? "Use another shared library" : "Use your library’s access key"), "person")}${setting("refresh", "Refresh library", "Bring your latest saves into view", "refresh")}${setting("privacy", "Your data & privacy", "", "shield")}</div></section><section class="settings-section"><h2>A little help</h2><div class="settings-group">${setting("help", "Save from other apps", "", "link")}${setting("intro", "See the introduction again", "", "play")}</div></section>${account ? `<div class="settings-group">${setting("signout", "Sign out", "Sign out on this browser", "logout", "danger")}</div>` : ""}</div></div>${banner()}<p class="profile-footer">Mynah Finds<span>Keep what catches your eye.</span></p>`
+    )}${preference("profile-layout", "Library layout", "grid", ["grid", "list"].map((v) => `<option value="${v}" ${layout === v ? "selected" : ""}>${v === "grid" ? "Grid" : "List"}</option>`).join(""))}${preference("profile-sort", "Sort finds", "sort", sortOptions())}</div></section><section class="settings-section"><h2>Your library</h2><div class="settings-group">${setting("account", login ? (loginUser ? "Sign-in details" : "Sign in") : (account ? "Switch account" : "Connect your library"), login ? (loginUser?.email || "One account across your devices") : (account ? "Use another shared library" : "Use your library’s access key"), "person")}${setting("refresh", "Refresh library", "Bring your latest saves into view", "refresh")}${setting("privacy", "Your data & privacy", "", "shield")}</div></section><section class="settings-section"><h2>A little help</h2><div class="settings-group">${setting("help", "Save from other apps", "", "link")}${setting("intro", "See the introduction again", "", "play")}</div></section>${account ? `<div class="settings-group">${setting("signout", "Sign out", "Sign out on this browser", "logout", "danger")}</div>` : ""}</div></div>${banner()}<p class="profile-footer">Mymah Finds<span>Keep what catches your eye.</span></p>`
   );
 }
 function applyAppearance() {
@@ -388,7 +388,7 @@ function render() {
     view === "explore" ? explore() : view === "profile" ? profile() : library();
   if (view === "library") renderLibraryResults();
   if (view === "explore") renderExploreResults();
-  document.title = `Mynah Finds — ${view[0].toUpperCase() + view.slice(1)}`;
+  document.title = `Mymah Finds — ${view[0].toUpperCase() + view.slice(1)}`;
 }
 function go(next, focus = true) {
   if (next === "search") next = "library";
@@ -733,9 +733,9 @@ async function mutateDetail(button, action) {
 function showInfo(type) {
   const intro = type === "intro";
   $("#info-content").innerHTML =
-    detailTop(intro ? "Welcome to Mynah Finds" : "Your data") +
+    detailTop(intro ? "Welcome to Mymah Finds" : "Your data") +
     (intro
-      ? `<div class="intro-mark">${mascot(112)}</div><h2 id="info-title">A home for every little find.</h2><p>The links you love, collected in one calm place. Welcome to Mynah Finds.</p><div class="info-step"><h3>Keep the why.</h3><p>Save a link or photo and add a note about what caught your eye.</p></div><div class="info-step"><h3>Find your next possibility.</h3><p>Return to your Library, or Explore ideas with reasons tied to what you saved.</p></div><button class="primary wide" data-close>Make yourself at home</button>`
+      ? `<div class="intro-mark">${mascot(112)}</div><h2 id="info-title">A home for every little find.</h2><p>The links you love, collected in one calm place. Welcome to Mymah Finds.</p><div class="info-step"><h3>Keep the why.</h3><p>Save a link or photo and add a note about what caught your eye.</p></div><div class="info-step"><h3>Find your next possibility.</h3><p>Return to your Library, or Explore ideas with reasons tied to what you saved.</p></div><button class="primary wide" data-close>Make yourself at home</button>`
       : `<h2 id="info-title">Your data & privacy</h2><div class="info-step"><h3>Your shared library</h3><p>Finds saved here go to the connected server. Using the same shared account on iOS lets both apps access that library. Local-only iPhone finds are not automatically uploaded.</p></div><div class="info-step"><h3>Photos & analysis</h3><p>You choose which photo to upload. Content you save may be processed by the AI provider configured on your server to suggest context and understand products.</p></div><div class="info-step"><h3>This browser</h3><p>Your access key is kept in this browser session. Appearance, layout and sorting preferences are saved on this device. Sign out to remove access from this session.</p></div><div class="info-step"><h3>You’re in control</h3><p>Removing a shared find affects that account on all connected devices. Opening an original link or a catalog source takes you to a website with its own privacy practices.</p></div>`);
   $("#info-dialog").showModal();
 }
@@ -950,7 +950,8 @@ document.addEventListener("submit", async (event) => {
       $("#capture-status").textContent = "Saving to your library…";
       const saved = await saveSharedCapture(client(), attempt,
         value => pendingCaptures.put(value),
-        message => { if (revision === connectionRevision) $("#capture-status").textContent = message; });
+        message => { if (revision === connectionRevision) $("#capture-status").textContent = message; },
+        {retryFailed:true});
       pendingCaptures.remove(attempt);
       if (revision !== connectionRevision) return;
       captureAttempt = null;

@@ -10,4 +10,3 @@ Full icon retains a golden yellow dollar sign and charcoal grey string. Small ic
 Masters were produced using the built-in image generation tool; prompts.txt records exact prompts. export.sh reproduces PNG sizing using macOS sips. Outputs are raster PNGs, not editable SVGs. The generated artwork retains subtle shading. Maskable exports use a separately generated composition with generous blue margins.
 
 Validation: PNG dimensions and appropriate alpha channels and JSON checked locally; small-size and maskable PNGs visually inspected. No actual app build, Chrome install, App Store upload or device test was performed.
-

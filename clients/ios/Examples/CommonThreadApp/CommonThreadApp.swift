@@ -426,7 +426,7 @@ struct MymahFindsView: View {
                         FindsMark(size: 60)
                             .background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 20))
                         VStack(alignment: .leading, spacing: 5) {
-                            Text("Mynah Finds").font(.title2.bold())
+                            Text("Mymah Finds").font(.title2.bold())
                         }
                     }.padding(.vertical, 8)
                 }

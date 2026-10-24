@@ -9,8 +9,11 @@ extension Notification.Name {
 /// this work; foregrounding the app retries interrupted work after relaunch/offline use.
 @MainActor final class LocalAnalysisCoordinator {
     static let shared = LocalAnalysisCoordinator()
+    private let library: LocalLibrary
+    init(library: LocalLibrary = .shared) { self.library = library }
     private var pending: Task<Void, Never>?
-    private var running: [LocalAnalysisInput: Task<CaptureIntelligenceResult, Error>] = [:]
+    private struct Request: Hashable { let input: LocalAnalysisInput; let configuration: CaptureIntelligence.Configuration }
+    private var running: [Request: Task<CaptureIntelligenceResult, Error>] = [:]
     private var attempted: Set<LocalAnalysisInput> = []
     private var connection: CaptureIntelligence.Configuration?
 
@@ -23,16 +26,22 @@ extension Notification.Name {
         pending = Task {
             defer { pending = nil }
             do {
-                let items = try await LocalLibrary.shared.collection()
-                let metadata = try await LocalLibrary.shared.metadata()
-                for item in items where item.client != "sample" && metadata[item.id]?.isArchived != true {
-                    guard !Task.isCancelled, CaptureIntelligence.isConfigured else { return }
-                    let state = metadata[item.id] ?? LocalFindMetadata()
-                    guard state.analysis?.schemaVersion != 2 else { continue }
-                    let input = LocalAnalysisInput(item, metadata: state)
-                    guard attempted.insert(input).inserted else { continue }
+                while !Task.isCancelled && CaptureIntelligence.isConfigured {
+                    let items = try await library.collection()
+                    let metadata = try await library.metadata()
+                    let candidate = items.first { item in
+                        let state = metadata[item.id] ?? LocalFindMetadata()
+                        return item.client != "sample" && !state.isArchived && state.analysis?.schemaVersion != 2
+                            && !attempted.contains(LocalAnalysisInput(item, metadata: state))
+                    }
+                    guard let item = candidate else { return }
+                    let input = LocalAnalysisInput(item, metadata: metadata[item.id] ?? LocalFindMetadata())
+                    attempted.insert(input)
                     do { _ = try await analyze(item.id) }
-                    catch is CancellationError { attempted.remove(input); return }
+                    catch is CancellationError {
+                        // A newer edit/account can be picked up on the next pass.
+                        if Task.isCancelled { attempted.remove(input); return }
+                    }
                     catch { NotificationCenter.default.post(name: .localAnalysisChanged, object: nil) }
                 }
             } catch { /* Local storage errors are shown by the Library itself. */ }
@@ -41,21 +50,22 @@ extension Notification.Name {
 
     func analyze(_ id: String) async throws -> CaptureIntelligenceResult {
         guard let configuration = try CaptureIntelligence.configuration(),
-              let item = try await LocalLibrary.shared.item(id),
-              let metadata = try await LocalLibrary.shared.metadata()[item.id] else { throw CaptureIntelligence.Failure.configuration }
+              let item = try await library.item(id),
+              let metadata = try await library.metadata()[item.id] else { throw CaptureIntelligence.Failure.configuration }
         if let analysis = metadata.analysis, analysis.schemaVersion == 2 { return analysis }
         let input = LocalAnalysisInput(item, metadata: metadata)
-        if let task = running[input] { return try await task.value }
+        let request = Request(input: input, configuration: configuration)
+        if let task = running[request] { return try await task.value }
         let task = Task<CaptureIntelligenceResult, Error> {
             var images: [Data] = []
             for attachment in metadata.attachments.filter(\.isImage) {
-                images.append(try await LocalLibrary.shared.attachmentData(attachment))
+                images.append(try await library.attachmentData(attachment))
             }
             let recordings = metadata.attachments.filter(\.isAudio)
             guard recordings.count <= 1 else { throw MultimodalDraftAnalysis.Failure.unsupportedAudio }
             var audio: MultimodalDraftAnalysis.Audio?
             if let recording = recordings.first {
-                let bytes = try await LocalLibrary.shared.attachmentData(recording)
+                let bytes = try await library.attachmentData(recording)
                 audio = try MultimodalDraftAnalysis.Audio(data: bytes, filename: recording.filename)
             }
             let note = ([item.note] + metadata.selectedIntents).filter { !$0.isEmpty }.joined(separator: "\n")
@@ -64,12 +74,12 @@ extension Notification.Name {
                 additionalImages: Array(images.dropFirst()), audio: audio, reviewedTranscript: metadata.reviewedTranscript)
             try Task.checkCancellation()
             guard try CaptureIntelligence.configuration() == configuration,
-                  try await LocalLibrary.shared.setAnalysis(result, matching: input) else { throw CancellationError() }
+                  try await library.setAnalysis(result, matching: input) else { throw CancellationError() }
             NotificationCenter.default.post(name: .localAnalysisChanged, object: nil)
             return result
         }
-        running[input] = task
-        defer { running[input] = nil }
+        running[request] = task
+        defer { running[request] = nil }
         return try await task.value
     }
 }

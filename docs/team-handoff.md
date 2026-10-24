@@ -1,5 +1,7 @@
 # Mymah Finds — team handoff
 
+Current integration: see the [combined app guide](combined-app.md). It supersedes earlier pending-interface and deployment notes below.
+
 Mymah Finds has three agreed main destinations: **Library**, **Explore**, and **Profile**. Library holds saved content with product analysis and search; Explore recommends and searches products with citations; Profile holds account and app controls. Chrome/browser and iOS share the backend and SDK contracts.
 
 **Start with the [Library / Explore / Profile integration guide](ios-ai-handoff.md).** Contract **0.4.0** provides structured product understanding, [predictive annotations](predictive-annotations.md), private Library search and cited Explore recommendations. Existing native and browser screens predate the new plan and still need teammate design and wiring. Product screens must not expose prototype/demo labels, provider keys, internal mode labels, or developer diagnostics. Live watches, reminder execution and checkout remain separate work.

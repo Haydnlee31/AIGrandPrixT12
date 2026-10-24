@@ -133,7 +133,7 @@ struct ShareCaptureView: View {
                 }.padding(24).disabled(saving)
             }
             .background(Color(.systemGroupedBackground))
-            .navigationTitle("Mynah Finds").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Mymah Finds").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button(saved ? "Done" : "Cancel", action: completeShare).disabled(saving) } }
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 12) {

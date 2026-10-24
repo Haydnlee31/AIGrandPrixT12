@@ -1,5 +1,5 @@
 // Persist every stage before sending, so a closed tab retries the same mutation.
-export async function saveSharedCapture(api, attempt, persist, progress = () => {}) {
+export async function saveSharedCapture(api, attempt, persist, progress = () => {}, {retryFailed = false} = {}) {
   const commit = () => persist(attempt);
   const step = suffix => ({idempotencyKey: `${attempt.key}:${suffix}`});
   if (!attempt.pipeline) {
@@ -11,6 +11,11 @@ export async function saveSharedCapture(api, attempt, persist, progress = () => 
   }
   if (attempt.pipeline === 'legacy') return api.capture(attempt.payload, {idempotencyKey: attempt.key});
   const state = attempt.multimodal ||= {};
+  if (state.failed) {
+    if (!retryFailed) throw Object.assign(new Error('Review your pending find and retry analysis.'), {status:422});
+    state.analyzed = false; state.failed = false;
+    state.analysisKey = crypto.randomUUID(); attempt.paused = false; commit();
+  }
   if (!state.id) {
     const {title, text, note, url} = attempt.payload;
     const capture = await api.createMultimodalCapture({title, text, note, url, client: 'web'}, step('create'));
@@ -26,11 +31,22 @@ export async function saveSharedCapture(api, attempt, persist, progress = () => 
   }
   if (!state.analyzed) {
     state.analysisRevision ??= state.revision; commit();
-    await api.analyzeMultimodalCapture(state.id, state.analysisRevision, step('analyze'));
+    await api.analyzeMultimodalCapture(state.id, state.analysisRevision,
+      state.analysisKey ? {idempotencyKey:state.analysisKey} : step('analyze'));
     state.analyzed = true; commit();
   }
   progress('Understanding your find… You can close this tab; your save will resume when you return.');
-  const capture = await api.waitForMultimodalCapture(state.id, {expectedRevision: state.revision, timeoutMs: 120000});
+  let capture;
+  try {
+    capture = await api.waitForMultimodalCapture(state.id, {expectedRevision: state.revision, timeoutMs: 120000});
+  } catch (error) {
+    let current;
+    try { current = await api.getMultimodalCapture?.(state.id); } catch {}
+    if (current?.status === 'enrichment_failed') {
+      state.failed = true; attempt.paused = true; commit(); error.status = 422;
+    }
+    throw error;
+  }
   if (capture.status !== 'ready') throw new Error('Analysis needs another try. Your pending save is kept on this device.');
   progress('Saving to your library…');
   return api.publishMultimodalCapture(state.id, state.revision, step('publish'));

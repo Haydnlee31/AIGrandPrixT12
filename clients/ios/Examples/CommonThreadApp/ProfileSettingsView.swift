@@ -68,11 +68,11 @@ private struct ShareGuideView: View {
                 Text("A find can start anywhere.").font(.title2.bold()).padding(.vertical, 8)
                 guideRow(1, "Open something you love", "A page in Safari, an Instagram post, or a photo in your library.", symbol: "safari")
                 guideRow(2, "Open the share sheet", "In Safari or Photos, tap Share. In Instagram, tap the paper plane and then Share to…", symbol: "square.and.arrow.up")
-                guideRow(3, "Put Mynah Finds first", "Swipe to the end of the app row and tap More, then Edit. Tap the plus beside Mynah Finds to add it to Favorites. Drag its reorder handle to the top, then tap Done.", symbol: "bookmark")
+                guideRow(3, "Put Mymah Finds first", "Swipe to the end of the app row and tap More, then Edit. Tap the plus beside Mymah Finds to add it to Favorites. Drag its reorder handle to the top, then tap Done.", symbol: "bookmark")
                 guideRow(4, "Keep the why, then carry on", "Add a note or use your iPhone keyboard’s dictation button. Review the words, then save and return to the app you were using.", symbol: "text.bubble")
             }
             Section {
-                Text("Apps choose what they share. An Instagram post may share a link rather than its photo. You can also add a screenshot from Photos inside Mynah Finds.")
+                Text("Apps choose what they share. An Instagram post may share a link rather than its photo. You can also add a screenshot from Photos inside Mymah Finds.")
                     .foregroundStyle(.secondary)
             }
         }

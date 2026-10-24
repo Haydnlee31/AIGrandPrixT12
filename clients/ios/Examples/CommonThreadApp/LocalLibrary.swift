@@ -11,6 +11,7 @@ struct LocalAttachment: Codable, Identifiable, Sendable {
     let byteCount: Int
     var isImage: Bool { ["public.jpeg", "public.png", "org.webmproject.webp", "public.heic", "public.image"].contains(typeIdentifier) }
     var isAudio: Bool {
+        if typeIdentifier.lowercased().hasPrefix("audio/") { return true }
         if ["public.audio", "com.apple.m4a-audio", "com.microsoft.waveform-audio", "public.wav", "public.mp3", "public.aac-audio"].contains(typeIdentifier) { return true }
         if let type = UTType(typeIdentifier) ?? UTType(mimeType: typeIdentifier), type.conforms(to: .audio) { return true }
         let ext = (filename as NSString).pathExtension.lowercased()

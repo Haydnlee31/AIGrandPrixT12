@@ -21,6 +21,11 @@ jobs:
         run: sh clients/ios/Scripts/build-simulator.sh
       - name: Swift SDK tests
         run: swift test --package-path clients/ios
+      - name: Native capture and interruption recovery
+        run: |
+          sh clients/ios/Scripts/multimodal_flow_smoke.sh
+          sh clients/ios/Scripts/shared_multimodal_smoke.sh
+          sh clients/ios/Scripts/local_analysis_smoke.sh
       - name: Launch installed simulator app
         run: python3 scripts/smoke_simulator.py
       - uses: actions/upload-artifact@v4
