@@ -3,3 +3,12 @@
 *.xcodeproj/
 Configuration/*-Info.plist
 Configuration/*.entitlements
+# The generated project is committed so teammates can open it directly in Xcode.
+!Mymah Finds.xcodeproj/
+!Mymah Finds.xcodeproj/project.pbxproj
+!Mymah Finds.xcodeproj/xcshareddata/
+!Mymah Finds.xcodeproj/xcshareddata/**
+Mymah Finds.xcodeproj/xcuserdata/
+Mymah Finds.xcodeproj/project.xcworkspace/
+!Configuration/*-Info.plist
+!Configuration/*.entitlements

@@ -1,7 +1,7 @@
 name: Mymah Finds
 options:
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "18.0"
 packages:
   CommonThreadKit:
     path: .
@@ -12,9 +12,9 @@ settings:
     CODE_SIGN_STYLE: Automatic
     CURRENT_PROJECT_VERSION: 1
     MARKETING_VERSION: "0.1.0"
-    COMMON_THREAD_BUNDLE_PREFIX: com.example.commonthread
-    COMMON_THREAD_APP_GROUP: group.com.example.commonthread
-    COMMON_THREAD_KEYCHAIN_GROUP: "$(AppIdentifierPrefix)com.example.commonthread.shared"
+    COMMON_THREAD_BUNDLE_PREFIX: com.aigrandprix.mymahfinds
+    COMMON_THREAD_APP_GROUP: group.com.aigrandprix.mymahfinds
+    COMMON_THREAD_KEYCHAIN_GROUP: "$(AppIdentifierPrefix)com.aigrandprix.mymahfinds.shared"
 targets:
   CommonThread:
     type: application
@@ -25,7 +25,10 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: "$(COMMON_THREAD_BUNDLE_PREFIX)"
-        TARGETED_DEVICE_FAMILY: "1,2"
+        TARGETED_DEVICE_FAMILY: "1"
+      configs:
+        Debug:
+          INFOPLIST_FILE: Configuration/App-Debug-Info.plist
     info:
       path: Configuration/App-Info.plist
       properties:
@@ -34,6 +37,10 @@ targets:
         CommonThreadAppGroup: "$(COMMON_THREAD_APP_GROUP)"
         CommonThreadKeychainGroup: "$(COMMON_THREAD_KEYCHAIN_GROUP)"
         NSLocalNetworkUsageDescription: Connect to your chosen server to sync your saved content.
+        NSMicrophoneUsageDescription: Record your voice to add an editable note to a saved find.
+        NSSpeechRecognitionUsageDescription: Turn your voice into an editable note about why you are saving this find.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
     entitlements:
       path: Configuration/App.entitlements
       properties:
@@ -56,7 +63,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: "$(COMMON_THREAD_BUNDLE_PREFIX).share"
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
-        TARGETED_DEVICE_FAMILY: "1,2"
+        TARGETED_DEVICE_FAMILY: "1"
+      configs:
+        Debug:
+          INFOPLIST_FILE: Configuration/Share-Debug-Info.plist
     info:
       path: Configuration/Share-Info.plist
       properties:

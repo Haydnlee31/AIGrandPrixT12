@@ -2,7 +2,7 @@
 
 A shared backend for a **Chrome extension/browser experience** and a **native iOS app with a Share Extension**. Current navigation is exactly **Library, Search, Profile**. Library contains the person's saved links and details; Search finds that saved content; Profile owns account and connection controls. No Map or Community.
 
-The saved-library approach takes inspiration from [Albo](https://albo.inc/) with an independent Mymah Finds visual identity. Intelligence and product catalog integration are deferred: teammates should not wire recommendations, discovery, watches, or commerce into the current frontend. There are no prototype/demo labels in the product interface.
+The saved-library approach takes inspiration from [Albo](https://albo.inc/) with an independent Mymah Finds visual identity. Intelligence and product catalog integration are deferred: teammates should not wire recommendations, discovery, watches, or commerce into the current frontend. The native frontend can run independently with clearly labeled sample inspiration and on-device saves; shared account connection is optional.
 
 **Start with [the team handoff](docs/team-handoff.md).** Platform setup: [Chrome](docs/platform-chrome.md) · [iOS](docs/platform-ios.md). API snapshot: [OpenAPI](contracts/openapi.json) · [response examples](contracts/examples).
 
@@ -18,7 +18,7 @@ This implements the framework behind the [backend plan](https://chatgpt.com/spac
 | iOS | Swift API package, typed models, account-scoped capture outbox, SwiftUI host and Share Extension templates, Keychain/App Group setup |
 | Browser UI | Responsive Library / Search / Profile in `frontend/`, saved-content filters, grid/list views, full-library local search, capture, details, deletion and account controls |
 
-The reference UI is not the final design for either interface. Native Xcode targets still need generation, signing, building, and device testing. Chrome installation is provided as an unpacked package, not a published Web Store listing.
+The native iPhone app has a checked-in Xcode project, an Albo-inspired Library/Search/Profile interface, optional voice-to-text notes, and a working local library that needs no server or database. Open `clients/ios/Mymah Finds.xcodeproj`; see [native build instructions](docs/ios-build.md). App and Share Extension compile for a generic iOS simulator; ordinary-iPhone runtime and device validation remain outstanding. Chrome installation is provided as an unpacked package, not a published Web Store listing.
 
 **Backend development boundary:** existing deterministic annotation rules, fixture catalog, discovery sessions, simulated watches and alerts remain available for later integration and regression testing. The current frontend does not request or display them. Production login, uploads, push and live commerce remain future backend work. `/v1/capabilities` describes technical support, not permission to expand the agreed frontend scope.
 
