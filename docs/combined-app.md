@@ -120,3 +120,33 @@ recommendations from other saved content. Use a quiet test account when possible
 Do not equate an app API credential or local test pass with production promotion.
 Physical microphone interruptions and a real Share Sheet gesture still need a
 signed iPhone acceptance pass after deployment.
+
+## iPhone voice capture verification
+
+The [microphone verification record](validation/ios-microphone-2026-10-25.json)
+and [CI run 40145641206](https://github.com/Haydnlee31/AIGrandPrixT12/actions/runs/40145641206)
+record 11 recorder tests and 3 real simulator UI tests passing on `2ad8809`.
+
+The capture screen shows microphone preparation, recording and file finalization
+separately. Save waits until the audio file is attached. Available transcripts
+appear while product analysis is still running; editing a transcript prevents
+later results from replacing that edit. Connected account access also configures
+intelligence. An unconnected local recording explains that sign-in is needed for
+transcription.
+
+With full Xcode, reproduce the isolated simulator microphone checks using:
+
+```sh
+sh clients/ios/Scripts/build-simulator.sh
+python3 scripts/smoke_simulator.py
+python3 clients/ios/Scripts/microphone-simulator.py
+```
+
+The `Mymah Microphone` scheme exercises the production recorder, first permission
+grant, denial, background interruption and local attachment/save flow. Its actual
+AAC recording also passes through the native upload/polling helper using an
+explicit HTTP fixture that returns speech before product understanding. The
+simulator input may be silent: that fixture is not a speech-recognition test.
+Known synthetic speech in matching AAC format is tested separately against the
+configured transcription provider. These client fixes require rebuilding the iOS
+app; the backend does not need a new key or deployment.

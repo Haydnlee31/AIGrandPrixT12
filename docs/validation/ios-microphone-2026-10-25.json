@@ -1,0 +1,142 @@
+{
+  "date": "2026-10-25",
+  "status": "passed",
+  "branch": "codex/combined-multimodal-app",
+  "observed_symptom": "Recording attaches, but transcript/error is not visible; user reports an account shown in Profile.",
+  "fixes": [
+    "Show available ASR transcript before product analysis completes",
+    "Keep typed transcript edits when later analysis finishes",
+    "Wait for foreground after initial microphone permission",
+    "Finalize interrupted/manual recording without depending solely on delegate",
+    "Block saving while microphone preparation or file finalization is pending",
+    "Keep voice controls visible after attachment insertion",
+    "Connect static-account intelligence automatically and explain unconfigured transcription"
+  ],
+  "live_native_format_transcription": {
+    "status": "passed",
+    "source": "synthetic macOS AAC encoder matching native recorder",
+    "audio_format": {
+      "codec": "AAC-LC",
+      "container": "M4A",
+      "sample_rate": 24000,
+      "channels": 1,
+      "bitrate": 64000
+    },
+    "provider_calls": 1,
+    "checks": [
+      "native_aac_shared_and_legacy_mime_validation",
+      "native_aac_api_upload",
+      "live_native_aac_transcription",
+      "synthetic_phrase_recognized",
+      "analysis_successor_queued",
+      "temporary_capture_cleanup"
+    ],
+    "bytes": 40794,
+    "transcription_model": "gpt-transcribe",
+    "stage_after_transcription": "analyzing",
+    "provider_error": null,
+    "elapsed_seconds": 2.13
+  },
+  "local_regressions": [
+    "SDK progress: early transcript, failure retention, deduplication, stale revision, cancellation",
+    "Native multimodal upload/correction/cleanup flow",
+    "Shared outbox publication and retry recovery",
+    "Local saved-analysis and transcript persistence"
+  ],
+  "backend_audio_provider_tests": 106,
+  "limits": [
+    "Simulator microphone input may be silent; synthetic known speech is verified separately against the live provider",
+    "No physical iPhone microphone or Bluetooth recording has been exercised in this run"
+  ],
+  "tested_app_commit": "2ad8809f7fbd442b173198bb10e0ba64c3098a18",
+  "workflow": "https://github.com/Haydnlee31/AIGrandPrixT12/actions/runs/40145641206",
+  "simulator": {
+    "device": "iPhone 16 Pro",
+    "full_app_and_share_build": "passed",
+    "sdk_tests": 13,
+    "recorder_tests": 11,
+    "app_ui_tests": 3,
+    "failures": 0,
+    "checks": [
+      "First real microphone permission grant starts on first tap",
+      "Real AVAudioRecorder creates decodable mono AAC",
+      "Stop attaches recording and enables Save",
+      "Recording saves locally",
+      "Denied microphone explains Settings recovery and leaves text saving usable",
+      "Background interruption retains partial audio",
+      "Exact recorded AAC passes native SDK upload and early transcript callback using explicit HTTP fixture"
+    ]
+  },
+  "actual_simulator_aac_backend": {
+    "status": "passed",
+    "source": "actual iOS simulator AVAudioRecorder artifact",
+    "provider_calls": 0,
+    "bytes": 32904,
+    "checks": [
+      "hosted_size_limit",
+      "actual_native_container_valid",
+      "all_m4a_mime_aliases",
+      "legacy_dictation_validator",
+      "actual_native_bytes_api_upload",
+      "canonical_alias_deduplication",
+      "byte_exact_download",
+      "isolated_fixture_cleanup",
+      "zero_provider_calls"
+    ],
+    "native_metadata": {
+      "bytes": 32904,
+      "channels": 1,
+      "duration": 1.3626666666666667,
+      "engine": "AVAudioRecorder",
+      "frames": 32704,
+      "sample_rate": 24000,
+      "scope": "Real simulator recording engine, permissions, stop, AAC decode; does not prove a physical microphone or audible speech",
+      "status": "passed"
+    },
+    "container": {
+      "major_brand": "M4A ",
+      "duration_version": 0,
+      "timescale": 24000,
+      "duration_seconds": 1.4506666666666668,
+      "handler": "soun"
+    }
+  },
+  "encoding_bounds": {
+    "status": "passed",
+    "fixtures": "synthetic tone encoded to matching AAC; no provider calls",
+    "bounds": [
+      {
+        "requested_seconds": 0.25,
+        "container_seconds": 0.3413333333333333,
+        "bytes": 5064,
+        "canonical_mime": "audio/mp4",
+        "within_hosted_3MiB_limit": true
+      },
+      {
+        "requested_seconds": 60,
+        "container_seconds": 60.117333333333335,
+        "bytes": 340010,
+        "canonical_mime": "audio/mp4",
+        "within_hosted_3MiB_limit": true
+      }
+    ]
+  },
+  "production_health": {
+    "status": "ok",
+    "ready": true,
+    "multimodal": true,
+    "inference_provider": "gpt-6-astra:predictive-v2"
+  },
+  "evidence_scope": {
+    "actual_microphone_engine": "iPhone simulator AVAudioRecorder; simulator input may be silent",
+    "native_transcript_progress": "Explicit HTTP fixture; not live speech recognition",
+    "live_speech_recognition": "Separate known synthetic speech encoded as24kHz mono AAC M4A; one real gpt-transcribe request",
+    "physical_user_device": "Not recorded in this run; installed app needs rebuild and on-device retest"
+  },
+  "screenshots": [
+    "dist/microphone-validation/voice-note-saved.png",
+    "dist/microphone-validation/background-recording-retained.png",
+    "dist/microphone-validation/microphone-denied.png"
+  ],
+  "server_changes_required": false
+}
