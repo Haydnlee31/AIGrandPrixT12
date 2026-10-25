@@ -17,6 +17,7 @@ struct TasteLabScreen: View {
     }
     private struct Plan: Decodable { let cases: [Pair] }
     private struct Meaning: Decodable { let interpretation, brief, category: String }
+    @MainActor private static var cachedPlans: [Data: (Date, Plan)] = [:]
     @Environment(\.dismiss) private var dismiss
     @State private var cases: [Pair] = []
     @State private var compared: [String: String] = [:]
@@ -150,8 +151,18 @@ struct TasteLabScreen: View {
                 if let analysis = metadata[find.id]?.analysis { value["analysis"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(analysis)) }
                 return value
             }
-            let data = try await CaptureIntelligence.post(path: "v1/taste-lab", body: JSONSerialization.data(withJSONObject: ["finds": payload, "goal": String(goal.prefix(300))]))
-            try Task.checkCancellation(); cases = try JSONDecoder().decode(Plan.self, from: data).cases; compared = [:]
+            let body = try JSONSerialization.data(withJSONObject: ["finds": payload, "goal": String(goal.prefix(300))], options: [.sortedKeys])
+            if let cached = Self.cachedPlans[body], Date().timeIntervalSince(cached.0) < 600 {
+                cases = cached.1.cases; return
+            }
+            let data = try await CaptureIntelligence.post(path: "v1/taste-lab", body: body)
+            try Task.checkCancellation()
+            let plan = try JSONDecoder().decode(Plan.self, from: data)
+            cases = plan.cases; compared = [:]
+            if !plan.cases.isEmpty {
+                if Self.cachedPlans.count >= 8 { Self.cachedPlans.removeAll() }
+                Self.cachedPlans[body] = (Date(), plan)
+            }
         } catch is CancellationError {} catch { self.error = "Couldn’t create comparisons. Try again; the prepared experiment is still available." }
     }
     @MainActor private func interpret(openResults: Bool) async {
