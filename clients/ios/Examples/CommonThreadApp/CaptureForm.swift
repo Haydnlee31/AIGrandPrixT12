@@ -11,7 +11,9 @@ struct CaptureForm: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var voiceRecorder = VoiceNoteRecorder()
     @State private var transcriptText: String?
+    @State private var transcriptWasEdited = false
     @State private var reviewedTranscript: String?
+    @State private var showingDiscardRecording = false
     @State private var link = ""
     @State private var title = ""
     @State private var titleWasEdited = false
@@ -93,14 +95,16 @@ struct CaptureForm: View {
             && (effectiveConnection == nil || (cloudCompatible && connectedNote.count <= maxNote))
     }
     private var frozen: Bool { pending != nil || pendingMultimodal != nil || saving || receipt != nil }
-    private var canSave: Bool { !voiceRecorder.isRecording && !saving && canRetry && receipt == nil && (pending != nil || pendingMultimodal != nil || valid) }
+    private var voiceBusy: Bool { voiceRecorder.isPreparing || voiceRecorder.isRecording || voiceRecorder.isFinishing }
+    private var hasVoice: Bool { attachments.contains { UTType($0.value.typeIdentifier)?.conforms(to: .audio) == true } }
+    private var canSave: Bool { !voiceBusy && !saving && canRetry && receipt == nil && (pending != nil || pendingMultimodal != nil || valid) }
     private var currentAnalysisInput: AnalysisInput {
         AnalysisInput(url: cleanedLink, title: titleWasEdited ? title.trimmingCharacters(in: .whitespacesAndNewlines) : "",
                       text: savedText.trimmingCharacters(in: .whitespacesAndNewlines), attachmentIDs: attachments.map(\.id), note: note, reviewedTranscript: reviewedTranscript)
     }
     private var analysisRequest: AnalysisRequest {
         AnalysisRequest(input: currentAnalysisInput,
-                        ready: CaptureIntelligence.isConfigured && valid && !frozen && scenePhase == .active,
+                        ready: CaptureIntelligence.isConfigured && valid && !frozen && !voiceBusy && scenePhase == .active,
                         retry: analysisRetry)
     }
     private var currentAnalysis: CaptureIntelligenceResult? { analysisInput == currentAnalysisInput ? analysis : nil }
@@ -116,12 +120,18 @@ struct CaptureForm: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(receipt == nil ? "Close" : "Done") { dismiss() }.disabled(saving)
+                    Button(receipt == nil ? "Close" : "Done") {
+                        if voiceBusy { showingDiscardRecording = true } else { dismiss() }
+                    }.disabled(saving)
                 }
             }
         }
         .presentationDragIndicator(.visible)
-        .interactiveDismissDisabled(saving)
+        .interactiveDismissDisabled(saving || voiceBusy)
+        .confirmationDialog("Discard this recording?", isPresented: $showingDiscardRecording, titleVisibility: .visible) {
+            Button("Discard recording", role: .destructive) { voiceRecorder.cancel(); dismiss() }
+            Button("Keep recording", role: .cancel) { }
+        } message: { Text("This voice note has not been attached to your find yet.") }
         .task {
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-verifyMultimodalDraft"), attachments.isEmpty {
@@ -145,7 +155,9 @@ struct CaptureForm: View {
             }
         }
         .task(id: analysisRequest) { await analyzeCapture(analysisRequest) }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { voiceRecorder.stop() } }
+        .onChange(of: scenePhase) { _, phase in
+            voiceRecorder.handleSceneChange(isActive: phase == .active, isBackground: phase == .background)
+        }
         .onDisappear { voiceRecorder.cancel() }
         .onChange(of: currentAnalysisInput) { _, _ in
             if !frozen { localRecoveryID = UUID().uuidString }
@@ -204,13 +216,13 @@ struct CaptureForm: View {
                     HStack(spacing: 12) {
                         PhotosPicker(selection: $photoSelection, maxSelectionCount: max(1, 10 - attachments.count), matching: .images) {
                             Label("Photos", systemImage: "photo.on.rectangle")
-                        }.buttonStyle(.bordered).disabled(frozen || loadingMedia)
+                        }.buttonStyle(.bordered).disabled(frozen || loadingMedia || voiceBusy)
                         if UIImagePickerController.isSourceTypeAvailable(.camera) {
                             Button { showingCamera = true } label: { Label("Camera", systemImage: "camera") }
-                                .buttonStyle(.bordered).disabled(frozen)
+                                .buttonStyle(.bordered).disabled(frozen || voiceBusy)
                         }
                         Button { showingFiles = true } label: { Label("Files", systemImage: "folder") }
-                            .buttonStyle(.bordered).disabled(frozen)
+                            .buttonStyle(.bordered).disabled(frozen || voiceBusy)
                     }
                     Text("Photos are optimized for your library. You can also keep PDFs, text files, short videos, and audio files on this iPhone.")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -250,7 +262,7 @@ struct CaptureForm: View {
                         Spacer()
                         if note.count > maxNote - 200 { Text("\(note.count)/\(maxNote)").foregroundStyle(note.count > maxNote ? .red : .secondary) }
                     }.font(.caption).foregroundStyle(.secondary)
-                    voiceNoteControls
+                    voiceNoteControls.id("captureVoiceControls")
                     if pending == nil && pendingMultimodal == nil { predictiveNotes.id("capturePredictiveNotes") }
                     if effectiveConnection != nil && connectedNote.count > maxNote {
                         Text("Shorten your note or remove a selection before saving to your shared library.")
@@ -294,6 +306,11 @@ struct CaptureForm: View {
                     .font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity)
             }.padding(24).frame(maxWidth: 600).frame(maxWidth: .infinity)
           }.scrollDismissesKeyboard(.interactively)
+          .onChange(of: hasVoice) { _, present in
+              if present {
+                  withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo("captureVoiceControls", anchor: .center) }
+              }
+          }
           #if DEBUG
           .onChange(of: currentAnalysis?.analyzedAt) { _, analyzedAt in
               guard analyzedAt != nil, ProcessInfo.processInfo.arguments.contains("-demoWatchDraft") else { return }
@@ -307,11 +324,15 @@ struct CaptureForm: View {
 
     private var voiceNoteControls: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if voiceRecorder.isRecording {
+            if voiceRecorder.isPreparing {
+                ProgressView("Starting microphone…")
+            } else if voiceRecorder.isFinishing {
+                ProgressView("Preparing your voice note…")
+            } else if voiceRecorder.isRecording {
                 Button { voiceRecorder.stop() } label: {
                     Label("Stop recording · \(voiceRecorder.elapsed)s / 60s", systemImage: "stop.circle.fill")
                 }.tint(.red).accessibilityIdentifier("captureStopVoice")
-            } else if !attachments.contains(where: { UTType($0.value.typeIdentifier)?.conforms(to: .audio) == true }) {
+            } else if !hasVoice {
                 Button {
                     focused = nil
                     Task { await voiceRecorder.start { value in
@@ -320,13 +341,24 @@ struct CaptureForm: View {
                 } label: { Label("Record a voice note", systemImage: "mic") }
                     .disabled(frozen || loadingMedia || voiceRecorder.isPreparing).accessibilityIdentifier("captureRecordVoice")
             }
-            if let error = voiceRecorder.errorMessage { Text(error).font(.caption).foregroundStyle(.secondary) }
+            Text(voiceRecorder.isPreparing ? "Starting microphone" : voiceRecorder.isFinishing ? "Preparing voice note" : voiceRecorder.isRecording ? "Recording" : hasVoice ? "Voice note attached" : "Ready to record")
+                .font(.caption).foregroundStyle(.secondary)
+                .accessibilityIdentifier("captureVoiceState")
+                .accessibilityValue(voiceRecorder.isPreparing ? "preparing" : voiceRecorder.isFinishing ? "finishing" : voiceRecorder.isRecording ? "recording" : "idle")
+            if let error = voiceRecorder.errorMessage {
+                Text(error).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("voiceRecordError")
+            }
+            if hasVoice && transcriptText == nil && !CaptureIntelligence.isConfigured {
+                Text("Sign in through Profile to transcribe this voice note. You can save the recording on this iPhone now.")
+                    .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("voiceSignInRequired")
+            }
             if transcriptText != nil {
                 Text("Your voice note").font(.subheadline.bold())
-                TextField("Review the transcript", text: Binding(get: { transcriptText ?? "" }, set: { transcriptText = $0 }), axis: .vertical)
+                TextField("Review the transcript", text: Binding(get: { transcriptText ?? "" }, set: { transcriptText = $0; transcriptWasEdited = true }), axis: .vertical)
                     .lineLimit(3...8).disabled(frozen).accessibilityIdentifier("captureTranscript")
                 Button("Use corrected transcript") {
                     reviewedTranscript = transcriptText?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    transcriptWasEdited = false
                 }.disabled(frozen || (transcriptText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
                     || (transcriptText?.count ?? 0) > 8000 || transcriptText == (reviewedTranscript ?? currentAnalysis?.transcript))
                 Text("Corrections update your suggestions. Your recording remains with this find until you remove it.")
@@ -340,7 +372,7 @@ struct CaptureForm: View {
             if analyzing {
                 HStack(spacing: 10) {
                     ProgressView()
-                    Text("Finding what makes this interesting…").font(.subheadline).foregroundStyle(.secondary)
+                    Text(hasVoice && transcriptText == nil ? "Transcribing your voice…" : "Finding what makes this interesting…").font(.subheadline).foregroundStyle(.secondary)
                 }.accessibilityIdentifier("captureAnalysisLoading")
             } else if let analysis = currentAnalysis {
                 if !analysis.prompts.isEmpty {
@@ -424,11 +456,18 @@ struct CaptureForm: View {
             guard recordings.count <= 1 else { throw MultimodalDraftAnalysis.Failure.unsupportedAudio }
             let audio = try recordings.first.map { try MultimodalDraftAnalysis.Audio(data: $0.value.data, filename: $0.value.filename) }
             let result = try await CaptureIntelligence.analyze(url: request.input.url.isEmpty ? nil : request.input.url,
-                title: request.input.title, text: request.input.text, note: request.input.note, imageData: images.first, additionalImages: Array(images.dropFirst()), audio: audio, reviewedTranscript: request.input.reviewedTranscript)
+                title: request.input.title, text: request.input.text, note: request.input.note, imageData: images.first, additionalImages: Array(images.dropFirst()), audio: audio, reviewedTranscript: request.input.reviewedTranscript,
+                onTranscript: { text in
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run {
+                        guard !Task.isCancelled, request == analysisRequest, requestID == analysisRequestID, !transcriptWasEdited else { return }
+                        transcriptText = text
+                    }
+                })
             try Task.checkCancellation()
             guard request == analysisRequest, requestID == analysisRequestID else { return }
             analysis = result; analysisInput = request.input
-            if let transcript = result.transcript { transcriptText = transcript }
+            if let transcript = result.transcript, !transcriptWasEdited { transcriptText = transcript }
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-verifyMultimodalDraft") {
                 let report = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("multimodal-device-verification.json")
@@ -463,7 +502,7 @@ struct CaptureForm: View {
     }
 
     @MainActor private func save() async {
-        guard !saving else { return }
+        guard !saving, !voiceBusy else { return }
         let analysisToSave = currentAnalysis
         saving = true; message = nil
         defer { saving = false }
@@ -540,10 +579,11 @@ struct CaptureForm: View {
                         }
                         HStack {
                             Text(attachment.value.filename).font(.caption).lineLimit(1)
+                                .accessibilityIdentifier(UTType(attachment.value.typeIdentifier)?.conforms(to: .audio) == true ? "voiceAttachment" : "captureAttachment")
                             Spacer()
                             Button("Remove", role: .destructive) {
                                 attachments.removeAll { $0.id == attachment.id }
-                                if UTType(attachment.value.typeIdentifier)?.conforms(to: .audio) == true { transcriptText = nil; reviewedTranscript = nil }
+                                if UTType(attachment.value.typeIdentifier)?.conforms(to: .audio) == true { transcriptText = nil; reviewedTranscript = nil; transcriptWasEdited = false }
                             }
                                 .font(.caption).disabled(frozen)
                         }.frame(width: 276)

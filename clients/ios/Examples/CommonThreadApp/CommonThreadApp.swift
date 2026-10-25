@@ -222,7 +222,8 @@ struct MymahFindsView: View {
             #endif
             if let saved = try? SharedEnvironment.read() {
                 accountConnection = saved; connection = saved.loginSubject == nil || sharedDestination ? saved : nil; apiURL = saved.baseURL.absoluteString
-                if saved.loginSubject != nil { try? CaptureIntelligence.connectAccount(saved) }
+                do { try CaptureIntelligence.connectAccount(saved) }
+                catch { errorMessage = "Shopping intelligence could not reconnect. Sign in again in Profile; your saved finds are still available." }
             }
             await refresh()
             if connection != nil && !pendingMultimodal.isEmpty { await sync(retryFailed: false) }
@@ -607,6 +608,7 @@ struct MymahFindsView: View {
             _ = try await client.capabilities()
             let environment = SharedEnvironment(baseURL: url, accountId: account.userId)
             try environment.store(token: suppliedToken); try environment.store()
+            try CaptureIntelligence.connectAccount(environment)
             accountGeneration = UUID(); accountConnection = environment; connection = environment; token = ""; apiURL = url.absoluteString
             items = []; pendingSaves = []; nextOffset = nil; selectedSource = nil; pendingErrors = [:]
             let generation = accountGeneration
@@ -614,6 +616,7 @@ struct MymahFindsView: View {
             let page = try await client.collection()
             guard sameAccount(environment, generation: generation) else { return }
             items = page.items; nextOffset = page.nextOffset
+            LocalAnalysisCoordinator.shared.resume(retryFailures: true)
             status = "Your library is connected."; selectedTab = .library
         } catch { errorMessage = error.localizedDescription; status = "Connection needs attention." }
     }

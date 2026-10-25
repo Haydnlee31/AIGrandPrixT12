@@ -132,7 +132,11 @@ public enum MultimodalClientError: Error, LocalizedError, Sendable {
         case .invalidPollingOptions: return "Use a finite interval of at least 0.1 seconds and a timeout from zero to one day."
         case .invalidResponse: return "The server returned an unexpected multimodal response."
         case .staleRevision: return "The capture changed during analysis. Refresh before applying the result."
-        case .analysisFailed: return "Your capture is stored, but analysis failed. Review it before retrying."
+        case .analysisFailed(let code):
+            if code == "multimodal_invalid_transcript" {
+                return "Your voice note could not be transcribed clearly. Record again or type your note."
+            }
+            return "Your capture is stored, but analysis failed. Review it before retrying."
         case .pollingTimedOut: return "Your capture is stored and still processing. Refresh it later."
         }
     }

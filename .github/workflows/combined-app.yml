@@ -14,7 +14,7 @@ concurrency:
 jobs:
   ios:
     runs-on: macos-15
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - name: Build app and Share Extension
@@ -28,9 +28,17 @@ jobs:
           sh clients/ios/Scripts/local_analysis_smoke.sh
       - name: Launch installed simulator app
         run: python3 scripts/smoke_simulator.py
+      - name: Record native AAC and exercise microphone permission UI
+        run: python3 clients/ios/Scripts/microphone-simulator.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ios-simulator-validation
           path: dist/simulator-validation
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-microphone-validation
+          path: dist/microphone-validation
           if-no-files-found: ignore

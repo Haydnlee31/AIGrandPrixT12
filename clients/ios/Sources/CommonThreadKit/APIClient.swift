@@ -178,7 +178,8 @@ public actor CommonThreadClient {
 
     /// Foreground polling after analyzeMultimodalCapture. Never publishes or schedules an action.
     /// The timeout also cancels an in-flight URLSession request; an edit invalidates expectedRevision.
-    public func waitForMultimodalCapture(_ id: String, expectedRevision: Int? = nil, interval: TimeInterval = 1.5, timeout: TimeInterval = 60) async throws -> MultimodalCapture {
+    /// Progress runs only after identity/revision validation. UI callbacks must also reject obsolete local input.
+    public func waitForMultimodalCapture(_ id: String, expectedRevision: Int? = nil, interval: TimeInterval = 1.5, timeout: TimeInterval = 60, onProgress: (@Sendable (MultimodalCapture) async -> Void)? = nil) async throws -> MultimodalCapture {
         try validateMultimodalIdentifier(id)
         if let expectedRevision { try validateMultimodalRevision(expectedRevision) }
         guard interval.isFinite, interval >= 0.1, timeout.isFinite, (0...86_400).contains(timeout) else { throw MultimodalClientError.invalidPollingOptions }
@@ -194,12 +195,15 @@ public actor CommonThreadClient {
                     if let expectedRevision, capture.revision != expectedRevision {
                         throw MultimodalClientError.staleRevision(expected: expectedRevision, actual: capture.revision)
                     }
-                    if capture.status == "ready" {
-                        guard capture.result != nil else { throw MultimodalClientError.invalidResponse }
-                        return capture
-                    }
+                    guard ["pending", "ready", "enrichment_failed"].contains(capture.status) else { throw MultimodalClientError.invalidResponse }
+                    if capture.status == "ready", capture.result == nil { throw MultimodalClientError.invalidResponse }
+                    // Transcription can finish before product understanding. Deliver validated,
+                    // current-revision progress even if the later analysis stage has failed.
+                    try Task.checkCancellation()
+                    if let onProgress { await onProgress(capture) }
+                    try Task.checkCancellation()
+                    if capture.status == "ready" { return capture }
                     if capture.status == "enrichment_failed" { throw MultimodalClientError.analysisFailed(code: capture.errorCode) }
-                    guard capture.status == "pending" else { throw MultimodalClientError.invalidResponse }
                     try await Task.sleep(nanoseconds: UInt64(min(interval, 86_400) * 1_000_000_000))
                 }
             }

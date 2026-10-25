@@ -15,6 +15,7 @@
 		1B79CADC8C7EE5518173F04E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8DB0DCFAABC8D5FB56F56981 /* Assets.xcassets */; };
 		1F7208DDF716C0B63AB76400 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFCA19337324824EC87C80F9 /* ShareViewController.swift */; };
 		201D088E2156310EEC5787FD /* CommonThreadKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5F2AD18524C86B58857DAF84 /* CommonThreadKit */; };
+		220479C8A08CB14BD50F3D73 /* VoiceNoteRecorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7AD3507A6F3753B6EBDA07F /* VoiceNoteRecorderTests.swift */; };
 		22F08A690081697CDF0097B9 /* IntelligenceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E979A581AA100CE167143CE /* IntelligenceSettingsView.swift */; };
 		277F7ED41C7357C46BCE790A /* MultimodalDraftAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02D21BDD7BB5F1995D35706F /* MultimodalDraftAnalysis.swift */; };
 		2C3E70589E74F68905267EB0 /* SharedEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFBDAB5909186036DEE2BCC9 /* SharedEnvironment.swift */; };
@@ -31,6 +32,7 @@
 		4C2344ED1EECE91DC0B68715 /* LocalAnalysisState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B739513919ED00697FE4CB1 /* LocalAnalysisState.swift */; };
 		4FEF38495FFD4131DD0BC41D /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A37129F5DDEAF336E6DD4CB /* OnboardingView.swift */; };
 		53BF6A3E886DB228CF9E03D1 /* IntentRefinementSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13F8D5329F0C4A740946EB22 /* IntentRefinementSheet.swift */; };
+		59E4D321E4ED04D829B2B722 /* MicrophoneCaptureUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 905AC13E9D85724B8DA21361 /* MicrophoneCaptureUITests.swift */; };
 		5F6EA4883F3A92B7FAD67FBF /* RadarBudgetScale.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C074A646335D81AAF4C9FC2 /* RadarBudgetScale.swift */; };
 		67F9CBE61630508991D501FB /* IntelligenceMutationKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = E144240FE076B72D13710D59 /* IntelligenceMutationKeys.swift */; };
 		68F7A53A71D69CA96FC47625 /* LivePriceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B03EE849B1A6A8700DC56D6B /* LivePriceModels.swift */; };
@@ -73,12 +75,26 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		6D0C8BEEF7BF9D6160038EC9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C63A6BFBF4F2C45E2F595F4D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F9215C546769D332682F5A3B;
+			remoteInfo = CommonThread;
+		};
 		D579C1295F8084D471CE3B2F /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = C63A6BFBF4F2C45E2F595F4D /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 54026DBB65C6B60256C7C752;
 			remoteInfo = CommonThreadShare;
+		};
+		EF23E5F96C50D8E933CB1134 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C63A6BFBF4F2C45E2F595F4D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F9215C546769D332682F5A3B;
+			remoteInfo = CommonThread;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -98,6 +114,7 @@
 
 /* Begin PBXFileReference section */
 		02D21BDD7BB5F1995D35706F /* MultimodalDraftAnalysis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultimodalDraftAnalysis.swift; sourceTree = "<group>"; };
+		04AB4868CAB468E19942579D /* CommonThreadMicrophoneUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = CommonThreadMicrophoneUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		134CFD18A9F40E1E470A4677 /* CaptureIntelligence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureIntelligence.swift; sourceTree = "<group>"; };
 		13F8D5329F0C4A740946EB22 /* IntentRefinementSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntentRefinementSheet.swift; sourceTree = "<group>"; };
 		180923826610AF2C48A23AE2 /* PreparedTasteLabScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreparedTasteLabScreen.swift; sourceTree = "<group>"; };
@@ -128,6 +145,7 @@
 		8CBDF56D1EBA655CFB77BF37 /* NativeTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTheme.swift; sourceTree = "<group>"; };
 		8DB0DCFAABC8D5FB56F56981 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		8EB419D30C8F0D68B6299A60 /* LocalShareImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalShareImport.swift; sourceTree = "<group>"; };
+		905AC13E9D85724B8DA21361 /* MicrophoneCaptureUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrophoneCaptureUITests.swift; sourceTree = "<group>"; };
 		9C074A646335D81AAF4C9FC2 /* RadarBudgetScale.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadarBudgetScale.swift; sourceTree = "<group>"; };
 		A13F9A2FB8637A369285F286 /* CaptureForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureForm.swift; sourceTree = "<group>"; };
 		A8CC2028089CF0E67E71865F /* WebsitePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebsitePreview.swift; sourceTree = "<group>"; };
@@ -136,6 +154,7 @@
 		B03EE849B1A6A8700DC56D6B /* LivePriceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LivePriceModels.swift; sourceTree = "<group>"; };
 		B15658BA182DF2C518C82EB0 /* IntelligenceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntelligenceViews.swift; sourceTree = "<group>"; };
 		B286E7C423A5202102A0AE95 /* LibraryPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryPresentation.swift; sourceTree = "<group>"; };
+		B3F94F580164C794437F29B7 /* CommonThreadRecorderTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = CommonThreadRecorderTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B948C2D1FD66BB964E416DC2 /* CatalogImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogImageLoader.swift; sourceTree = "<group>"; };
 		B95022B47ABF93E67D0A7B60 /* SharedMultimodalOutbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedMultimodalOutbox.swift; sourceTree = "<group>"; };
 		BD9D9FA35ED1E82755878AB5 /* ios */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ios; path = .; sourceTree = SOURCE_ROOT; };
@@ -146,6 +165,7 @@
 		E1974E8EFEFEAA9869739E51 /* LocalShareInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalShareInbox.swift; sourceTree = "<group>"; };
 		E2A56BB52DAA860BD9857206 /* RadarScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadarScreen.swift; sourceTree = "<group>"; };
 		E3245B66620B2FDF0C342482 /* TasteLabSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasteLabSession.swift; sourceTree = "<group>"; };
+		E7AD3507A6F3753B6EBDA07F /* VoiceNoteRecorderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNoteRecorderTests.swift; sourceTree = "<group>"; };
 		EFBDAB5909186036DEE2BCC9 /* SharedEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedEnvironment.swift; sourceTree = "<group>"; };
 		F3CBF7B12BFB0C5362EB9ED9 /* ProductInsightSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductInsightSummary.swift; sourceTree = "<group>"; };
 		F796462BB953EBCCEB65AC24 /* LivePriceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LivePriceService.swift; sourceTree = "<group>"; };
@@ -186,7 +206,9 @@
 			isa = PBXGroup;
 			children = (
 				743F372759912EC2DCFA8ABE /* CommonThreadApp */,
+				5E5C10ADD9D6CA7DA4D19ADD /* MicrophoneUI */,
 				6CDD5F7FE37C76C07E8277AA /* Packages */,
+				620C3518FD13BCDE8A72709B /* Recorder */,
 				3B57AB88CCB7C3584EED14A0 /* Shared */,
 				0B45B1D788B93578F1B18C36 /* ShareExtension */,
 				B394E27C28CE328B4130CB5C /* Products */,
@@ -208,6 +230,24 @@
 			);
 			name = Shared;
 			path = Examples/Shared;
+			sourceTree = "<group>";
+		};
+		5E5C10ADD9D6CA7DA4D19ADD /* MicrophoneUI */ = {
+			isa = PBXGroup;
+			children = (
+				905AC13E9D85724B8DA21361 /* MicrophoneCaptureUITests.swift */,
+			);
+			name = MicrophoneUI;
+			path = Tests/MicrophoneUI;
+			sourceTree = "<group>";
+		};
+		620C3518FD13BCDE8A72709B /* Recorder */ = {
+			isa = PBXGroup;
+			children = (
+				E7AD3507A6F3753B6EBDA07F /* VoiceNoteRecorderTests.swift */,
+			);
+			name = Recorder;
+			path = Tests/Recorder;
 			sourceTree = "<group>";
 		};
 		6CDD5F7FE37C76C07E8277AA /* Packages */ = {
@@ -271,6 +311,8 @@
 			isa = PBXGroup;
 			children = (
 				1A31D99C6DEF7611FED6E2C7 /* CommonThread.app */,
+				04AB4868CAB468E19942579D /* CommonThreadMicrophoneUITests.xctest */,
+				B3F94F580164C794437F29B7 /* CommonThreadRecorderTests.xctest */,
 				ABB2BDA80676D8F8411CAC46 /* CommonThreadShare.appex */,
 			);
 			name = Products;
@@ -279,6 +321,24 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		28BBED7E98976E5BAEAA9602 /* CommonThreadMicrophoneUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CDDA15BE437502A7677C56BF /* Build configuration list for PBXNativeTarget "CommonThreadMicrophoneUITests" */;
+			buildPhases = (
+				AA4DB4FD1CEE7BF5565D7A25 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D6BB0B9D0F38A738F58A00EE /* PBXTargetDependency */,
+			);
+			name = CommonThreadMicrophoneUITests;
+			packageProductDependencies = (
+			);
+			productName = CommonThreadMicrophoneUITests;
+			productReference = 04AB4868CAB468E19942579D /* CommonThreadMicrophoneUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		54026DBB65C6B60256C7C752 /* CommonThreadShare */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = C32D3EB4A3AC489303C9D4B1 /* Build configuration list for PBXNativeTarget "CommonThreadShare" */;
@@ -297,6 +357,24 @@
 			productName = CommonThreadShare;
 			productReference = ABB2BDA80676D8F8411CAC46 /* CommonThreadShare.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		6D82E4E62123FB4C4EC6029D /* CommonThreadRecorderTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F4F0DEAEEC946790AC8301B3 /* Build configuration list for PBXNativeTarget "CommonThreadRecorderTests" */;
+			buildPhases = (
+				369F6F3BAF19CB76BFA05255 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CDDBD9D8456C5512F3BFECC0 /* PBXTargetDependency */,
+			);
+			name = CommonThreadRecorderTests;
+			packageProductDependencies = (
+			);
+			productName = CommonThreadRecorderTests;
+			productReference = B3F94F580164C794437F29B7 /* CommonThreadRecorderTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		F9215C546769D332682F5A3B /* CommonThread */ = {
 			isa = PBXNativeTarget;
@@ -329,7 +407,16 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					28BBED7E98976E5BAEAA9602 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+						TestTargetID = F9215C546769D332682F5A3B;
+					};
 					54026DBB65C6B60256C7C752 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					6D82E4E62123FB4C4EC6029D = {
 						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
@@ -358,6 +445,8 @@
 			targets = (
 				F9215C546769D332682F5A3B /* CommonThread */,
 				54026DBB65C6B60256C7C752 /* CommonThreadShare */,
+				6D82E4E62123FB4C4EC6029D /* CommonThreadRecorderTests */,
+				28BBED7E98976E5BAEAA9602 /* CommonThreadMicrophoneUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -388,6 +477,22 @@
 				1F7208DDF716C0B63AB76400 /* ShareViewController.swift in Sources */,
 				8123921BE9365E05921E30B5 /* SharedAppearance.swift in Sources */,
 				1B3FD8A25D82D6C125527CD3 /* SharedEnvironment.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		369F6F3BAF19CB76BFA05255 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				220479C8A08CB14BD50F3D73 /* VoiceNoteRecorderTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA4DB4FD1CEE7BF5565D7A25 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				59E4D321E4ED04D829B2B722 /* MicrophoneCaptureUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -454,6 +559,16 @@
 			isa = PBXTargetDependency;
 			target = 54026DBB65C6B60256C7C752 /* CommonThreadShare */;
 			targetProxy = D579C1295F8084D471CE3B2F /* PBXContainerItemProxy */;
+		};
+		CDDBD9D8456C5512F3BFECC0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F9215C546769D332682F5A3B /* CommonThread */;
+			targetProxy = EF23E5F96C50D8E933CB1134 /* PBXContainerItemProxy */;
+		};
+		D6BB0B9D0F38A738F58A00EE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F9215C546769D332682F5A3B /* CommonThread */;
+			targetProxy = 6D0C8BEEF7BF9D6160038EC9 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -528,6 +643,23 @@
 			};
 			name = Debug;
 		};
+		47A1145393EEE64DF9DD357D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(COMMON_THREAD_BUNDLE_PREFIX).recorder-tests";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CommonThread.app/CommonThread";
+			};
+			name = Debug;
+		};
 		48C3C05C92A2E98802B7A5EB /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -542,6 +674,23 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "$(COMMON_THREAD_BUNDLE_PREFIX)";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		64D74F85399DA02C2112DBAD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(COMMON_THREAD_BUNDLE_PREFIX).recorder-tests";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CommonThread.app/CommonThread";
 			};
 			name = Release;
 		};
@@ -560,6 +709,23 @@
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		B10E89E9229F68666DEE4CCF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(COMMON_THREAD_BUNDLE_PREFIX).microphone-ui-tests";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = CommonThread;
 			};
 			name = Debug;
 		};
@@ -661,6 +827,23 @@
 			};
 			name = Release;
 		};
+		F4C09929E490B8F5A698FAA9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(COMMON_THREAD_BUNDLE_PREFIX).microphone-ui-tests";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = CommonThread;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -678,6 +861,24 @@
 			buildConfigurations = (
 				7E16F896CE14F54D0DF659C4 /* Debug */,
 				E6648DE37428AA1E7F9D41F8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		CDDA15BE437502A7677C56BF /* Build configuration list for PBXNativeTarget "CommonThreadMicrophoneUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B10E89E9229F68666DEE4CCF /* Debug */,
+				F4C09929E490B8F5A698FAA9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F4F0DEAEEC946790AC8301B3 /* Build configuration list for PBXNativeTarget "CommonThreadRecorderTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				47A1145393EEE64DF9DD357D /* Debug */,
+				64D74F85399DA02C2112DBAD /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

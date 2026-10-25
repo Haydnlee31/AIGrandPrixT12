@@ -105,7 +105,7 @@ enum CaptureIntelligence {
     @MainActor private static var analysisCache: [String: CachedAnalysis] = [:]
     @MainActor private static var pageCache: [URL: PageContext] = [:]
 
-    @MainActor static func analyze(url: String?, title: String, text: String, note: String, imageData: Data?, preferCapturedContent: Bool = false, additionalImages: [Data] = [], audio: MultimodalDraftAnalysis.Audio? = nil, reviewedTranscript: String? = nil) async throws -> CaptureIntelligenceResult {
+    @MainActor static func analyze(url: String?, title: String, text: String, note: String, imageData: Data?, preferCapturedContent: Bool = false, additionalImages: [Data] = [], audio: MultimodalDraftAnalysis.Audio? = nil, reviewedTranscript: String? = nil, onTranscript: (@Sendable (String) async -> Void)? = nil) async throws -> CaptureIntelligenceResult {
         try Task.checkCancellation()
         guard let configuration = try configuration() else { throw Failure.configuration }
         let serviceToken = try await accessToken(for: configuration)
@@ -119,7 +119,12 @@ enum CaptureIntelligence {
         let source = try JSONSerialization.data(withJSONObject: identity, options: [.sortedKeys])
         let namespace = Data((configuration.baseURL.absoluteString + "|" + (configuration.loginAccountId ?? configuration.accessToken) + "|" + (configuration.multimodalURL?.absoluteString ?? "") + "|" + (configuration.multimodalToken ?? "")).utf8)
         let cacheKey = SHA256.hash(data: namespace + source).map { String(format: "%02x", $0) }.joined()
-        if let cached = analysisCache[cacheKey], Date().timeIntervalSince(cached.savedAt) < 120 { return cached.result }
+        if let cached = analysisCache[cacheKey], Date().timeIntervalSince(cached.savedAt) < 120 {
+            try Task.checkCancellation()
+            if let transcript = cached.result.transcript, let onTranscript { await onTranscript(transcript) }
+            try Task.checkCancellation()
+            return cached.result
+        }
         var contextTitle = title
         var contextImage = imageData
         var contextImageIsPrepared = false
@@ -172,7 +177,7 @@ enum CaptureIntelligence {
             }
             let value = try await MultimodalDraftAnalysis.analyze(origin: origin, token: token,
                 title: String(contextTitle.prefix(300)), text: String(contextText.prefix(12_000)),
-                note: String(note.prefix(2_000)), url: url, images: prepared, audio: audio, reviewedTranscript: reviewedTranscript)
+                note: String(note.prefix(2_000)), url: url, images: prepared, audio: audio, reviewedTranscript: reviewedTranscript, onTranscript: onTranscript)
             data = try JSONEncoder().encode(value)
         } else {
             // The old preview endpoint cannot accept voice or additional photos.

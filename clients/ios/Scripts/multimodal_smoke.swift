@@ -36,6 +36,12 @@ private final class StubProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
+private actor ProgressLog {
+    private var captures: [MultimodalCapture] = []
+    func append(_ capture: MultimodalCapture) { captures.append(capture) }
+    func values() -> [MultimodalCapture] { captures }
+}
+
 @main
 struct MultimodalSmoke {
     static func main() async throws {
@@ -127,6 +133,50 @@ struct MultimodalSmoke {
         do { _ = try await api.waitForMultimodalCapture("capture-1"); throw Failure.assertion("failure accepted") }
         catch MultimodalClientError.analysisFailed(let code) { try check(code == "astra_rate_limited", "terminal error retained") }
         print("PASS stage polling, edited-revision rejection, and terminal analysis failure")
+
+        func withTranscript(_ value: [String: Any]) -> [String: Any] {
+            var item = value
+            item["assets"] = [["id": "audio-1", "media_type": "audio/mp4", "kind": "audio", "size_bytes": 123,
+                               "status": "ready", "transcript": "A birthday gift for Dad", "transcript_origin": "provider"]]
+            return item
+        }
+        let transcribedPending = try data(withTranscript(capture(stage: "analyzing")))
+        let transcribedReady = try data(withTranscript(capture("ready", stage: "ready")))
+        let progress = ProgressLog()
+        polls = 0
+        StubProtocol.handler = { _ in polls += 1; return (200, polls == 1 ? transcribedPending : transcribedReady) }
+        _ = try await api.waitForMultimodalCapture("capture-1", expectedRevision: 3, interval: 0.1, timeout: 2,
+                                                  onProgress: { await progress.append($0) })
+        let stages = await progress.values()
+        try check(stages.map(\.status) == ["pending", "ready"], "transcript progress is delivered while product analysis is still pending")
+        try check(stages.first?.assets.first?.transcript == "A birthday gift for Dad", "early progress retains transcribed speech")
+        let failedProgress = ProgressLog()
+        polls = 0
+        StubProtocol.handler = { _ in polls += 1; return (200, polls == 1 ? transcribedPending : failure) }
+        do { _ = try await api.waitForMultimodalCapture("capture-1", expectedRevision: 3, interval: 0.1, timeout: 2,
+                                                       onProgress: { await failedProgress.append($0) }); throw Failure.assertion("analysis failure expected") }
+        catch MultimodalClientError.analysisFailed { }
+        let retained = await failedProgress.values()
+        try check(retained.first?.assets.first?.transcript == "A birthday gift for Dad", "a later product-analysis failure does not erase previously delivered speech")
+        let rejectedProgress = ProgressLog()
+        StubProtocol.handler = { _ in (200, try data(withTranscript(capture(stage: "analyzing", revision: 4)))) }
+        do { _ = try await api.waitForMultimodalCapture("capture-1", expectedRevision: 3,
+                                                       onProgress: { await rejectedProgress.append($0) }); throw Failure.assertion("stale transcript accepted") }
+        catch MultimodalClientError.staleRevision { }
+        let staleValues = await rejectedProgress.values()
+        try check(staleValues.isEmpty, "stale revisions cannot emit transcript progress")
+        StubProtocol.handler = { _ in Thread.sleep(forTimeInterval: 0.05); return (200, transcribedPending) }
+        let cancelledProgress = ProgressLog()
+        let cancelled = Task { try await api.waitForMultimodalCapture("capture-1", expectedRevision: 3,
+                                                                     onProgress: { await cancelledProgress.append($0) }) }
+        try await Task.sleep(nanoseconds: 10_000_000); cancelled.cancel()
+        do { _ = try await cancelled.value; throw Failure.assertion("cancelled transcript accepted") }
+        catch is CancellationError { }
+        catch let error as URLError { try check(error.code == .cancelled, "cancelled polling propagates cancellation") }
+        let cancelledValues = await cancelledProgress.values()
+        try check(cancelledValues.isEmpty, "cancelling an in-flight response prevents progress delivery")
+        try check(MultimodalClientError.analysisFailed(code: "multimodal_invalid_transcript").localizedDescription.contains("Record again or type"), "transcription errors explain recovery without assuming silence")
+        print("PASS early speech progress, retention after analysis failure, and stale/cancelled progress rejection")
 
         StubProtocol.handler = { _ in (200, pending) }
         do { _ = try await api.waitForMultimodalCapture("capture-1", interval: 0.1, timeout: 0.02); throw Failure.assertion("timeout expected") }

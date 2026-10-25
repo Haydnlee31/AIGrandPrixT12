@@ -97,6 +97,29 @@ targets:
           - "$(COMMON_THREAD_KEYCHAIN_GROUP)"
     dependencies:
       - package: CommonThreadKit
+  CommonThreadRecorderTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests/Recorder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "$(COMMON_THREAD_BUNDLE_PREFIX).recorder-tests"
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: CommonThread
+  CommonThreadMicrophoneUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - Tests/MicrophoneUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "$(COMMON_THREAD_BUNDLE_PREFIX).microphone-ui-tests"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: CommonThread
+    dependencies:
+      - target: CommonThread
 schemes:
   Mymah Finds:
     build:
@@ -104,3 +127,14 @@ schemes:
         CommonThread: all
     run:
       config: Debug
+  Mymah Microphone:
+    build:
+      targets:
+        CommonThread: all
+    test:
+      config: Debug
+      targets:
+        - name: CommonThreadRecorderTests
+          parallelizable: false
+        - name: CommonThreadMicrophoneUITests
+          parallelizable: false

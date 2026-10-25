@@ -24,8 +24,19 @@ enum MultimodalDraftAnalysis {
             self.data = data; self.mediaType = ext == "wav" ? "audio/wav" : "audio/mp4"
         }
     }
+    private actor TranscriptProgress {
+        private var lastTranscript: String?
+        func receive(_ capture: MultimodalCapture, onTranscript: @Sendable (String) async -> Void) async {
+            guard !Task.isCancelled,
+                  let transcript = capture.assets.first(where: { $0.kind == "audio" && $0.status == "ready" })?.transcript,
+                  !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  transcript != lastTranscript else { return }
+            lastTranscript = transcript
+            await onTranscript(transcript)
+        }
+    }
     static func analyze(origin: URL, token: String, title: String, text: String,
-                        note: String, url: String?, images: [Data], audio: Audio? = nil, reviewedTranscript: String? = nil, client suppliedClient: CommonThreadClient? = nil) async throws -> CaptureIntelligenceResult {
+                        note: String, url: String?, images: [Data], audio: Audio? = nil, reviewedTranscript: String? = nil, client suppliedClient: CommonThreadClient? = nil, onTranscript: (@Sendable (String) async -> Void)? = nil) async throws -> CaptureIntelligenceResult {
         let client: CommonThreadClient
         if let suppliedClient { client = suppliedClient }
         else { client = try CommonThreadClient(baseURL: origin) { token } }
@@ -57,7 +68,10 @@ enum MultimodalDraftAnalysis {
                 edit: .init(revision: capture.revision, transcript: reviewedTranscript), key: MutationKey())
         }
         capture = try await client.analyzeMultimodalCapture(capture.id, revision: capture.revision, key: MutationKey())
-        let ready = try await client.waitForMultimodalCapture(capture.id, expectedRevision: capture.revision, timeout: 110)
+        let progress = TranscriptProgress()
+        let ready = try await client.waitForMultimodalCapture(capture.id, expectedRevision: capture.revision, timeout: 110) { capture in
+            if let onTranscript { await progress.receive(capture, onTranscript: onTranscript) }
+        }
         try Task.checkCancellation()
         guard let preview = ready.result?.preview else { throw MultimodalClientError.invalidResponse }
         var result = CaptureIntelligenceResult(productName: preview.productName, categoryPath: preview.categoryPath,
