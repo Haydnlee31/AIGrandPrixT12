@@ -110,60 +110,7 @@ struct CaptureForm: View {
     private var currentAnalysis: CaptureIntelligenceResult? { analysisInput == currentAnalysisInput ? analysis : nil }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if let receipt { confirmation(receipt) }
-                else { editor }
-            }
-            .background(NativeTheme.bg)
-            .navigationTitle(receipt == nil ? "Save a find" : "")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(receipt == nil ? "Close" : "Done") {
-                        if voiceBusy { showingDiscardRecording = true } else { dismiss() }
-                    }.disabled(saving)
-                }
-            }
-        }
-        .presentationDragIndicator(.visible)
-        .interactiveDismissDisabled(saving || voiceBusy)
-        .confirmationDialog("Discard this recording?", isPresented: $showingDiscardRecording, titleVisibility: .visible) {
-            Button("Discard recording", role: .destructive) { voiceRecorder.cancel(); dismiss() }
-            Button("Keep recording", role: .cancel) { }
-        } message: { Text("This voice note has not been attached to your find yet.") }
-        .task {
-            #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("-verifyMultimodalDraft"), attachments.isEmpty {
-                let metadata = (try? await LocalLibrary.shared.metadata()) ?? [:]
-                let originals = metadata.values.flatMap(\.attachments).filter(\.isImage)
-                for attachment in Array(originals.sorted { $0.id.uuidString < $1.id.uuidString }.prefix(2)) {
-                    if let bytes = try? await LocalLibrary.shared.attachmentData(attachment) {
-                        try? addAttachment(CaptureMedia.image(bytes, name: attachment.filename))
-                    }
-                }
-                note = "Compare the dials and straps in these watches. Do not assume they are the same model."
-            }
-            if ProcessInfo.processInfo.arguments.contains("-demoWatchDraft"), link.isEmpty, title.isEmpty, savedText.isEmpty {
-                format = .text
-                title = "Vintage-style digital watch"
-                savedText = "A compact rectangular digital wristwatch with a silver stainless-steel bracelet, a black LCD face, and a retro 1980s look. No brand or model is identified."
-            }
-            #endif
-            if let connection, let limits = try? await connection.client().capabilities().capture {
-                maxURL = limits.maxUrlLength; maxTitle = limits.maxTitleLength; maxNote = limits.maxNoteLength
-            }
-        }
-        .task(id: analysisRequest) { await analyzeCapture(analysisRequest) }
-        .onChange(of: scenePhase) { _, phase in
-            voiceRecorder.handleSceneChange(isActive: phase == .active, isBackground: phase == .background)
-        }
-        .onDisappear { voiceRecorder.cancel() }
-        .onChange(of: currentAnalysisInput) { _, _ in
-            if !frozen { localRecoveryID = UUID().uuidString }
-            analysis = nil; analysisInput = nil; analysisError = nil; analyzing = false
-            if !titleWasEdited { title = "" }
-        }
+        captureWithLifecycle
         .sheet(item: $detailPhoto) { attachment in
             PhotoDetailSelector(attachment: attachment, productTitle: currentAnalysis?.productName ?? resolvedTitle) { preference in
                 guard selectedIntents.count < 8 else { return false }
@@ -193,6 +140,69 @@ struct CaptureForm: View {
                     try addAttachment(CaptureMedia.image(data, name: "Camera find.jpg"))
                 } catch { message = error.localizedDescription }
             }.ignoresSafeArea()
+        }
+    }
+
+    private var captureNavigation: some View {
+        NavigationStack {
+            Group {
+                if let receipt { confirmation(receipt) }
+                else { editor }
+            }
+            .background(NativeTheme.bg)
+            .navigationTitle(receipt == nil ? "Save a find" : "")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(receipt == nil ? "Close" : "Done") {
+                        if voiceBusy { showingDiscardRecording = true } else { dismiss() }
+                    }.disabled(saving)
+                }
+            }
+        }
+    }
+
+    private var captureWithLifecycle: some View {
+        captureNavigation
+        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(saving || voiceBusy)
+        .confirmationDialog("Discard this recording?", isPresented: $showingDiscardRecording, titleVisibility: .visible) {
+            Button("Discard recording", role: .destructive) { voiceRecorder.cancel(); dismiss() }
+            Button("Keep recording", role: .cancel) { }
+        } message: { Text("This voice note has not been attached to your find yet.") }
+        .task { await prepareCapture() }
+        .task(id: analysisRequest) { await analyzeCapture(analysisRequest) }
+        .onChange(of: scenePhase) { _, phase in
+            voiceRecorder.handleSceneChange(isActive: phase == .active, isBackground: phase == .background)
+        }
+        .onDisappear { voiceRecorder.cancel() }
+        .onChange(of: currentAnalysisInput) { _, _ in
+            if !frozen { localRecoveryID = UUID().uuidString }
+            analysis = nil; analysisInput = nil; analysisError = nil; analyzing = false
+            if !titleWasEdited { title = "" }
+        }
+    }
+
+    @MainActor private func prepareCapture() async {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-verifyMultimodalDraft"), attachments.isEmpty {
+            let metadata = (try? await LocalLibrary.shared.metadata()) ?? [:]
+            let originals = metadata.values.flatMap(\.attachments).filter(\.isImage)
+            for attachment in Array(originals.sorted { $0.id.uuidString < $1.id.uuidString }.prefix(2)) {
+                if let bytes = try? await LocalLibrary.shared.attachmentData(attachment) {
+                    try? addAttachment(CaptureMedia.image(bytes, name: attachment.filename))
+                }
+            }
+            note = "Compare the dials and straps in these watches. Do not assume they are the same model."
+        }
+        if ProcessInfo.processInfo.arguments.contains("-demoWatchDraft"), link.isEmpty, title.isEmpty, savedText.isEmpty {
+            format = .text
+            title = "Vintage-style digital watch"
+            savedText = "A compact rectangular digital wristwatch with a silver stainless-steel bracelet, a black LCD face, and a retro 1980s look. No brand or model is identified."
+        }
+        #endif
+        if let connection, let limits = try? await connection.client().capabilities().capture {
+            maxURL = limits.maxUrlLength; maxTitle = limits.maxTitleLength; maxNote = limits.maxNoteLength
         }
     }
 

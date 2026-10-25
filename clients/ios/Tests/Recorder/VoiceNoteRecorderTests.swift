@@ -1,6 +1,7 @@
 import XCTest
 import AVFoundation
 import UIKit
+import CommonThreadKit
 @testable import CommonThread
 
 /// These tests exercise the production state machine. Only the lifecycle cases
@@ -153,7 +154,7 @@ import UIKit
         XCTAssertEqual(rig.deactivations, 1)
     }
 
-    func testNativeAVAudioRecorderWritesDecodableAAC() async throws {
+    func testNativeAVAudioRecorderWritesDecodableAACAndDeliversTranscriptProgress() async throws {
         // CI pre-grants the real app microphone with simctl. No injected engine
         // or permission closure is used here; simulator input may be silence.
         let recorder = VoiceNoteRecorder()
@@ -191,6 +192,32 @@ import UIKit
         artifact.name = "Real simulator AVAudioRecorder AAC (may be silent)"
         artifact.lifetime = .keepAlways
         add(artifact)
+        try await verifyTranscriptProgress(using: attachment)
+    }
+
+    private func verifyTranscriptProgress(using attachment: LocalCaptureAttachment) async throws {
+        // The recorded bytes and production iOS SDK/helper are real. Only HTTP
+        // is a controlled fixture, so this does not claim speech recognition.
+        let fixture = NativeTranscriptFixture(expectedAudio: attachment.data)
+        NativeTranscriptProtocol.fixture = fixture
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [NativeTranscriptProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel(); NativeTranscriptProtocol.fixture = nil }
+        let origin = try XCTUnwrap(URL(string: "https://microphone-fixture.example.org"))
+        let client = try CommonThreadClient(baseURL: origin, session: session) { "native-fixture-user" }
+        let progress = NativeTranscriptProgress()
+        let result = try await MultimodalDraftAnalysis.analyze(origin: origin, token: "unused",
+            title: "Recorded voice", text: "", note: "", url: nil, images: [],
+            audio: .init(data: attachment.data, filename: attachment.filename), client: client,
+            onTranscript: { text in await progress.record(text, beforeReady: fixture.isStillAnalyzing) })
+        let values = await progress.snapshot()
+        XCTAssertEqual(values.texts, [NativeTranscriptFixture.transcript])
+        XCTAssertTrue(values.beforeReady, "Transcript must reach native UI callback before product analysis completes")
+        XCTAssertEqual(result.transcript, NativeTranscriptFixture.transcript)
+        XCTAssertEqual(result.productName, "Digital watch")
+        XCTAssertTrue(fixture.uploadMatched, "The exact real recorder AAC must survive SDK base64 upload")
+        await eventually { fixture.wasDeleted }
     }
 
     private func eventually(timeout: TimeInterval = 3, file: StaticString = #filePath,
