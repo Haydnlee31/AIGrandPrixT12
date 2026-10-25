@@ -1,0 +1,39 @@
+{
+  "date": "2026-10-25",
+  "device": "Physical iPhone 17 Pro",
+  "build_installed": true,
+  "backend_regressions_passed": 250,
+  "native_smokes_passed": [
+    "catalog_image",
+    "live_price",
+    "product_insight",
+    "radar_budget",
+    "radar_matching",
+    "radar_store",
+    "recommendation_link",
+    "native_http"
+  ],
+  "live": {
+    "explore_matches": 6,
+    "radar_matches": 6,
+    "taste_cases": 3,
+    "taste_correction": true,
+    "images_loaded": 7,
+    "images_checked": 7,
+    "price_check": "available",
+    "tracking_save_list_check_delete": true,
+    "target_reached": true,
+    "original_price_watches_recovered": 4
+  },
+  "data": {
+    "current_items": 13,
+    "all_previous_items_unchanged": true,
+    "original_photo_bytes_retained": true
+  },
+  "limitations": [
+    "Device Hub remote touch unavailable; screenshots later failed. Physical gestures not independently repeated.",
+    "Price routes use configured Mac relay; Mac and tunnel must remain running. Hosted combined service disables tracking.",
+    "Three existing watched listings returned unavailable; no invented prices.",
+    "User reports physical interactions working as before."
+  ]
+}

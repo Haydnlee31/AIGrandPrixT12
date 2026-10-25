@@ -14,7 +14,12 @@ enum CaptureIntelligence {
         var multimodalURL: URL? = nil
         var multimodalToken: String? = nil
         var loginAccountId: String? = nil
+        var priceURL: URL? = nil
+        var priceToken: String? = nil
         func validated() throws -> Self {
+            if let priceURL, let priceToken {
+                _ = try Configuration(baseURL: priceURL, accessToken: priceToken).validated()
+            } else if priceURL != nil || priceToken != nil { throw Failure.configuration }
             if let multimodalURL, let multimodalToken {
                 _ = try Configuration(baseURL: multimodalURL, accessToken: multimodalToken).validated()
             } else if multimodalURL != nil || multimodalToken != nil { throw Failure.configuration }
@@ -309,9 +314,16 @@ enum CaptureIntelligence {
     static func post(path: String, body: Data) async throws -> Data {
         guard ["v1/capture-preview", "v1/recommendations", "v1/discover", "v1/taste-lab", "v1/taste-interpret", "v1/refine-intent", "v1/radar", "v1/price-check", "v1/price-watch"].contains(path),
               let config = try configuration() else { throw Failure.configuration }
-        var request = URLRequest(url: config.baseURL.appendingPathComponent(path))
+        // Serverless hosts may not support durable price monitoring. Keep its
+        // separately configured service and credential isolated to price routes.
+        let priceRoute = ["v1/price-check", "v1/price-watch"].contains(path)
+        let origin = priceRoute ? (config.priceURL ?? config.baseURL) : config.baseURL
+        let token: String
+        if priceRoute, let priceToken = config.priceToken { token = priceToken }
+        else { token = try await accessToken(for: config) }
+        var request = URLRequest(url: origin.appendingPathComponent(path))
         request.httpMethod = "POST"; request.timeoutInterval = 50
-        request.setValue("Bearer " + (try await accessToken(for: config)), forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         let settings = URLSessionConfiguration.ephemeral
